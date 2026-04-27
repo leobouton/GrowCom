@@ -1,0 +1,311 @@
+// ============================================================
+// PRISMA SCHEMA — GrowCom
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// --- Enums ---
+
+enum UserRole {
+  SUPER_ADMIN
+  MANAGER
+  TEAM_LEAD
+  BU_MANAGER
+  RECRUITER
+  COMMERCIAL
+}
+
+enum TenantPlan {
+  TRIAL
+  STARTER
+  PRO
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+enum CommissionRuleType {
+  PERCENTAGE
+  FIXED
+  TIERED
+}
+
+enum DealStatus {
+  OPEN
+  WON
+  LOST
+}
+
+enum CommissionStatus {
+  PENDING
+  VALIDATED
+  PAID
+}
+
+enum RuleScope {
+  INDIVIDUAL
+  TEAM
+  GLOBAL
+}
+
+enum AssigneeType {
+  INDIVIDUAL
+  TEAM
+}
+
+enum ContestMetric {
+  REVENUE
+  DEAL_COUNT
+}
+
+enum ContestStatus {
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+
+// --- Models ---
+
+model Tenant {
+  id                     String       @id @default(cuid())
+  name                   String
+  slug                   String       @unique
+  stripeCustomerId        String?      @unique
+  stripeSubscriptionId    String?      @unique
+  plan                   TenantPlan   @default(TRIAL)
+  status                 TenantStatus @default(ACTIVE)
+  odooUrl                String?
+  odooDatabase           String?
+  odooLogin              String?
+  odooApiKey             String?
+  createdAt              DateTime     @default(now())
+
+  users           User[]
+  groups          Group[]
+  commissionRules CommissionRule[]
+  deals           Deal[]
+  commissions     Commission[]
+  auditLogs       AuditLog[]
+  ruleAssignments RuleAssignment[]
+  contests        Contest[]
+
+  @@index([status])
+  @@index([slug])
+}
+
+model Group {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  color     String   @default("#6366f1")
+  leadId    String?
+  managerId String?
+  createdAt DateTime @default(now())
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead    User?  @relation("GroupLead", fields: [leadId], references: [id], onDelete: SetNull)
+  manager User?  @relation("GroupManager", fields: [managerId], references: [id], onDelete: SetNull)
+  members User[] @relation("GroupMembers")
+
+  @@index([tenantId])
+  @@index([leadId])
+  @@index([managerId])
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String
+  firstName         String
+  lastName          String
+  role              UserRole
+  tenantId          String?
+  groupId           String?
+  fixedSalary       Float     @default(0)
+  objectives        Json      @default("[]")
+  isActive          Boolean   @default(true)
+  emailVerified     Boolean   @default(false)
+  inviteToken        String?   @unique
+  inviteTokenExpiry  DateTime?
+  resetToken         String?   @unique
+  resetTokenExpiry   DateTime?
+  createdAt          DateTime  @default(now())
+
+  tenant              Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  group               Group?           @relation("GroupMembers", fields: [groupId], references: [id], onDelete: SetNull)
+  ledGroups           Group[]          @relation("GroupLead")
+  managedGroups       Group[]          @relation("GroupManager")
+  commissions         Commission[]
+  createdRules        CommissionRule[] @relation("CreatedByUser")
+  assignedDeals       Deal[]
+  auditLogs           AuditLog[]
+  refreshTokens       RefreshToken[]
+  ruleAssignments     RuleAssignment[]
+  createdContests     Contest[]        @relation("ContestCreator")
+
+  @@index([tenantId])
+  @@index([email])
+  @@index([inviteToken])
+  @@index([role])
+  @@index([groupId])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model CommissionRule {
+  id          String             @id @default(cuid())
+  tenantId    String
+  name        String
+  description String
+  type        CommissionRuleType
+  config      Json
+  scope       RuleScope          @default(GLOBAL)
+  dealType    String?
+  isActive    Boolean            @default(true)
+  isArchived  Boolean            @default(false)
+  validatedAt DateTime?
+  createdBy   String
+  createdAt   DateTime           @default(now())
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creator     User             @relation("CreatedByUser", fields: [createdBy], references: [id])
+  commissions Commission[]
+  assignments RuleAssignment[]
+
+  @@index([tenantId])
+  @@index([tenantId, isArchived])
+}
+
+model RuleAssignment {
+  id             String       @id @default(cuid())
+  tenantId       String
+  ruleId         String
+  assignedToType AssigneeType
+  userId         String?
+  teamName       String?
+  startDate      DateTime     @default(now())
+  endDate        DateTime?
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id])
+  rule   CommissionRule @relation(fields: [ruleId], references: [id])
+  user   User?          @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([ruleId])
+}
+
+model Deal {
+  id           String     @id @default(cuid())
+  tenantId     String
+  odooId       String     @unique
+  title        String
+  clientName   String?
+  amount       Float      @default(0)
+  status       DealStatus @default(OPEN)
+  probability  Float      @default(0)
+  assignedToId String?
+  closedAt     DateTime?
+  syncedAt     DateTime   @default(now())
+  createdAt    DateTime   @default(now())
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedTo  User?        @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+  commissions Commission[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([assignedToId])
+  @@index([odooId])
+}
+
+model Commission {
+  id           String           @id @default(cuid())
+  tenantId     String
+  userId       String
+  dealId       String
+  ruleId       String
+  amount            Float
+  status            CommissionStatus @default(PENDING)
+  calculationDetail String?
+  calculatedAt      DateTime         @default(now())
+  validatedAt       DateTime?
+  paidAt            DateTime?
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deal   Deal           @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  rule   CommissionRule @relation(fields: [ruleId], references: [id])
+
+  @@unique([dealId, userId, ruleId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([tenantId, status])
+  @@index([dealId])
+}
+
+model Contest {
+  id             String        @id @default(cuid())
+  tenantId       String
+  name           String
+  description    String        @default("")
+  prize          String
+  metric         ContestMetric
+  scope          RuleScope     @default(GLOBAL)
+  teamName       String?
+  participantIds Json          @default("[]")
+  periodStart    DateTime
+  periodEnd      DateTime
+  status         ContestStatus @default(ACTIVE)
+  createdBy      String
+  createdAt      DateTime      @default(now())
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creator User   @relation("ContestCreator", fields: [createdBy], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  action    String
+  entity    String
+  entityId  String
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
