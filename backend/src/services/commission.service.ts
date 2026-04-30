@@ -32,9 +32,11 @@ export function calculateCommissionAmount(
   if (config.type === CommissionRuleType.TIERED && config.tiers) {
     let totalCommission = 0;
     const parts: string[] = [];
+    // Tri ascendant par min pour garantir le bon ordre des paliers
+    const sortedTiers = [...config.tiers].sort((a, b) => a.min - b.min);
 
-    for (const tier of config.tiers) {
-      if (saleAmount <= tier.min) break;
+    for (const tier of sortedTiers) {
+      if (saleAmount < tier.min) break;
       const tierMax = tier.max ?? Infinity;
       const applicable = Math.min(saleAmount, tierMax) - tier.min;
       if (applicable <= 0) continue;
@@ -189,37 +191,58 @@ export const commissionService = {
       ? await userRepository.findByIds(teamIds, tenantId)
       : await userRepository.findByTenantIdAndRoles(tenantId, COMMERCIAL_ROLES);
 
-    // Résumé par commercial avec filtre de période optionnel
-    const commercialsSummary = await Promise.all(
-      commercials.map(async (user) => {
-        const userCommissions = startDate && endDate
-          ? await commissionRepository.findByUserIdInPeriod(user.id, tenantId, startDate, endDate)
-          : await commissionRepository.findByUserId(user.id, tenantId);
+    // Récupérer toutes les commissions en une seule requête (évite le N+1)
+    const userIds = commercials.map((u) => u.id);
+    const allCommissions = startDate && endDate
+      ? await commissionRepository.findByUserIdsInPeriod(userIds, tenantId, startDate, endDate)
+      : await commissionRepository.findByUserIds(userIds, tenantId);
 
-        const totalCommissions = userCommissions.reduce((sum, c) => sum + c.amount, 0);
-        const pendingCount = userCommissions.filter((c) => c.status === CommissionStatus.PENDING).length;
+    // Grouper en mémoire par userId
+    const commissionsByUser = new Map<string, typeof allCommissions>();
+    for (const c of allCommissions) {
+      const arr = commissionsByUser.get(c.userId) ?? [];
+      arr.push(c);
+      commissionsByUser.set(c.userId, arr);
+    }
 
-        return {
-          user: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
-          totalCommissions,
-          pendingCount,
-        };
-      }),
-    );
+    const commercialsSummary = commercials.map((user) => {
+      const userCommissions = commissionsByUser.get(user.id) ?? [];
+      const totalCommissions = userCommissions.reduce((sum, c) => sum + c.amount, 0);
+      const pendingCount = userCommissions.filter((c) => c.status === CommissionStatus.PENDING).length;
+
+      return {
+        user: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
+        totalCommissions,
+        pendingCount,
+      };
+    });
 
     commercialsSummary.sort((a, b) => b.totalCommissions - a.totalCommissions);
 
     // Commissions en attente dans le périmètre
-    const pending = teamIds !== null
+    const allPending = teamIds !== null
       ? await commissionRepository.findPendingByUserIds(teamIds, tenantId)
       : await commissionRepository.findPendingByTenantId(tenantId);
+
+    const now = new Date();
+    // Commissions normales à valider manuellement (pas de paiement différé ou délai déjà dépassé)
+    const pendingCommissions = allPending.filter(
+      (c) => !c.scheduledPaymentAt || new Date(c.scheduledPaymentAt) <= now,
+    );
+    // Commissions différées : paiement programmé dans le futur
+    const deferredCommissions = allPending.filter(
+      (c) => c.scheduledPaymentAt && new Date(c.scheduledPaymentAt) > now,
+    );
+    const totalDeferredCommissions = deferredCommissions.reduce((sum, c) => sum + c.amount, 0);
 
     return {
       totalPendingCommissions: pendingAgg._sum.amount ?? 0,
       totalValidatedCommissions: validatedAgg._sum.amount ?? 0,
       totalPaidCommissions: paidAgg._sum.amount ?? 0,
+      totalDeferredCommissions,
       commercialsSummary,
-      pendingCommissions: pending,
+      pendingCommissions,
+      deferredCommissions,
     };
   },
 
@@ -237,8 +260,13 @@ export const commissionService = {
       dealRepository.findWonByUserId(userId, tenantId),
     ]);
 
+    const deferredCommissions = allCommissions.filter(
+      (c) => c.status === CommissionStatus.PENDING && c.scheduledPaymentAt && new Date(c.scheduledPaymentAt) > now,
+    );
+    const totalDeferred = deferredCommissions.reduce((sum, c) => sum + c.amount, 0);
+
     const totalPending = allCommissions
-      .filter((c) => c.status === CommissionStatus.PENDING)
+      .filter((c) => c.status === CommissionStatus.PENDING && (!c.scheduledPaymentAt || new Date(c.scheduledPaymentAt) <= now))
       .reduce((sum, c) => sum + c.amount, 0);
 
     let projectedCommissions = 0;
@@ -270,13 +298,15 @@ export const commissionService = {
       };
     });
 
-    const fixedSalary = user?.fixedSalary ?? 0;
+    const fixedSalary = user?.fixedSalary ?? 0; // Salaire fixe BRUT MENSUEL en euros
 
     return {
       fixedSalary,
       totalEarnedThisMonth: totalEarned,
       totalMonthRevenue: fixedSalary + totalEarned,
       totalPendingValidation: totalPending,
+      totalDeferredCommissions: totalDeferred,
+      deferredCommissions,
       projectedCommissions,
       projections,
       commissions: allCommissions,
@@ -316,6 +346,15 @@ export const commissionService = {
       activeAssignments.map(async (assignment) => {
         const config = assignment.rule.config as unknown as CommissionRuleConfig;
         const { amount, explanation } = calculateCommissionAmount(deal.amount, config);
+
+        // Calcul de la date de paiement différé si la règle a un délai configuré
+        let scheduledPaymentAt: Date | null = null;
+        if (assignment.rule.paymentDelayDays && assignment.rule.paymentDelayDays > 0) {
+          const baseDate = deal.closedAt ?? new Date();
+          scheduledPaymentAt = new Date(baseDate);
+          scheduledPaymentAt.setDate(scheduledPaymentAt.getDate() + assignment.rule.paymentDelayDays);
+        }
+
         return commissionRepository.upsertForDeal(
           tenantId,
           deal.assignedToId!,
@@ -323,6 +362,7 @@ export const commissionService = {
           assignment.ruleId,
           amount,
           `${assignment.rule.name} : ${explanation}`,
+          scheduledPaymentAt,
         );
       }),
     );

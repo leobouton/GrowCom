@@ -30,9 +30,9 @@ export const groupRepository = {
     });
   },
 
-  async create(tenantId: string, name: string, color: string) {
+  async create(tenantId: string, name: string, color: string, managerId?: string) {
     return prisma.group.create({
-      data: { tenantId, name, color },
+      data: { tenantId, name, color, ...(managerId ? { managerId } : {}) },
     });
   },
 
@@ -48,6 +48,13 @@ export const groupRepository = {
   },
 
   async assignMember(memberId: string, groupId: string | null, tenantId: string) {
+    // Vérifier que le groupe cible appartient bien au même tenant
+    if (groupId !== null) {
+      const group = await prisma.group.findUnique({ where: { id: groupId } });
+      if (!group || group.tenantId !== tenantId) {
+        throw new Error('Groupe introuvable ou appartient à un autre tenant');
+      }
+    }
     return prisma.user.update({
       where: { id: memberId, tenantId },
       data: { groupId },

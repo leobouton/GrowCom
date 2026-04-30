@@ -20,7 +20,9 @@ export const commissionApiService = {
     }
     const res = await api.get<{
       success: true;
-      data: ManagerDashboardStats & { pendingCommissions: CommissionWithDetails[] };
+      data: ManagerDashboardStats & {
+        pendingCommissions: CommissionWithDetails[];
+      };
     }>(url);
     return res.data.data;
   },

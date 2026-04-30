@@ -85,11 +85,12 @@ model Tenant {
   stripeSubscriptionId    String?      @unique
   plan                   TenantPlan   @default(TRIAL)
   status                 TenantStatus @default(ACTIVE)
-  odooUrl                String?
-  odooDatabase           String?
-  odooLogin              String?
-  odooApiKey             String?
-  createdAt              DateTime     @default(now())
+  odooUrl                    String?
+  odooDatabase               String?
+  odooLogin                  String?
+  odooApiKey                 String?      // Stockée chiffrée (AES-256-GCM) via encryption.ts
+  odooLimitWarningSentAt     DateTime?    // Date du dernier email d'alerte limite Odoo (throttle 2 jours)
+  createdAt                  DateTime     @default(now())
 
   users           User[]
   groups          Group[]
@@ -132,7 +133,7 @@ model User {
   role              UserRole
   tenantId          String?
   groupId           String?
-  fixedSalary       Float     @default(0)
+  fixedSalary       Float     @default(0) // Salaire fixe BRUT MENSUEL en euros
   objectives        Json      @default("[]")
   isActive          Boolean   @default(true)
   emailVerified     Boolean   @default(false)
@@ -175,19 +176,20 @@ model RefreshToken {
 }
 
 model CommissionRule {
-  id          String             @id @default(cuid())
-  tenantId    String
-  name        String
-  description String
-  type        CommissionRuleType
-  config      Json
-  scope       RuleScope          @default(GLOBAL)
-  dealType    String?
-  isActive    Boolean            @default(true)
-  isArchived  Boolean            @default(false)
-  validatedAt DateTime?
-  createdBy   String
-  createdAt   DateTime           @default(now())
+  id               String             @id @default(cuid())
+  tenantId         String
+  name             String
+  description      String
+  type             CommissionRuleType
+  config           Json
+  scope            RuleScope          @default(GLOBAL)
+  dealType         String?
+  paymentDelayDays Int?
+  isActive         Boolean            @default(true)
+  isArchived       Boolean            @default(false)
+  validatedAt      DateTime?
+  createdBy        String
+  createdAt        DateTime           @default(now())
 
   tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   creator     User             @relation("CreatedByUser", fields: [createdBy], references: [id])
@@ -222,7 +224,7 @@ model RuleAssignment {
 model Deal {
   id           String     @id @default(cuid())
   tenantId     String
-  odooId       String     @unique
+  odooId       String
   title        String
   clientName   String?
   amount       Float      @default(0)
@@ -237,24 +239,25 @@ model Deal {
   assignedTo  User?        @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
   commissions Commission[]
 
+  @@unique([tenantId, odooId])
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([assignedToId])
-  @@index([odooId])
 }
 
 model Commission {
-  id           String           @id @default(cuid())
-  tenantId     String
-  userId       String
-  dealId       String
-  ruleId       String
-  amount            Float
-  status            CommissionStatus @default(PENDING)
-  calculationDetail String?
-  calculatedAt      DateTime         @default(now())
-  validatedAt       DateTime?
-  paidAt            DateTime?
+  id                   String           @id @default(cuid())
+  tenantId             String
+  userId               String
+  dealId               String
+  ruleId               String
+  amount               Float
+  status               CommissionStatus @default(PENDING)
+  calculationDetail    String?
+  calculatedAt         DateTime         @default(now())
+  scheduledPaymentAt   DateTime?
+  validatedAt          DateTime?
+  paidAt               DateTime?
 
   tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)

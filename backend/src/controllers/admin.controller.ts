@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
-import { userRepository } from '../repositories/user.repository';
 import { env } from '../config/env';
 
 export const adminController = {
@@ -82,4 +81,3 @@ export const adminController = {
   },
 };
 
-void userRepository;

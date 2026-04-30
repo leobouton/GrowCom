@@ -112,16 +112,40 @@ export const commissionRepository = {
     startOfMonth: Date,
     endOfMonth: Date,
   ): Promise<number> {
+    // Utilise validatedAt comme date effective : une commission différée validée en avril
+    // apparaît dans les gains d'avril, pas dans ceux de janvier (date de la vente).
     const result = await prisma.commission.aggregate({
       where: {
         userId,
         tenantId,
         status: { in: [CommissionStatus.VALIDATED, CommissionStatus.PAID] },
-        calculatedAt: { gte: startOfMonth, lte: endOfMonth },
+        validatedAt: { gte: startOfMonth, lte: endOfMonth },
       },
       _sum: { amount: true },
     });
     return result._sum.amount ?? 0;
+  },
+
+  async findByUserIdsInPeriod(
+    userIds: string[],
+    tenantId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<CommissionWithRelations[]> {
+    if (userIds.length === 0) return [];
+    return prisma.commission.findMany({
+      where: {
+        userId: { in: userIds },
+        tenantId,
+        calculatedAt: { gte: startDate, lte: endDate },
+      },
+      include: {
+        deal: { select: { title: true, clientName: true, amount: true, status: true } },
+        rule: { select: { name: true, config: true } },
+        user: { select: { firstName: true, lastName: true, email: true } },
+      },
+      orderBy: { calculatedAt: 'desc' },
+    }) as Promise<CommissionWithRelations[]>;
   },
 
   async findByUserIdInPeriod(
@@ -179,11 +203,12 @@ export const commissionRepository = {
     ruleId: string,
     amount: number,
     calculationDetail?: string,
+    scheduledPaymentAt?: Date | null,
   ): Promise<Commission> {
     return prisma.commission.upsert({
       where: { dealId_userId_ruleId: { dealId, userId, ruleId } },
-      update: { amount, calculatedAt: new Date(), calculationDetail: calculationDetail ?? null },
-      create: { tenantId, userId, dealId, ruleId, amount, calculationDetail: calculationDetail ?? null },
+      update: { amount, calculatedAt: new Date(), calculationDetail: calculationDetail ?? null, scheduledPaymentAt: scheduledPaymentAt ?? null },
+      create: { tenantId, userId, dealId, ruleId, amount, calculationDetail: calculationDetail ?? null, scheduledPaymentAt: scheduledPaymentAt ?? null },
     });
   },
 };

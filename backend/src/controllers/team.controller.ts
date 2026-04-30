@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { userRepository } from '../repositories/user.repository';
 import { AuthenticatedRequest } from '../middlewares/auth';
-import { Objective, UserRole } from '../../../shared/types';
+import { UserRole } from '../../../shared/types';
 import { prisma } from '../config/prisma';
 
 export const teamController = {
@@ -17,11 +18,13 @@ export const teamController = {
           include: { members: { where: { isActive: true }, orderBy: { createdAt: 'asc' } } },
         });
         const seen = new Set<string>();
-        members = groups.flatMap((g) => g.members).filter((m) => {
+        const groupMembers = groups.flatMap((g) => g.members).filter((m) => {
           if (seen.has(m.id)) return false;
           seen.add(m.id);
           return true;
         });
+        // Fallback : si ce manager n'est dans aucun groupe, retourner tous les membres du tenant
+        members = groupMembers.length > 0 ? groupMembers : await userRepository.findByTenantId(user.tenantId!);
       } else if (user.role === UserRole.TEAM_LEAD) {
         // Membres du groupe dont ce responsable est le lead
         const group = await prisma.group.findFirst({
@@ -60,12 +63,34 @@ export const teamController = {
     try {
       const manager = (req as AuthenticatedRequest).user;
       const { memberId } = req.params;
-      const { firstName, lastName, fixedSalary, objectives } = req.body as {
-        firstName?: string;
-        lastName?: string;
-        fixedSalary?: number;
-        objectives?: Objective[];
-      };
+
+      const objectiveBonusSchema = z.object({
+        enabled: z.boolean(),
+        type: z.enum(['percentage', 'fixed']),
+        value: z.number(),
+      });
+
+      const updateMemberSchema = z.object({
+        firstName: z.string().min(1).max(50).optional(),
+        lastName: z.string().min(1).max(50).optional(),
+        fixedSalary: z.number().min(0).optional(), // Salaire fixe BRUT MENSUEL en euros
+        objectives: z.array(z.object({
+          id: z.string(),
+          label: z.string(),
+          target: z.number(),
+          unit: z.string(),
+          periodType: z.enum(['monthly', 'quarterly', 'annual', 'custom']),
+          month: z.number().optional(),
+          quarter: z.number().optional(),
+          year: z.number().optional(),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          bonus: objectiveBonusSchema.optional(),
+          isActive: z.boolean().optional(),
+        })).optional(),
+      });
+
+      const { firstName, lastName, fixedSalary, objectives } = updateMemberSchema.parse(req.body);
 
       const member = await userRepository.findById(memberId);
 
@@ -89,16 +114,8 @@ export const teamController = {
       const updateData: Record<string, unknown> = {};
       if (firstName !== undefined) updateData.firstName = firstName.trim();
       if (lastName !== undefined) updateData.lastName = lastName.trim();
-      if (fixedSalary !== undefined) {
-        if (typeof fixedSalary !== 'number' || fixedSalary < 0) {
-          res.status(400).json({ success: false, error: { message: 'Salaire invalide' } });
-          return;
-        }
-        updateData.fixedSalary = fixedSalary;
-      }
-      if (objectives !== undefined) {
-        updateData.objectives = objectives;
-      }
+      if (fixedSalary !== undefined) updateData.fixedSalary = fixedSalary;
+      if (objectives !== undefined) updateData.objectives = objectives;
 
       const updated = await userRepository.update(memberId, updateData as Parameters<typeof userRepository.update>[1]);
 
@@ -150,7 +167,8 @@ export const teamController = {
         }
       }
 
-      await userRepository.hardDelete(memberId);
+      // Soft delete : désactiver le membre sans supprimer son historique de commissions
+      await userRepository.deactivate(memberId);
 
       res.json({ success: true });
     } catch (err) {

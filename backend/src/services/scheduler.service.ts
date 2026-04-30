@@ -3,6 +3,8 @@ import { logger } from '../config/logger';
 import { tenantRepository } from '../repositories/tenant.repository';
 import { odooService } from '../integrations/odoo.service';
 import { prisma } from '../config/prisma';
+import { decrypt } from '../utils/encryption';
+import { UserRole } from '@prisma/client';
 
 /**
  * Synchronise tous les tenants qui ont Odoo configuré.
@@ -25,7 +27,7 @@ async function syncAllTenants(): Promise<void> {
     try {
       // Utilise un userId système (premier MANAGER actif du tenant)
       const systemUser = await prisma.user.findFirst({
-        where: { tenantId: tenant.id, role: { in: ['MANAGER', 'BU_MANAGER'] }, isActive: true },
+        where: { tenantId: tenant.id, role: { in: [UserRole.MANAGER, UserRole.BU_MANAGER] }, isActive: true },
         select: { id: true },
       });
 
@@ -40,7 +42,7 @@ async function syncAllTenants(): Promise<void> {
         tenant.odooUrl!,
         tenant.odooDatabase!,
         tenant.odooLogin!,
-        tenant.odooApiKey!,
+        decrypt(tenant.odooApiKey!), // Déchiffrement de la clé stockée chiffrée
       );
 
       logger.info('[Scheduler] Sync Odoo réussie', {
@@ -64,9 +66,35 @@ async function syncAllTenants(): Promise<void> {
 }
 
 /**
+ * Valide automatiquement les commissions différées dont la date de paiement est arrivée.
+ * Passe toutes les commissions PENDING avec scheduledPaymentAt <= maintenant en VALIDATED.
+ */
+async function autoValidateDeferredCommissions(): Promise<void> {
+  logger.info('[Scheduler] Vérification des commissions différées à valider');
+
+  const now = new Date();
+
+  const result = await prisma.commission.updateMany({
+    where: {
+      status: 'PENDING',
+      scheduledPaymentAt: { lte: now },
+    },
+    data: {
+      status: 'VALIDATED',
+      validatedAt: now,
+    },
+  });
+
+  if (result.count > 0) {
+    logger.info('[Scheduler] Commissions différées validées automatiquement', { count: result.count });
+  }
+}
+
+/**
  * Démarre le planificateur de synchronisation Odoo.
  * - Première sync au démarrage du serveur
  * - Puis toutes les heures (à la minute 0)
+ * - Validation des commissions différées tous les jours à 8h
  */
 export function startScheduler(): void {
   // Sync immédiate au démarrage (après 10s pour laisser la BDD se stabiliser)
@@ -83,5 +111,13 @@ export function startScheduler(): void {
     );
   });
 
+  // Validation automatique des commissions différées — tous les jours à 8h00
+  cron.schedule('0 8 * * *', () => {
+    autoValidateDeferredCommissions().catch((err) =>
+      logger.error('[Scheduler] Erreur lors de la validation des commissions différées', { error: err }),
+    );
+  });
+
   logger.info('[Scheduler] Synchronisation automatique Odoo activée (toutes les heures)');
+  logger.info('[Scheduler] Validation automatique des commissions différées activée (tous les jours à 8h)');
 }

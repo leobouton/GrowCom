@@ -4,17 +4,21 @@ import { StatCard, Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { CommissionStatusBadge } from '../../components/ui/Badge';
 import type { CommissionWithDetails } from '@shared/types';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
 interface Stats {
   totalPendingCommissions: number;
   totalValidatedCommissions: number;
   totalPaidCommissions: number;
+  totalDeferredCommissions: number;
   commercialsSummary: Array<{
     user: { id: string; firstName: string; lastName: string; email: string };
     totalCommissions: number;
     pendingCount: number;
   }>;
   pendingCommissions: CommissionWithDetails[];
+  deferredCommissions: CommissionWithDetails[];
 }
 
 type PeriodType = 'month' | 'year';
@@ -127,7 +131,7 @@ export function ManagerDashboard() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <StatCard
           title="En attente de validation"
           value={formatEur(stats?.totalPendingCommissions ?? 0)}
@@ -135,6 +139,16 @@ export function ManagerDashboard() {
           icon={
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          }
+        />
+        <StatCard
+          title="Paiements différés"
+          value={formatEur(stats?.totalDeferredCommissions ?? 0)}
+          color="yellow"
+          icon={
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           }
         />
@@ -284,6 +298,61 @@ export function ManagerDashboard() {
         )}
       </Card>
 
+      {/* Commissions différées */}
+      {(stats?.deferredCommissions?.length ?? 0) > 0 && (
+        <Card>
+          <h2 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
+            <svg className="w-4 h-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            Ventes gagnées — paiement différé
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+              {stats!.deferredCommissions.length}
+            </span>
+          </h2>
+          <p className="text-xs text-gray-400 mb-4">
+            Ces commissions seront validées automatiquement à leur date de paiement prévue.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Commercial</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
+                  <th className="text-right py-3 px-2 font-medium text-gray-500">Commission</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Paiement prévu</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats!.deferredCommissions.map((commission) => (
+                  <tr key={commission.id} className="border-b border-gray-50 last:border-0">
+                    <td className="py-3 px-2 font-medium text-gray-900">
+                      {commission.user.firstName} {commission.user.lastName}
+                    </td>
+                    <td className="py-3 px-2 text-gray-600 max-w-xs truncate">
+                      {commission.deal.title}
+                    </td>
+                    <td className="py-3 px-2 text-right font-semibold text-gray-900">
+                      {formatEur(commission.amount)}
+                    </td>
+                    <td className="py-3 px-2">
+                      <span className="inline-flex items-center gap-1.5 text-orange-700 font-medium">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        {commission.scheduledPaymentAt
+                          ? format(new Date(commission.scheduledPaymentAt), 'dd MMM yyyy', { locale: fr })
+                          : '—'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
       {/* Commissions en attente de validation */}
       <Card>
         <h2 className="text-base font-semibold text-gray-900 mb-4">
@@ -328,7 +397,7 @@ export function ManagerDashboard() {
                       {formatEur(commission.amount)}
                     </td>
                     <td className="py-3 px-2">
-                      <CommissionStatusBadge status={commission.status} />
+                      <CommissionStatusBadge status={commission.status} scheduledPaymentAt={commission.scheduledPaymentAt} />
                     </td>
                     <td className="py-3 px-2 text-right">
                       <div className="flex items-center justify-end gap-2">

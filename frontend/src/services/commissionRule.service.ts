@@ -19,6 +19,7 @@ export const commissionRuleApiService = {
     description: string;
     dealType?: string | null;
     scope?: RuleScope;
+    paymentDelayDays?: number | null;
   }): Promise<CommissionRule> {
     const res = await api.post<{ success: true; data: CommissionRule }>(
       '/commission-rules/generate',

@@ -16,6 +16,7 @@ const generateRuleSchema = z.object({
   name: z.string().min(1, 'Le nom est requis').max(100),
   dealType: z.string().max(50).optional().nullable(),
   scope: z.nativeEnum(RuleScope).optional(),
+  paymentDelayDays: z.number().int().min(1).max(730).optional().nullable(),
 });
 
 export const commissionRuleController = {
@@ -41,7 +42,7 @@ export const commissionRuleController = {
   async generate(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const { description, name, dealType, scope } = generateRuleSchema.parse(req.body);
+      const { description, name, dealType, scope, paymentDelayDays } = generateRuleSchema.parse(req.body);
 
       const generatedConfig = await commissionAIService.generateRule(description);
 
@@ -54,6 +55,7 @@ export const commissionRuleController = {
         createdBy: user.userId,
         dealType: dealType ?? null,
         scope: scope ?? RuleScope.GLOBAL,
+        paymentDelayDays: paymentDelayDays ?? null,
       });
 
       await auditLogRepository.create({

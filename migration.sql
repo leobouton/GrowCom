@@ -4,6 +4,15 @@
 -- Peut être exécutée plusieurs fois sans erreur
 -- ============================================================
 
+-- Alerte limite Odoo : date du dernier email envoyé (throttle 2 jours)
+ALTER TABLE "Tenant" ADD COLUMN IF NOT EXISTS "odooLimitWarningSentAt" TIMESTAMP(3);
+
+-- Commissions différées : délai de paiement configurable par règle
+ALTER TABLE "CommissionRule" ADD COLUMN IF NOT EXISTS "paymentDelayDays" INTEGER;
+
+-- Commissions différées : date prévue de versement calculée automatiquement
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "scheduledPaymentAt" TIMESTAMP(3);
+
 
 -- 1. Groupes d'équipe
 
@@ -298,3 +307,17 @@ REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated
 -- Le backend passe par le rôle "postgres" (owner) qui n'est pas soumis au RLS.
 -- Si un jour une route Supabase native est nécessaire, des policies explicites
 -- devront être créées ici (ex: JWT claims, tenantId matching, etc.).
+
+
+-- 13. Fix Deal.odooId : unique global → unique par tenant
+
+-- Supprime l'ancien index unique global (bloquait les clients ayant les mêmes IDs Odoo)
+DROP INDEX IF EXISTS "Deal_odooId_key";
+
+-- Crée le nouvel index unique composite (tenantId, odooId)
+CREATE UNIQUE INDEX IF NOT EXISTS "Deal_tenantId_odooId_key" ON "Deal"("tenantId", "odooId");
+
+
+-- 14. Nom du client sur les deals (importé depuis Odoo)
+
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "clientName" TEXT;

@@ -38,9 +38,10 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'growcom-auth',
+      // accessToken volontairement exclu : reste en mémoire uniquement (sécurité XSS)
+      // Le refresh token (cookie httpOnly) suffit à récupérer un nouveau token au rechargement
       partialize: (state) => ({
         user: state.user,
-        accessToken: state.accessToken,
         isAuthenticated: state.isAuthenticated,
       }),
     },

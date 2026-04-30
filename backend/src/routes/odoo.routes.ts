@@ -10,5 +10,6 @@ router.use(authenticate, checkTenant, checkRole(UserRole.MANAGER));
 router.get('/config', odooController.getConfig);
 router.post('/config', odooController.configure);
 router.post('/sync', odooController.sync);
+router.get('/diagnostic', odooController.diagnostic);
 
 export default router;

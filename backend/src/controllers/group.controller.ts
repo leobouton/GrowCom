@@ -46,7 +46,10 @@ export const groupController = {
         });
       } else if (role === UserRole.MANAGER || role === UserRole.BU_MANAGER) {
         groups = await prisma.group.findMany({
-          where: { managerId: userId, tenantId: tenantId! },
+          where: {
+            tenantId: tenantId!,
+            OR: [{ managerId: userId }, { managerId: null }],
+          },
           include,
           orderBy: { createdAt: 'asc' },
         });
@@ -60,9 +63,10 @@ export const groupController = {
 
   async create(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { tenantId } = (req as AuthenticatedRequest).user;
+      const { tenantId, userId, role } = (req as AuthenticatedRequest).user;
       const { name, color } = createSchema.parse(req.body);
-      const group = await groupRepository.create(tenantId!, name, color);
+      const managerId = (role === UserRole.MANAGER || role === UserRole.BU_MANAGER) ? userId : undefined;
+      const group = await groupRepository.create(tenantId!, name, color, managerId);
       res.status(201).json({ success: true, data: group });
     } catch (err) { next(err); }
   },

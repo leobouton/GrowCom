@@ -10,6 +10,7 @@ export interface RuleAssignmentWithRule extends RuleAssignment {
     dealType: string | null;
     scope: string;
     config: object;
+    paymentDelayDays: number | null;
   };
 }
 
@@ -28,7 +29,7 @@ export const ruleAssignmentRepository = {
     return prisma.ruleAssignment.findUnique({
       where: { id },
       include: {
-        rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true } },
+        rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true, paymentDelayDays: true } },
       },
     }) as Promise<RuleAssignmentWithRule | null>;
   },
@@ -60,7 +61,7 @@ export const ruleAssignmentRepository = {
         ],
       },
       include: {
-        rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true } },
+        rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true, paymentDelayDays: true } },
       },
       orderBy: { createdAt: 'desc' },
     }) as Promise<RuleAssignmentWithRule[]>;
@@ -70,7 +71,7 @@ export const ruleAssignmentRepository = {
     return prisma.ruleAssignment.findMany({
       where: { userId, tenantId },
       include: {
-        rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true } },
+        rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true, paymentDelayDays: true } },
       },
       orderBy: { createdAt: 'desc' },
     }) as Promise<RuleAssignmentWithRule[]>;
@@ -80,7 +81,7 @@ export const ruleAssignmentRepository = {
     return prisma.ruleAssignment.findMany({
       where: { tenantId },
       include: {
-        rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true } },
+        rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true, paymentDelayDays: true } },
       },
       orderBy: { createdAt: 'desc' },
     }) as Promise<RuleAssignmentWithRule[]>;
@@ -103,7 +104,7 @@ export const ruleAssignmentRepository = {
         isActive: true,
       },
       include: {
-        rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true } },
+        rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true, paymentDelayDays: true } },
       },
     }) as Promise<RuleAssignmentWithRule>;
   },

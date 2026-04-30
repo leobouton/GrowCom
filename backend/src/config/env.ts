@@ -29,6 +29,12 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().min(1, 'STRIPE_WEBHOOK_SECRET est requis'),
   STRIPE_PRICE_PER_USER: z.string().default('1000').transform(Number), // en centimes
 
+  // Chiffrement (clés Odoo au repos)
+  ENCRYPTION_KEY: z
+    .string()
+    .length(64, 'ENCRYPTION_KEY doit faire exactement 64 caractères hexadécimaux (32 octets)')
+    .regex(/^[0-9a-fA-F]+$/, 'ENCRYPTION_KEY doit être une chaîne hexadécimale'),
+
   // Brevo (email)
   BREVO_SMTP_KEY: z.string().min(1, 'BREVO_SMTP_KEY est requis'),
   BREVO_SMTP_LOGIN: z.string().email('BREVO_SMTP_LOGIN doit être un email valide'),

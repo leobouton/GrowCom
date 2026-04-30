@@ -49,6 +49,10 @@ export const authApiService = {
     await api.post('/auth/reset-password', { token, password });
   },
 
+  async verifyEmail(token: string): Promise<void> {
+    await api.post('/auth/verify-email', { token });
+  },
+
   async acceptInvitation(token: string, password: string): Promise<AuthResponse> {
     const res = await api.post<{ success: true; data: AuthResponse }>('/auth/accept-invitation', {
       token,

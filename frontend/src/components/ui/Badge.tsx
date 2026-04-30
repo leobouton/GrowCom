@@ -1,6 +1,6 @@
 import { clsx } from 'clsx';
 
-type BadgeVariant = 'green' | 'yellow' | 'red' | 'blue' | 'gray' | 'indigo' | 'purple';
+type BadgeVariant = 'green' | 'yellow' | 'red' | 'blue' | 'gray' | 'indigo' | 'purple' | 'orange';
 
 interface BadgeProps {
   children: React.ReactNode;
@@ -17,6 +17,7 @@ export function Badge({ children, variant = 'gray', size = 'sm' }: BadgeProps) {
     gray: 'bg-gray-100 text-gray-700',
     indigo: 'bg-primary-100 text-primary-800',
     purple: 'bg-purple-100 text-purple-800',
+    orange: 'bg-orange-100 text-orange-800',
   };
 
   const sizes = {
@@ -38,7 +39,18 @@ export function Badge({ children, variant = 'gray', size = 'sm' }: BadgeProps) {
 }
 
 // Helper pour le statut des commissions
-export function CommissionStatusBadge({ status }: { status: string }) {
+export function CommissionStatusBadge({
+  status,
+  scheduledPaymentAt,
+}: {
+  status: string;
+  scheduledPaymentAt?: string | null;
+}) {
+  // Commission différée : paiement programmé dans le futur
+  if (status === 'PENDING' && scheduledPaymentAt && new Date(scheduledPaymentAt) > new Date()) {
+    return <Badge variant="orange">Paiement différé</Badge>;
+  }
+
   const config: Record<string, { label: string; variant: BadgeVariant }> = {
     PENDING: { label: 'En attente', variant: 'yellow' },
     VALIDATED: { label: 'Validée', variant: 'blue' },

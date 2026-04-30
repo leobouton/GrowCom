@@ -18,8 +18,8 @@ export const dealRepository = {
     return prisma.deal.findUnique({ where: { id } });
   },
 
-  async findByOdooId(odooId: string): Promise<Deal | null> {
-    return prisma.deal.findUnique({ where: { odooId } });
+  async findByOdooId(odooId: string, tenantId: string): Promise<Deal | null> {
+    return prisma.deal.findUnique({ where: { tenantId_odooId: { tenantId, odooId } } });
   },
 
   async findByTenantId(tenantId: string): Promise<Deal[]> {
@@ -50,9 +50,13 @@ export const dealRepository = {
     });
   },
 
+  async deleteByOdooId(odooId: string, tenantId: string): Promise<void> {
+    await prisma.deal.delete({ where: { tenantId_odooId: { tenantId, odooId } } });
+  },
+
   async upsert(data: UpsertDealData): Promise<Deal> {
     return prisma.deal.upsert({
-      where: { odooId: data.odooId },
+      where: { tenantId_odooId: { tenantId: data.tenantId, odooId: data.odooId } },
       update: {
         title: data.title,
         clientName: data.clientName ?? null,

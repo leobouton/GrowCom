@@ -63,6 +63,9 @@ export const authService = {
         },
       });
 
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+
       const user = await tx.user.create({
         data: {
           email: data.email.toLowerCase(),
@@ -71,11 +74,18 @@ export const authService = {
           lastName: data.lastName,
           role: UserRole.MANAGER,
           tenantId: tenant.id,
-          emailVerified: true,
+          emailVerified: false,
+          inviteToken: verificationToken,
+          inviteTokenExpiry: verificationTokenExpiry,
         },
       });
 
       return { tenant, user };
+    });
+
+    // Envoyer l'email de vérification en arrière-plan (ne pas bloquer le register)
+    emailService.sendEmailVerification(data.email, data.firstName, result.user.inviteToken!).catch(() => {
+      // Log géré dans emailService
     });
 
     // Créer le customer Stripe en arrière-plan
@@ -124,6 +134,9 @@ export const authService = {
 
     const accessToken = generateAccessToken(user);
     const refreshTokenValue = generateRefreshToken();
+
+    // Supprimer les anciens refresh tokens avant d'en créer un nouveau
+    await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
 
     await prisma.refreshToken.create({
       data: {
@@ -196,8 +209,8 @@ export const authService = {
   ) {
     const existing = await userRepository.findByEmail(email.toLowerCase());
     if (existing) {
-      // Si l'utilisateur existe mais est inactif (ancien membre supprimé), on le supprime pour permettre la ré-invitation
-      if (!existing.isActive) {
+      // Si l'utilisateur existe mais est inactif ET appartient au même tenant, on le supprime pour permettre la ré-invitation
+      if (!existing.isActive && existing.tenantId === managerTenantId) {
         await userRepository.hardDelete(existing.id);
       } else {
         throw new AppError(409, 'EMAIL_TAKEN', 'Cet email est déjà utilisé');
@@ -303,6 +316,25 @@ export const authService = {
 
     // Invalider toutes les sessions existantes
     await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+  },
+
+  async verifyManagerEmail(token: string): Promise<void> {
+    const user = await userRepository.findByInviteToken(token);
+    if (!user) {
+      throw new AppError(404, 'VERIFY_TOKEN_INVALID', 'Lien de vérification invalide ou déjà utilisé');
+    }
+    if (!user.inviteTokenExpiry || user.inviteTokenExpiry < new Date()) {
+      throw new AppError(410, 'VERIFY_TOKEN_EXPIRED', 'Ce lien de vérification a expiré');
+    }
+    // Ne vérifier que les managers (les commerciaux utilisent acceptInvitation)
+    if (user.role !== UserRole.MANAGER && user.role !== UserRole.BU_MANAGER) {
+      throw new AppError(400, 'INVALID_ROLE', 'Ce lien n\'est pas valide pour ce type de compte');
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true, inviteToken: null, inviteTokenExpiry: null },
+    });
   },
 
   async acceptInvitation(token: string, password: string) {

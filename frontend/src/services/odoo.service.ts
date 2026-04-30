@@ -6,18 +6,20 @@ export const odooApiService = {
     configured: boolean;
     odooUrl: string | null;
     odooDatabase: string | null;
+    odooLogin: string | null;
   }> {
     const res = await api.get('/odoo/config');
-    return (res.data as { success: true; data: { configured: boolean; odooUrl: string | null; odooDatabase: string | null } }).data;
+    return (res.data as { success: true; data: { configured: boolean; odooUrl: string | null; odooDatabase: string | null; odooLogin: string | null } }).data;
   },
 
   async configure(data: {
     odooUrl: string;
     odooDatabase: string;
+    odooLogin: string;
     odooApiKey: string;
-  }): Promise<{ configured: boolean; odooUrl: string; odooDatabase: string }> {
+  }): Promise<{ configured: boolean; odooUrl: string; odooDatabase: string; odooLogin: string }> {
     const res = await api.post('/odoo/config', data);
-    return (res.data as { success: true; data: { configured: boolean; odooUrl: string; odooDatabase: string } }).data;
+    return (res.data as { success: true; data: { configured: boolean; odooUrl: string; odooDatabase: string; odooLogin: string } }).data;
   },
 
   async sync(): Promise<OdooSyncResult> {

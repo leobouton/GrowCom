@@ -4,7 +4,6 @@ import { logger } from '../config/logger';
 import { tenantRepository } from '../repositories/tenant.repository';
 import { userRepository } from '../repositories/user.repository';
 import { AppError } from '../middlewares/errorHandler';
-import { TenantStatus } from '../../../shared/types';
 import { TenantStatus as PrismaTenantStatus } from '@prisma/client';
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
@@ -191,4 +190,3 @@ export const stripeService = {
   },
 };
 
-void TenantStatus; // evite unused import warning

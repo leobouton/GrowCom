@@ -1,10 +1,16 @@
 import { logger } from '../config/logger';
 import { dealRepository } from '../repositories/deal.repository';
 import { userRepository } from '../repositories/user.repository';
+import { tenantRepository } from '../repositories/tenant.repository';
 import { auditLogRepository } from '../repositories/auditLog.repository';
 import { commissionService } from '../services/commission.service';
+import { emailService } from './email.service';
 import { AppError } from '../middlewares/errorHandler';
-import { DealStatus as PrismaDealStatus } from '@prisma/client';
+import { DealStatus as PrismaDealStatus, CommissionStatus as PrismaCommissionStatus, UserRole } from '@prisma/client';
+import { prisma } from '../config/prisma';
+
+const ODOO_DEAL_LIMIT = 1000;
+const ODOO_DEAL_WARN_THRESHOLD = 950;
 
 interface OdooCrmLead {
   id: number;
@@ -219,11 +225,24 @@ class XmlRpcParser {
 
 async function xmlRpcCall(endpoint: string, method: string, params: unknown[]): Promise<unknown> {
   const body = buildXmlRpcRequest(method, params);
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/xml', Accept: 'text/xml' },
-    body,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000); // 30 secondes max
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/xml', Accept: 'text/xml' },
+      body,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new AppError(504, 'ODOO_TIMEOUT', 'Odoo ne répond pas (timeout 30s)');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new AppError(502, 'ODOO_HTTP', `Impossible de contacter Odoo (HTTP ${response.status})`);
@@ -238,7 +257,8 @@ async function xmlRpcCall(endpoint: string, method: string, params: unknown[]): 
 function mapOdooStageToStatus(probability: number, stageName: string): PrismaDealStatus {
   const s = stageName.toLowerCase();
   if (s.includes('gagn') || s.includes('won') || probability === 100) return PrismaDealStatus.WON;
-  if (s.includes('perdu') || s.includes('lost') || probability === 0) return PrismaDealStatus.LOST;
+  // probability === 0 retiré volontairement : certains stages actifs démarrent à 0% (ex: "Nouveau contact")
+  if (s.includes('perdu') || s.includes('lost')) return PrismaDealStatus.LOST;
   return PrismaDealStatus.OPEN;
 }
 
@@ -271,6 +291,7 @@ export const odooService = {
 
   /**
    * Récupère les opportunités CRM via XML-RPC /xmlrpc/2/object.
+   * Inclut les deals archivés (active = false) pour détecter les deals perdus/supprimés dans Odoo.
    */
   async fetchLeads(
     odooUrl: string,
@@ -287,10 +308,11 @@ export const odooService = {
         odooApiKey,
         'crm.lead',
         'search_read',
-        [[['active', '=', true]]],
+        // active IN (true, false) : récupère actifs ET archivés (deals perdus dans Odoo)
+        [[['active', 'in', [true, false]]]],
         {
           fields: ['id', 'name', 'partner_id', 'expected_revenue', 'probability', 'stage_id', 'user_id', 'date_closed', 'write_date', 'active'],
-          limit: 500,
+          limit: ODOO_DEAL_LIMIT,
         },
       ],
     );
@@ -310,6 +332,44 @@ export const odooService = {
     }));
   },
 
+  /**
+   * Récupère les emails des utilisateurs Odoo à partir de leurs IDs.
+   * Le champ "login" dans res.users est toujours l'adresse email dans Odoo.
+   * Retourne un Map : odooUserId → email
+   */
+  async fetchUserEmails(
+    odooUrl: string,
+    odooDatabase: string,
+    uid: number,
+    odooApiKey: string,
+    userIds: number[],
+  ): Promise<Map<number, string>> {
+    if (userIds.length === 0) return new Map();
+
+    const result = await xmlRpcCall(
+      `${odooUrl}/xmlrpc/2/object`,
+      'execute_kw',
+      [
+        odooDatabase,
+        uid,
+        odooApiKey,
+        'res.users',
+        'read',
+        [userIds],
+        { fields: ['id', 'login'] },
+      ],
+    );
+
+    const map = new Map<number, string>();
+    const records = result as Record<string, unknown>[];
+    for (const r of records) {
+      const userId = r['id'] as number;
+      const login = r['login'] as string;
+      if (userId && login) map.set(userId, login.toLowerCase().trim());
+    }
+    return map;
+  },
+
   async sync(
     tenantId: string,
     userId: string,
@@ -324,26 +384,86 @@ export const odooService = {
     let synced = 0;
     let created = 0;
     let updated = 0;
+    let deleted = 0;
+    let dealsCount = 0;
 
     try {
       const uid = await odooService.authenticate(odooUrl, odooDatabase, odooLogin, odooApiKey);
       const leads = await odooService.fetchLeads(odooUrl, odooDatabase, uid, odooApiKey);
+      dealsCount = leads.length;
+
+      // Alerte approche de la limite : email envoyé aux managers, au maximum 1 fois tous les 2 jours
+      if (leads.length >= ODOO_DEAL_WARN_THRESHOLD) {
+        const restant = ODOO_DEAL_LIMIT - leads.length;
+        logger.warn(`Seuil d'alerte Odoo atteint : ${leads.length}/${ODOO_DEAL_LIMIT} deals`, { tenantId });
+        try {
+          const tenant = await tenantRepository.findById(tenantId);
+          const deuxJoursEnMs = 2 * 24 * 60 * 60 * 1000;
+          const dernierEnvoi = tenant?.odooLimitWarningSentAt;
+          const peutEnvoyer = !dernierEnvoi || (Date.now() - dernierEnvoi.getTime()) >= deuxJoursEnMs;
+
+          if (peutEnvoyer) {
+            const managers = await userRepository.findByTenantIdAndRoles(tenantId, [UserRole.MANAGER, UserRole.BU_MANAGER]);
+            for (const manager of managers) {
+              await emailService.sendOdooLimitWarning(manager.email, manager.firstName, leads.length, restant);
+            }
+            await tenantRepository.update(tenantId, { odooLimitWarningSentAt: new Date() });
+            logger.info('Email d\'alerte limite Odoo envoyé', { tenantId, dealsCount: leads.length });
+          } else {
+            const prochainEnvoi = new Date((dernierEnvoi?.getTime() ?? 0) + deuxJoursEnMs);
+            logger.info('Alerte limite Odoo déjà envoyée récemment — prochain envoi le ' + prochainEnvoi.toISOString(), { tenantId });
+          }
+        } catch (emailErr) {
+          logger.warn('Impossible d\'envoyer l\'alerte limite Odoo par email', {
+            tenantId,
+            error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+          });
+        }
+      }
+
+      // Blocage si la limite maximale est atteinte (des deals sont manquants)
+      if (leads.length === ODOO_DEAL_LIMIT) {
+        logger.error(`Limite de ${ODOO_DEAL_LIMIT} deals Odoo atteinte — des deals sont manquants`, { tenantId });
+      }
+
       const tenantUsers = await userRepository.findByTenantId(tenantId);
+
+      // Fix 3 — Matching par email : récupérer les emails Odoo de tous les commerciaux assignés
+      const odooUserIds = [...new Set(
+        leads.filter((l) => l.user_id).map((l) => (l.user_id as [number, string])[0]),
+      )];
+      const odooEmailMap = await odooService.fetchUserEmails(odooUrl, odooDatabase, uid, odooApiKey, odooUserIds);
+
+      // Index GrowCom : email → utilisateur (pour matching rapide)
+      const growcomByEmail = new Map(tenantUsers.map((u) => [u.email.toLowerCase().trim(), u]));
 
       for (const lead of leads) {
         try {
+          // Fix 1 — Deal archivé dans Odoo (perdu/supprimé) → supprimer dans GrowCom
+          if (!lead.active) {
+            const existingDeal = await dealRepository.findByOdooId(String(lead.id), tenantId);
+            if (existingDeal) {
+              await dealRepository.deleteByOdooId(String(lead.id), tenantId);
+              deleted++;
+              logger.info('Deal archivé dans Odoo supprimé de GrowCom', { odooId: lead.id, tenantId });
+            }
+            continue;
+          }
+
+          // Fix 3 — Matching par email Odoo → GrowCom
           let assignedToId: string | null = null;
           if (lead.user_id) {
-            const odooUserName = lead.user_id[1];
-            const matched = tenantUsers.find(
-              (u) => `${u.firstName} ${u.lastName}` === odooUserName,
-            );
-            if (matched) assignedToId = matched.id;
+            const odooUid = (lead.user_id as [number, string])[0];
+            const odooEmail = odooEmailMap.get(odooUid);
+            if (odooEmail) {
+              const matched = growcomByEmail.get(odooEmail);
+              if (matched) assignedToId = matched.id;
+            }
           }
 
           const stageName = Array.isArray(lead.stage_id) ? lead.stage_id[1] : '';
           const status = mapOdooStageToStatus(lead.probability, stageName);
-          const existingDeal = await dealRepository.findByOdooId(String(lead.id));
+          const existingDeal = await dealRepository.findByOdooId(String(lead.id), tenantId);
 
           // Pour closedAt : date_closed en priorité, sinon write_date pour les deals WON
           // (write_date = dernière modif Odoo, soit quand le deal a été marqué WON)
@@ -378,6 +498,12 @@ export const odooService = {
                 error: commErr instanceof Error ? commErr.message : String(commErr),
               });
             }
+          } else if (status !== PrismaDealStatus.WON) {
+            // Si le deal n'est plus WON (LOST ou retour OPEN), supprimer les commissions PENDING associées
+            // pour éviter de verser une commission sur une vente annulée
+            await prisma.commission.deleteMany({
+              where: { dealId: upsertedDeal.id, tenantId, status: PrismaCommissionStatus.PENDING },
+            });
           }
 
           existingDeal ? updated++ : created++;
@@ -394,7 +520,17 @@ export const odooService = {
       throw new AppError(502, 'ODOO_SYNC_FAILED', `Échec de la synchronisation : ${message}`);
     }
 
-    const result = { synced, created, updated, errors, syncedAt: new Date().toISOString() };
+    const result = {
+      synced,
+      created,
+      updated,
+      deleted,
+      errors,
+      syncedAt: new Date().toISOString(),
+      limitWarning: dealsCount >= ODOO_DEAL_WARN_THRESHOLD,
+      limitReached: dealsCount === ODOO_DEAL_LIMIT,
+      dealsCount,
+    };
 
     await auditLogRepository.create({
       tenantId,

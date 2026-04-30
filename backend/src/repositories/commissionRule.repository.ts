@@ -11,6 +11,7 @@ export interface CreateRuleData {
   createdBy: string;
   scope?: RuleScope;
   dealType?: string | null;
+  paymentDelayDays?: number | null;
 }
 
 export const commissionRuleRepository = {
@@ -46,6 +47,7 @@ export const commissionRuleRepository = {
         createdBy: data.createdBy,
         scope: data.scope ?? 'GLOBAL',
         dealType: data.dealType ?? null,
+        paymentDelayDays: data.paymentDelayDays ?? null,
         isActive: true,
         isArchived: false,
       },

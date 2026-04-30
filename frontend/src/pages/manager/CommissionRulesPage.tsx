@@ -16,6 +16,7 @@ import { fr } from 'date-fns/locale';
 const schema = z.object({
   name: z.string().min(1, 'Le nom est requis'),
   dealType: z.string().max(50).optional(),
+  paymentDelayDays: z.coerce.number().int().min(1).max(730).optional().nullable(),
   description: z
     .string()
     .min(10, 'Décrivez la règle en au moins 10 caractères')
@@ -106,6 +107,7 @@ export function CommissionRulesPage() {
         name: data.name,
         description: data.description,
         dealType: data.dealType || null,
+        paymentDelayDays: data.paymentDelayDays || null,
       });
       const ruleWithCount: CommissionRuleWithCount = { ...rule, assignmentCount: 0 };
       setGeneratedRule(ruleWithCount);
@@ -227,6 +229,9 @@ export function CommissionRulesPage() {
                       {rule.dealType && (
                         <Badge variant="yellow">{rule.dealType}</Badge>
                       )}
+                      {rule.paymentDelayDays && (
+                        <Badge variant="orange">Paiement +{rule.paymentDelayDays}j</Badge>
+                      )}
                     </div>
 
                     {!rule.isArchived && (
@@ -295,6 +300,29 @@ export function CommissionRulesPage() {
                 hint="Laissez vide pour une règle applicable à tous les deals"
                 {...register('dealType')}
               />
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Délai de paiement (optionnel)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={730}
+                    placeholder="Ex : 90"
+                    className="block w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    {...register('paymentDelayDays')}
+                  />
+                  <span className="text-sm text-gray-500">jours après la signature</span>
+                </div>
+                {errors.paymentDelayDays && (
+                  <p className="mt-1 text-xs text-red-600">{errors.paymentDelayDays.message}</p>
+                )}
+                <p className="mt-1 text-xs text-gray-400">
+                  Laissez vide pour un paiement immédiat dès validation. Ex : 90 = paiement 3 mois après la vente.
+                </p>
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">

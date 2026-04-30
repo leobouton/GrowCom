@@ -39,7 +39,7 @@ export function OdooPage() {
         const config = await odooApiService.getConfig();
         setConfigured(config.configured);
         setOdooUrl(config.odooUrl);
-        setOdooLogin((config as { odooLogin?: string | null }).odooLogin ?? null);
+        setOdooLogin(config.odooLogin ?? null);
       } finally {
         setLoading(false);
       }
@@ -53,7 +53,7 @@ export function OdooPage() {
       const result = await odooApiService.configure(data);
       setConfigured(result.configured);
       setOdooUrl(result.odooUrl);
-      setOdooLogin((result as { odooLogin?: string | null }).odooLogin ?? null);
+      setOdooLogin(result.odooLogin ?? null);
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const msg = (err.response?.data as { error?: { message?: string } } | undefined)?.error?.message;
@@ -176,10 +176,16 @@ export function OdooPage() {
       {/* Synchronisation */}
       {configured && (
         <Card>
-          <h2 className="text-base font-semibold text-gray-900 mb-2">Synchronisation manuelle</h2>
+          <h2 className="text-base font-semibold text-gray-900 mb-1">Synchronisation manuelle</h2>
+          <div className="flex items-center gap-2 mb-3">
+            <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-xs text-green-700 font-medium">Synchronisation automatique active — vos deals sont importés toutes les heures</p>
+          </div>
           <p className="text-sm text-gray-500 mb-4">
-            Importe toutes les opportunités actives depuis votre CRM Odoo.
-            Les deals sont associés aux commerciaux GrowCom par correspondance exacte du prénom + nom.
+            Utilisez ce bouton pour importer vos deals immédiatement sans attendre le prochain cycle automatique.
+            Les deals sont associés aux commerciaux GrowCom par correspondance exacte du prénom + adresse e-mail (double vérification).
           </p>
 
           <Button onClick={() => void handleSync()} loading={syncing}>
@@ -222,7 +228,7 @@ export function OdooPage() {
                     {syncResult.errors.length} deal{syncResult.errors.length > 1 ? 's' : ''} non associé{syncResult.errors.length > 1 ? 's' : ''}
                   </p>
                   <p className="text-xs text-amber-700 mb-2">
-                    Ces deals existent dans Odoo mais aucun commercial GrowCom n'a le même nom exact.
+                    Ces deals existent dans Odoo mais aucun commercial GrowCom ne correspond (prénom + e-mail introuvables).
                   </p>
                   <div className="space-y-1 max-h-32 overflow-y-auto">
                     {syncResult.errors.map((err, i) => (

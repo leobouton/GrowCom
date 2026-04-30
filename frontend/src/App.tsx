@@ -10,6 +10,7 @@ import { RegisterPage } from './pages/auth/RegisterPage';
 import { InvitationPage } from './pages/auth/InvitationPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/auth/ResetPasswordPage';
+import { VerifyEmailPage } from './pages/auth/VerifyEmailPage';
 
 // Admin pages
 import { AdminDashboard } from './pages/admin/AdminDashboard';
@@ -58,6 +59,7 @@ export function App() {
         <Route path="/invitation" element={<InvitationPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
 
         {/* Espace Super Admin */}
         <Route

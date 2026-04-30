@@ -1,5 +1,6 @@
 import { Tenant, TenantStatus } from '@prisma/client';
 import { prisma } from '../config/prisma';
+import { encrypt } from '../utils/encryption';
 
 export interface CreateTenantData {
   name: string;
@@ -52,7 +53,7 @@ export const tenantRepository = {
   ): Promise<Tenant> {
     return prisma.tenant.update({
       where: { id },
-      data: { odooUrl, odooDatabase, odooLogin, odooApiKey },
+      data: { odooUrl, odooDatabase, odooLogin, odooApiKey: encrypt(odooApiKey) },
     });
   },
 

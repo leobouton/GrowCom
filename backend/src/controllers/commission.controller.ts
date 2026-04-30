@@ -21,12 +21,16 @@ export const commissionController = {
       if (period === 'month' && year && month) {
         const y = parseInt(year as string, 10);
         const m = parseInt(month as string, 10) - 1; // 0-indexed
-        startDate = new Date(y, m, 1);
-        endDate = new Date(y, m + 1, 0, 23, 59, 59);
+        if (!isNaN(y) && !isNaN(m) && m >= 0 && m <= 11) {
+          startDate = new Date(y, m, 1);
+          endDate = new Date(y, m + 1, 0, 23, 59, 59);
+        }
       } else if (period === 'year' && year) {
         const y = parseInt(year as string, 10);
-        startDate = new Date(y, 0, 1);
-        endDate = new Date(y, 11, 31, 23, 59, 59);
+        if (!isNaN(y)) {
+          startDate = new Date(y, 0, 1);
+          endDate = new Date(y, 11, 31, 23, 59, 59);
+        }
       }
 
       const stats = await commissionService.getManagerStats(

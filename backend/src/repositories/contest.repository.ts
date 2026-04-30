@@ -83,9 +83,9 @@ export const contestRepository = {
     });
   },
 
-  async updateStatus(id: string, _tenantId: string, status: ContestStatus) {
+  async updateStatus(id: string, tenantId: string, status: ContestStatus) {
     return prisma.contest.update({
-      where: { id },
+      where: { id, tenantId },
       data: { status },
     });
   },

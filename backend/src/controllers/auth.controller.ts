@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { authService } from '../services/auth.service';
+import { userRepository } from '../repositories/user.repository';
 import { AuthenticatedRequest } from '../middlewares/auth';
 import { env } from '../config/env';
 import { UserRole } from '../../../shared/types';
@@ -208,54 +209,42 @@ export const authController = {
   async me(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const jwtUser = (req as AuthenticatedRequest).user;
-      try {
-        const { userRepository } = await import('../repositories/user.repository');
-        const user = await userRepository.findById(jwtUser.userId);
-        if (!user) {
-          res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Utilisateur introuvable' } });
-          return;
-        }
-        res.json({
-          success: true,
-          data: {
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            role: user.role,
-            tenantId: user.tenantId,
-            fixedSalary: user.fixedSalary,
-            objectives: Array.isArray((user as Record<string, unknown>).objectives)
-              ? (user as Record<string, unknown>).objectives
-              : [],
-            isActive: user.isActive,
-            emailVerified: user.emailVerified,
-            createdAt: user.createdAt.toISOString(),
-          },
-        });
-      } catch {
-        // Fallback sur les données JWT si la DB échoue (ex : migration en attente)
-        res.json({
-          success: true,
-          data: {
-            id: jwtUser.userId,
-            email: jwtUser.email,
-            firstName: '',
-            lastName: '',
-            role: jwtUser.role,
-            tenantId: jwtUser.tenantId,
-            fixedSalary: 0,
-            objectives: [],
-            isActive: true,
-            emailVerified: true,
-            createdAt: new Date().toISOString(),
-          },
-        });
+      const user = await userRepository.findById(jwtUser.userId);
+      if (!user) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Utilisateur introuvable' } });
+        return;
       }
+      res.json({
+        success: true,
+        data: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          tenantId: user.tenantId,
+          fixedSalary: user.fixedSalary,
+          objectives: Array.isArray((user as Record<string, unknown>).objectives)
+            ? (user as Record<string, unknown>).objectives
+            : [],
+          isActive: user.isActive,
+          emailVerified: user.emailVerified,
+          createdAt: user.createdAt.toISOString(),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async verifyEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { token } = z.object({ token: z.string().min(1) }).parse(req.body);
+      await authService.verifyManagerEmail(token);
+      res.json({ success: true, data: null });
     } catch (err) {
       next(err);
     }
   },
 };
 
-void UserRole;

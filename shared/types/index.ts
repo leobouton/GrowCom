@@ -159,6 +159,7 @@ export interface CommissionRule {
   config: CommissionRuleConfig;
   scope: RuleScope;
   dealType: string | null;
+  paymentDelayDays: number | null;
   isActive: boolean;
   isArchived: boolean;
   validatedAt: string | null;
@@ -208,6 +209,7 @@ export interface Commission {
   amount: number;
   status: CommissionStatus;
   calculatedAt: string;
+  scheduledPaymentAt: string | null;
   validatedAt: string | null;
   paidAt: string | null;
 }
@@ -309,11 +311,13 @@ export interface ManagerDashboardStats {
   totalPendingCommissions: number;
   totalValidatedCommissions: number;
   totalPaidCommissions: number;
+  totalDeferredCommissions: number;
   commercialsSummary: Array<{
     user: Pick<User, 'id' | 'firstName' | 'lastName' | 'email'>;
     totalCommissions: number;
     pendingCount: number;
   }>;
+  deferredCommissions: CommissionWithDetails[];
 }
 
 export interface CommercialDashboardStats {
