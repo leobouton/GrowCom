@@ -20,6 +20,9 @@ import billingRoutes from './routes/billing.routes';
 import groupRoutes from './routes/group.routes';
 import ruleAssignmentRoutes from './routes/ruleAssignment.routes';
 import contestRoutes from './routes/contest.routes';
+import fileImportRoutes from './routes/fileImport.routes';
+import dealAssignmentRoutes from './routes/dealAssignment.routes';
+import objectiveSnapshotRoutes from './routes/objectiveSnapshot.routes';
 
 const app = express();
 
@@ -68,6 +71,9 @@ app.use('/api/billing', billingRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/rule-assignments', ruleAssignmentRoutes);
 app.use('/api/contests', contestRoutes);
+app.use('/api/sync', fileImportRoutes);
+app.use('/api/deals/:dealId/assignments', dealAssignmentRoutes);
+app.use('/api/objective-snapshots', objectiveSnapshotRoutes);
 
 // ─── Gestion des erreurs ─────────────────────────────────────
 app.use(notFoundHandler);

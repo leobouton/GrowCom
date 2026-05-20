@@ -30,7 +30,7 @@ export const commissionApiService = {
   async getCommercialStats(): Promise<
     CommercialDashboardStats & {
       projections: Array<{
-        deal: { id: string; title: string; amount: number; probability: number };
+        deal: { id: string; title: string; clientName: string | null; amount: number; probability: number };
         projectedCommission: number;
         explanation: string;
       }>;
@@ -40,7 +40,7 @@ export const commissionApiService = {
     const res = await api.get('/commissions/commercial/stats');
     return (res.data as { success: true; data: unknown }).data as CommercialDashboardStats & {
       projections: Array<{
-        deal: { id: string; title: string; amount: number; probability: number };
+        deal: { id: string; title: string; clientName: string | null; amount: number; probability: number };
         projectedCommission: number;
         explanation: string;
       }>;
@@ -67,6 +67,14 @@ export const commissionApiService = {
     const res = await api.patch<{ success: true; data: CommissionWithDetails }>(
       `/commissions/${commissionId}/status`,
       { action: 'pay' },
+    );
+    return res.data.data;
+  },
+
+  async markClientPaid(commissionId: string): Promise<CommissionWithDetails> {
+    const res = await api.post<{ success: true; data: CommissionWithDetails }>(
+      `/commissions/${commissionId}/mark-client-paid`,
+      {},
     );
     return res.data.data;
   },

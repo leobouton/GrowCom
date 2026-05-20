@@ -8,6 +8,13 @@ import { AppError } from '../middlewares/errorHandler';
 import { AuthenticatedRequest } from '../middlewares/auth';
 import { CommissionRuleType, RuleScope } from '../../../shared/types';
 
+const updateRuleSchema = z.object({
+  name: z.string().min(1, 'Le nom est requis').max(100),
+  dealType: z.string().max(50).optional().nullable(),
+  paymentDelayDays: z.number().int().min(1).max(730).optional().nullable(),
+  description: z.string().min(10).max(1000),
+});
+
 const generateRuleSchema = z.object({
   description: z
     .string()
@@ -68,6 +75,39 @@ export const commissionRuleController = {
       });
 
       res.status(201).json({ success: true, data: rule });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async update(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const { id } = req.params;
+
+      const rule = await commissionRuleRepository.findById(id);
+      if (!rule) throw new AppError(404, 'RULE_NOT_FOUND', 'Règle introuvable');
+      if (rule.tenantId !== user.tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
+      if (rule.isArchived) throw new AppError(400, 'RULE_ARCHIVED', 'Impossible de modifier une règle archivée');
+
+      const { name, dealType, paymentDelayDays, description } = updateRuleSchema.parse(req.body);
+      const updated = await commissionRuleRepository.updateMeta(id, user.tenantId!, {
+        name,
+        dealType: dealType ?? null,
+        paymentDelayDays: paymentDelayDays ?? null,
+        description,
+      });
+
+      await auditLogRepository.create({
+        tenantId: user.tenantId!,
+        userId: user.userId,
+        action: 'UPDATE_COMMISSION_RULE',
+        entity: 'CommissionRule',
+        entityId: id,
+        metadata: { name },
+      });
+
+      res.json({ success: true, data: updated });
     } catch (err) {
       next(err);
     }

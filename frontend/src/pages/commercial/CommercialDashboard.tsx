@@ -3,10 +3,14 @@ import { commissionApiService } from '../../services/commission.service';
 import { authApiService } from '../../services/auth.service';
 import { contestApiService } from '../../services/contest.service';
 import { Card } from '../../components/ui/Card';
-import { CommissionStatusBadge } from '../../components/ui/Badge';
+import { Badge, CommissionStatusBadge } from '../../components/ui/Badge';
 import type { CommissionWithDetails, Objective, PublicUser, Contest, ContestLeaderboardEntry } from '@shared/types';
 import { ContestMetric } from '@shared/types';
-import { format, isWithinInterval, startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, startOfYear, endOfYear, parseISO } from 'date-fns';
+import { format } from 'date-fns';
+import {
+  getObjectiveDateRange, isObjectiveCurrent, isObjectiveFuture,
+  formatObjectivePeriod, computeProgress, computeBonus,
+} from '../../utils/objectives';
 import { fr } from 'date-fns/locale';
 
 // Commission différée (étendue avec scheduledPaymentAt)
@@ -38,94 +42,8 @@ function formatEur(amount: number) {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
 }
 
-/** Retourne [début, fin] de la période d'un objectif */
-function getObjectiveDateRange(obj: Objective): [Date, Date] | null {
-  const y = obj.year ?? new Date().getFullYear();
-
-  if (obj.periodType === 'monthly') {
-    const month = (obj.month ?? 1) - 1;
-    const d = new Date(y, month, 1);
-    return [startOfMonth(d), endOfMonth(d)];
-  }
-  if (obj.periodType === 'quarterly') {
-    const q = obj.quarter ?? 1;
-    const monthStart = (q - 1) * 3;
-    const d = new Date(y, monthStart, 1);
-    return [startOfQuarter(d), endOfQuarter(d)];
-  }
-  if (obj.periodType === 'annual') {
-    return [startOfYear(new Date(y, 0, 1)), endOfYear(new Date(y, 0, 1))];
-  }
-  if (obj.periodType === 'custom' && obj.startDate && obj.endDate) {
-    return [parseISO(obj.startDate), parseISO(obj.endDate)];
-  }
-  return null;
-}
-
-/** Calcule la valeur actuelle d'un objectif depuis les deals WON (CA réel).
- *  On tente d'abord un filtrage par période (closedAt du deal).
- *  Si aucun deal ne correspond (date absente ou hors période),
- *  on affiche tous les deals WON : l'objectif est une CIBLE globale du commercial,
- *  pas un filtre calendaire strict (le concours joue ce rôle). */
-function computeProgress(obj: Objective, wonDeals: WonDealSummary[]): number {
-  if (wonDeals.length === 0) return 0;
-
-  const range = getObjectiveDateRange(obj);
-
-  if (range) {
-    const [start, end] = range;
-    const filtered = wonDeals.filter((d) => {
-      const dateStr = d.closedAt ?? d.syncedAt;
-      if (!dateStr) return true; // pas de date → compté partout
-      return isWithinInterval(new Date(dateStr), { start, end });
-    });
-    // Si au moins un deal a une date dans la période, on filtre strictement
-    if (filtered.length > 0) {
-      if (obj.unit === 'deals') return filtered.length;
-      return filtered.reduce((sum, d) => sum + d.amount, 0);
-    }
-  }
-
-  // Fallback : aucun deal avec une date dans la période → tous les deals WON
-  if (obj.unit === 'deals') return wonDeals.length;
-  return wonDeals.reduce((sum, d) => sum + d.amount, 0);
-}
-
-/** Calcule la prime gagnée si l'objectif est dépassé */
-function computeBonus(obj: Objective, current: number): number {
-  if (!obj.bonus?.enabled || current <= obj.target) return 0;
-  const excess = current - obj.target;
-  if (obj.bonus.type === 'percentage') return excess * (obj.bonus.value / 100);
-  return obj.bonus.value; // montant fixe
-}
-
-/** Libellé lisible de la période */
-const MONTHS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
-
-function formatObjectivePeriod(obj: Objective): string {
-  const y = obj.year ?? new Date().getFullYear();
-  if (obj.periodType === 'monthly') return `${MONTHS_FR[(obj.month ?? 1) - 1]} ${y}`;
-  if (obj.periodType === 'quarterly') return `T${obj.quarter ?? 1} ${y}`;
-  if (obj.periodType === 'annual') return `Année ${y}`;
-  if (obj.periodType === 'custom' && obj.startDate && obj.endDate) {
-    return `${format(parseISO(obj.startDate), 'dd/MM/yy')} → ${format(parseISO(obj.endDate), 'dd/MM/yy')}`;
-  }
-  return 'Période perso.';
-}
-
-/** Indique si l'objectif est en cours (la période couvre aujourd'hui) */
-function isObjectiveCurrent(obj: Objective): boolean {
-  const range = getObjectiveDateRange(obj);
-  if (!range) return false;
-  return isWithinInterval(new Date(), { start: range[0], end: range[1] });
-}
-
-/** Indique si l'objectif est dans le futur */
-function isObjectiveFuture(obj: Objective): boolean {
-  const range = getObjectiveDateRange(obj);
-  if (!range) return false;
-  return new Date() < range[0];
-}
+// Les fonctions utilitaires (getObjectiveDateRange, computeProgress, computeBonus,
+// formatObjectivePeriod, isObjectiveCurrent, isObjectiveFuture) sont dans utils/objectives.ts
 
 // ============================================================
 // Composant barre de progression d'un objectif
@@ -136,8 +54,11 @@ function ObjectiveProgressCard({ obj, wonDeals }: { obj: Objective; wonDeals: Wo
   const isCurrent = isObjectiveCurrent(obj);
   const isFuture = isObjectiveFuture(obj);
   const isDone = pct >= 100;
-  const bonusEarned = computeBonus(obj, current);
-  const hasBonusRule = obj.bonus?.enabled;
+  const { amount: bonusEarned, tierReached } = computeBonus(obj, current);
+  const effectiveBonusMode = obj.bonusMode ?? (obj.bonus?.enabled ? 'simple' : 'none');
+  const hasBonusRule = effectiveBonusMode !== 'none';
+  const isTiered = effectiveBonusMode === 'tiered';
+  const isRecurrent = !!obj.parentObjectiveId;
 
   const formatValue = (v: number) => {
     if (obj.unit === '€') return formatEur(v);
@@ -149,12 +70,22 @@ function ObjectiveProgressCard({ obj, wonDeals }: { obj: Objective; wonDeals: Wo
   const badgeLabel = isDone ? 'Atteint !' : isCurrent ? 'En cours' : isFuture ? 'À venir' : 'Terminé';
   const badgeColor = isDone ? 'bg-green-100 text-green-700' : isCurrent ? 'bg-primary-100 text-primary-700' : isFuture ? 'bg-gray-100 text-gray-500' : 'bg-gray-100 text-gray-400';
 
+  const sortedTiers = isTiered && obj.bonusTiers
+    ? [...obj.bonusTiers].sort((a, b) => a.threshold - b.threshold)
+    : [];
+  const nextTier = sortedTiers.find((t) => pct < t.threshold);
+
   return (
     <div className={`bg-white rounded-xl border p-5 space-y-3 ${isDone && hasBonusRule ? 'border-green-300 ring-1 ring-green-200' : 'border-gray-200'}`}>
       {/* En-tête */}
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="font-semibold text-gray-900 text-sm">{obj.label || 'Objectif'}</p>
+          <div className="flex items-center gap-2">
+            <p className="font-semibold text-gray-900 text-sm">{obj.label || 'Objectif'}</p>
+            {isRecurrent && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 font-medium">🔁 Récurrent</span>
+            )}
+          </div>
           <p className="text-xs text-gray-400 mt-0.5">{formatObjectivePeriod(obj)}</p>
         </div>
         <span className={`text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${badgeColor}`}>{badgeLabel}</span>
@@ -166,8 +97,19 @@ function ObjectiveProgressCard({ obj, wonDeals }: { obj: Objective; wonDeals: Wo
           <span className="text-lg font-bold text-gray-900">{formatValue(current)}</span>
           <span className="text-xs text-gray-400">sur {formatValue(obj.target)}</span>
         </div>
-        <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
-          <div className={`h-2.5 rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
+        {/* Barre avec jalons pour mode tiered */}
+        <div className="relative w-full">
+          <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+            <div className={`h-2.5 rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
+          </div>
+          {isTiered && sortedTiers.map((tier) => (
+            <div
+              key={tier.threshold}
+              className="absolute top-0 w-0.5 h-2.5 bg-gray-400 opacity-60"
+              style={{ left: `${Math.min(tier.threshold, 100)}%` }}
+              title={`Palier à ${tier.threshold}%`}
+            />
+          ))}
         </div>
         <div className="flex justify-between mt-1">
           <span className="text-xs text-gray-400">{pct.toFixed(0)} % atteint</span>
@@ -177,8 +119,35 @@ function ObjectiveProgressCard({ obj, wonDeals }: { obj: Objective; wonDeals: Wo
         </div>
       </div>
 
-      {/* Prime */}
-      {hasBonusRule && (
+      {/* Paliers tiered */}
+      {isTiered && sortedTiers.length > 0 && (
+        <div className="space-y-1">
+          {sortedTiers.map((tier) => {
+            const reached = pct >= tier.threshold;
+            const rewardLabel = tier.reward.type === 'fixed'
+              ? formatEur(tier.reward.value)
+              : `${tier.reward.value} % du CA`;
+            return (
+              <div key={tier.threshold} className={`flex items-center justify-between text-xs px-2 py-1 rounded ${reached ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'}`}>
+                <span>{reached ? '✓' : '○'} À {tier.threshold} % → {rewardLabel}</span>
+                {reached && <span className="font-semibold">Atteint</span>}
+              </div>
+            );
+          })}
+          {nextTier && (
+            <p className="text-xs text-primary-600 font-medium mt-1">
+              Plus que {formatValue(Math.max(0, (nextTier.threshold / 100) * obj.target - current))} pour débloquer {
+                nextTier.reward.type === 'fixed'
+                  ? `+${formatEur(nextTier.reward.value)}`
+                  : `+${nextTier.reward.value}% du CA`
+              }
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Prime mode simple */}
+      {!isTiered && hasBonusRule && obj.bonus?.enabled && (
         <div className={`rounded-lg px-3 py-2 flex items-center justify-between ${bonusEarned > 0 ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
           <div className="flex items-center gap-2">
             <span className="text-base">{bonusEarned > 0 ? '🎉' : '🎯'}</span>
@@ -187,15 +156,30 @@ function ObjectiveProgressCard({ obj, wonDeals }: { obj: Objective; wonDeals: Wo
                 {bonusEarned > 0 ? 'Prime gagnée !' : 'Prime de dépassement'}
               </p>
               <p className="text-xs text-gray-500">
-                {obj.bonus!.type === 'percentage'
-                  ? `${obj.bonus!.value} % des ventes au-dessus de la cible`
-                  : `${formatEur(obj.bonus!.value)} dès l'objectif atteint`}
+                {obj.bonus.type === 'percentage'
+                  ? `${obj.bonus.value} % des ventes au-dessus de la cible`
+                  : `${formatEur(obj.bonus.value)} dès l'objectif atteint`}
               </p>
             </div>
           </div>
           <span className={`text-sm font-bold ${bonusEarned > 0 ? 'text-green-600' : 'text-amber-600'}`}>
-            {bonusEarned > 0 ? `+${formatEur(bonusEarned)}` : `jusqu'à +${formatEur(obj.bonus!.type === 'fixed' ? obj.bonus!.value : 0)}`}
+            {bonusEarned > 0
+              ? `+${formatEur(bonusEarned)}`
+              : `jusqu'à +${formatEur(obj.bonus.type === 'fixed' ? obj.bonus.value : 0)}`}
           </span>
+        </div>
+      )}
+
+      {/* Prime tiered gagnée */}
+      {isTiered && bonusEarned > 0 && tierReached && (
+        <div className="rounded-lg px-3 py-2 flex items-center justify-between bg-green-50 border border-green-200">
+          <div className="flex items-center gap-2">
+            <span className="text-base">🎉</span>
+            <p className="text-xs font-semibold text-gray-700">
+              Palier {tierReached.threshold}% atteint !
+            </p>
+          </div>
+          <span className="text-sm font-bold text-green-600">+{formatEur(bonusEarned)}</span>
         </div>
       )}
     </div>
@@ -279,8 +263,18 @@ export function CommercialDashboard() {
   const wonDeals = data?.wonDeals ?? [];
   const objectives: Objective[] = Array.isArray(user?.objectives) ? (user!.objectives as Objective[]) : [];
 
+  // Chantier 6.6 : masquer les templates récurrents si des occurrences existent.
+  // Un template = recurrence !== 'none' && !parentObjectiveId
+  // Une occurrence = parentObjectiveId défini
+  const occurrenceParentIds = new Set(
+    objectives.filter((o) => !!o.parentObjectiveId).map((o) => o.parentObjectiveId!),
+  );
+  const visibleObjectives = objectives.filter(
+    (o) => !(o.recurrence && o.recurrence !== 'none' && !o.parentObjectiveId && occurrenceParentIds.has(o.id)),
+  );
+
   // Trier : en cours d'abord, puis à venir, puis passés
-  const sortedObjectives = [...objectives].sort((a, b) => {
+  const sortedObjectives = [...visibleObjectives].sort((a, b) => {
     const aScore = isObjectiveCurrent(a) ? 0 : isObjectiveFuture(a) ? 1 : 2;
     const bScore = isObjectiveCurrent(b) ? 0 : isObjectiveFuture(b) ? 1 : 2;
     return aScore - bScore;
@@ -310,7 +304,7 @@ export function CommercialDashboard() {
 
       {/* Carte héro — Revenu total du mois */}
       <div className="bg-gradient-to-br from-primary-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg">
-        <p className="text-primary-200 text-sm font-medium mb-1">Revenu total estimé ce mois</p>
+        <p className="text-primary-200 text-sm font-medium mb-1">Revenu total ce mois</p>
         <p className="text-4xl font-bold mb-4">{formatEur(total)}</p>
         <div className="flex gap-6">
           <div className="flex items-center gap-2">
@@ -346,16 +340,16 @@ export function CommercialDashboard() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-indigo-200 p-5 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="bg-white rounded-xl border border-green-200 p-5 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <div>
-            <p className="text-xs text-indigo-600 font-medium">Validées — en attente de paiement</p>
-            <p className="text-2xl font-bold text-gray-900">{formatEur(data?.projectedCommissions ?? 0)}</p>
-            <p className="text-xs text-gray-400 mt-0.5">Commissions acquises sur ventes réalisées (delta ~3 mois avant versement)</p>
+            <p className="text-xs text-green-600 font-medium">Commissions validées ce mois</p>
+            <p className="text-2xl font-bold text-gray-900">{formatEur(data?.totalEarnedThisMonth ?? 0)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Validées par votre manager sur le mois en cours</p>
           </div>
         </div>
       </div>
@@ -468,9 +462,23 @@ export function CommercialDashboard() {
                     <td className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
                       {commission.calculationDetail ?? commission.rule.name}
                     </td>
-                    <td className="py-3 px-2"><CommissionStatusBadge status={commission.status} scheduledPaymentAt={(commission as DeferredCommission).scheduledPaymentAt} /></td>
+                    <td className="py-3 px-2">
+                      {commission.awaitingClientPayment
+                        ? (
+                          <div>
+                            <Badge variant="orange">En attente paiement client</Badge>
+                            <p className="text-xs text-gray-400 mt-0.5">Sera versée une fois que le client aura réglé la prestation</p>
+                          </div>
+                        )
+                        : <CommissionStatusBadge status={commission.status} scheduledPaymentAt={(commission as DeferredCommission).scheduledPaymentAt} />
+                      }
+                    </td>
                     <td className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap">
-                      {format(new Date(commission.calculatedAt), 'dd MMM yyyy', { locale: fr })}
+                      {format(
+                        new Date(commission.deal.closedAt ?? commission.validatedAt ?? commission.calculatedAt),
+                        'dd MMM yyyy',
+                        { locale: fr }
+                      )}
                     </td>
                   </tr>
                 ))}

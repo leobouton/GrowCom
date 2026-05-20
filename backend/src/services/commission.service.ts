@@ -1,44 +1,56 @@
 import { prisma } from '../config/prisma';
 import { commissionRepository } from '../repositories/commission.repository';
 import { ruleAssignmentRepository } from '../repositories/ruleAssignment.repository';
+import { dealAssignmentRepository } from '../repositories/dealAssignment.repository';
 import { dealRepository } from '../repositories/deal.repository';
 import { userRepository } from '../repositories/user.repository';
 import { AppError } from '../middlewares/errorHandler';
 import { CommissionStatus, CommissionRuleConfig, CommissionRuleType, UserRole } from '../../../shared/types';
+// CommissionCalculationBasis importé via CommissionRuleConfig (optionnel)
 import { CommissionStatus as PrismaCommissionStatus, UserRole as PrismaUserRole } from '@prisma/client';
 
 // ─── Calcul du montant de commission ─────────────────────────────────────────
 
+/**
+ * Calcule le montant de commission sur la base donnée.
+ * basisAmount = CA ou marge selon config.calculationBasis (déjà résolu par l'appelant).
+ * Note : appelé sur le montant TOTAL avant split (Option A : cap sur total, puis split).
+ */
 export function calculateCommissionAmount(
-  saleAmount: number,
+  basisAmount: number,
   config: CommissionRuleConfig,
-): { amount: number; explanation: string } {
+): { amount: number; explanation: string; skippedReason?: string } {
+  const basisLabel = config.calculationBasis === 'MARGIN' ? 'Marge' : 'CA';
+
+  // 1. Floor — seuil minimum du deal pour déclencher la règle
+  if (config.floor !== undefined && config.floor !== null && basisAmount < config.floor) {
+    return {
+      amount: 0,
+      explanation: `Sous le seuil minimum (${config.floor.toFixed(2)}€) : ${basisLabel} ${basisAmount.toFixed(2)}€`,
+      skippedReason: 'BELOW_FLOOR',
+    };
+  }
+
+  // 2. Calcul selon le type de règle
+  let amount = 0;
+  let explanation = '';
+
   if (config.type === CommissionRuleType.FIXED) {
-    return {
-      amount: config.fixedAmount ?? 0,
-      explanation: `Commission fixe : ${(config.fixedAmount ?? 0).toFixed(2)}€`,
-    };
-  }
-
-  if (config.type === CommissionRuleType.PERCENTAGE) {
+    amount = config.fixedAmount ?? 0;
+    explanation = `Commission fixe : ${amount.toFixed(2)}€`;
+  } else if (config.type === CommissionRuleType.PERCENTAGE) {
     const rate = config.rate ?? 0;
-    const amount = saleAmount * rate;
-    return {
-      amount,
-      explanation: `${saleAmount.toFixed(2)}€ × ${(rate * 100).toFixed(0)}% = ${amount.toFixed(2)}€`,
-    };
-  }
-
-  if (config.type === CommissionRuleType.TIERED && config.tiers) {
+    amount = basisAmount * rate;
+    explanation = `${basisLabel} ${basisAmount.toFixed(2)}€ × ${(rate * 100).toFixed(0)}% = ${amount.toFixed(2)}€`;
+  } else if (config.type === CommissionRuleType.TIERED && config.tiers) {
     let totalCommission = 0;
     const parts: string[] = [];
-    // Tri ascendant par min pour garantir le bon ordre des paliers
     const sortedTiers = [...config.tiers].sort((a, b) => a.min - b.min);
 
     for (const tier of sortedTiers) {
-      if (saleAmount < tier.min) break;
+      if (basisAmount < tier.min) break;
       const tierMax = tier.max ?? Infinity;
-      const applicable = Math.min(saleAmount, tierMax) - tier.min;
+      const applicable = Math.min(basisAmount, tierMax) - tier.min;
       if (applicable <= 0) continue;
       const tierAmount = applicable * tier.rate;
       totalCommission += tierAmount;
@@ -47,13 +59,22 @@ export function calculateCommissionAmount(
       );
     }
 
-    return {
-      amount: totalCommission,
-      explanation: parts.join(' + ') + ` = ${totalCommission.toFixed(2)}€`,
-    };
+    amount = totalCommission;
+    explanation =
+      parts.length > 0
+        ? `${basisLabel} ${basisAmount.toFixed(2)}€ par paliers : ${parts.join(' + ')} = ${totalCommission.toFixed(2)}€`
+        : `${basisLabel} ${basisAmount.toFixed(2)}€ — aucun palier atteint`;
+  } else {
+    return { amount: 0, explanation: 'Règle non reconnue' };
   }
 
-  return { amount: 0, explanation: 'Règle non reconnue' };
+  // 3. Cap — plafond absolu en €
+  if (config.cap !== undefined && config.cap !== null && amount > config.cap) {
+    explanation = `${explanation} (plafonné à ${config.cap.toFixed(2)}€)`;
+    amount = config.cap;
+  }
+
+  return { amount, explanation };
 }
 
 // ─── Helpers d'isolation par équipe ──────────────────────────────────────────
@@ -149,15 +170,16 @@ export const commissionService = {
     // Vérification de périmètre : TEAM_LEAD ne peut valider que son équipe
     await assertInScope(commission.userId, callerId, callerRole, tenantId);
 
-    return commissionRepository.updateStatus(commissionId, PrismaCommissionStatus.VALIDATED, tenantId);
+    // Règle métier : validée = payée immédiatement (pas d'étape intermédiaire)
+    return commissionRepository.updateStatus(commissionId, PrismaCommissionStatus.PAID, tenantId);
   },
 
   async markAsPaid(commissionId: string, tenantId: string, callerId: string, callerRole: UserRole) {
     const commission = await commissionRepository.findById(commissionId);
     if (!commission) throw new AppError(404, 'COMMISSION_NOT_FOUND', 'Commission introuvable');
     if (commission.tenantId !== tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
-    if (commission.status !== CommissionStatus.VALIDATED) {
-      throw new AppError(400, 'INVALID_STATUS', 'Seules les commissions validées peuvent être marquées comme payées');
+    if (commission.status !== CommissionStatus.VALIDATED && commission.status !== CommissionStatus.PENDING) {
+      throw new AppError(400, 'INVALID_STATUS', 'Commission déjà payée');
     }
 
     // Vérification de périmètre : TEAM_LEAD ne peut payer que son équipe
@@ -175,6 +197,11 @@ export const commissionService = {
   ) {
     const teamIds = await resolveTeamScope(callerId, callerRole, tenantId);
 
+    // Période effective : mois en cours par défaut si aucune date fournie
+    const now = new Date();
+    const effectiveStart = startDate ?? new Date(now.getFullYear(), now.getMonth(), 1);
+    const effectiveEnd = endDate ?? new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
     // Stats globales (filtrées par équipe si TEAM_LEAD)
     const statsWhere = teamIds !== null
       ? { tenantId, userId: { in: teamIds } }
@@ -183,19 +210,18 @@ export const commissionService = {
     const [pendingAgg, validatedAgg, paidAgg] = await Promise.all([
       prisma.commission.aggregate({ where: { ...statsWhere, status: PrismaCommissionStatus.PENDING }, _sum: { amount: true } }),
       prisma.commission.aggregate({ where: { ...statsWhere, status: PrismaCommissionStatus.VALIDATED }, _sum: { amount: true } }),
-      prisma.commission.aggregate({ where: { ...statsWhere, status: PrismaCommissionStatus.PAID }, _sum: { amount: true } }),
+      prisma.commission.aggregate({ where: { ...statsWhere, status: PrismaCommissionStatus.PAID, paidAt: { gte: effectiveStart, lte: effectiveEnd } }, _sum: { amount: true } }),
     ]);
+    // Note : les commissions CANCELLED sont exclues de tous ces aggregats (filtre par statut exact)
 
     // Récupérer les commerciaux dans le périmètre (jamais les managers dans ce résumé)
     const commercials = teamIds !== null
       ? await userRepository.findByIds(teamIds, tenantId)
       : await userRepository.findByTenantIdAndRoles(tenantId, COMMERCIAL_ROLES);
 
-    // Récupérer toutes les commissions en une seule requête (évite le N+1)
+    // Récupérer les commissions du mois sélectionné (filtrées par validatedAt)
     const userIds = commercials.map((u) => u.id);
-    const allCommissions = startDate && endDate
-      ? await commissionRepository.findByUserIdsInPeriod(userIds, tenantId, startDate, endDate)
-      : await commissionRepository.findByUserIds(userIds, tenantId);
+    const allCommissions = await commissionRepository.findByUserIdsInPeriod(userIds, tenantId, effectiveStart, effectiveEnd);
 
     // Grouper en mémoire par userId
     const commissionsByUser = new Map<string, typeof allCommissions>();
@@ -207,8 +233,10 @@ export const commissionService = {
 
     const commercialsSummary = commercials.map((user) => {
       const userCommissions = commissionsByUser.get(user.id) ?? [];
-      const totalCommissions = userCommissions.reduce((sum, c) => sum + c.amount, 0);
-      const pendingCount = userCommissions.filter((c) => c.status === CommissionStatus.PENDING).length;
+      // Exclure les commissions CANCELLED des totaux (mais elles restent dans la liste détaillée)
+      const activeCommissions = userCommissions.filter((c) => c.status !== CommissionStatus.CANCELLED);
+      const totalCommissions = activeCommissions.reduce((sum, c) => sum + c.amount, 0);
+      const pendingCount = activeCommissions.filter((c) => c.status === CommissionStatus.PENDING).length;
 
       return {
         user: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
@@ -224,7 +252,6 @@ export const commissionService = {
       ? await commissionRepository.findPendingByUserIds(teamIds, tenantId)
       : await commissionRepository.findPendingByTenantId(tenantId);
 
-    const now = new Date();
     // Commissions normales à valider manuellement (pas de paiement différé ou délai déjà dépassé)
     const pendingCommissions = allPending.filter(
       (c) => !c.scheduledPaymentAt || new Date(c.scheduledPaymentAt) <= now,
@@ -273,7 +300,7 @@ export const commissionService = {
     const projections = openDeals.map((deal) => {
       if (activeAssignments.length === 0) {
         return {
-          deal: { id: deal.id, title: deal.title, amount: deal.amount, probability: deal.probability },
+          deal: { id: deal.id, title: deal.title, clientName: deal.clientName ?? null, amount: deal.amount, probability: deal.probability },
           projectedCommission: 0,
           explanation: 'Aucune règle de commission assignée',
         };
@@ -292,7 +319,7 @@ export const commissionService = {
       projectedCommissions += projected;
 
       return {
-        deal: { id: deal.id, title: deal.title, amount: deal.amount, probability: deal.probability },
+        deal: { id: deal.id, title: deal.title, clientName: deal.clientName ?? null, amount: deal.amount, probability: deal.probability },
         projectedCommission: projected,
         explanation: ruleBreakdown.join(' | '),
       };
@@ -320,11 +347,33 @@ export const commissionService = {
     };
   },
 
+  async markClientPaid(commissionId: string, tenantId: string, callerId: string, callerRole: UserRole) {
+    const commission = await commissionRepository.findById(commissionId);
+    if (!commission) throw new AppError(404, 'COMMISSION_NOT_FOUND', 'Commission introuvable');
+    if (commission.tenantId !== tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
+    if (!commission.awaitingClientPayment) {
+      throw new AppError(
+        400,
+        'NOT_AWAITING_CLIENT_PAYMENT',
+        'Cette commission n\'est pas en attente de paiement client',
+      );
+    }
+
+    await assertInScope(commission.userId, callerId, callerRole, tenantId);
+
+    // Récupère le délai de la règle pour savoir si on planifie ou on valide directement
+    const paymentDelayDays = commission.rule?.paymentDelayDays ?? null;
+
+    return commissionRepository.markClientPaid(commissionId, callerId, paymentDelayDays);
+  },
+
   /**
    * Crée ou met à jour les commissions d'un deal WON.
-   * - Applique uniquement les règles explicitement assignées au commercial.
-   * - N'applique PAS de règle "par défaut" : sans assignation = pas de commission.
-   * - Stocke le détail du calcul pour affichage côté commercial.
+   * - Applique les règles assignées à chaque commercial selon son DealAssignment.share.
+   * - Fallback rétrocompatible : si aucun DealAssignment, utilise deal.assignedToId à 100%.
+   * - N'applique PAS de règle "par défaut" : sans assignation de règle = pas de commission.
+   * - Cap appliqué sur le total avant split (Option A).
+   * - Supporte calculationBasis MARGIN/REVENUE et paymentTrigger CLIENT_PAID/DEAL_WON.
    */
   async recalculateForDeal(dealId: string, tenantId: string) {
     const deal = await dealRepository.findById(dealId);
@@ -332,41 +381,110 @@ export const commissionService = {
       throw new AppError(404, 'DEAL_NOT_FOUND', 'Deal introuvable');
     }
 
-    if (!deal.assignedToId) return null;
+    const dealAssignments = await dealAssignmentRepository.findByDealId(dealId, tenantId);
 
-    const activeAssignments = await ruleAssignmentRepository.findActiveForUser(
-      deal.assignedToId,
-      tenantId,
-    );
+    let assignmentTargets: Array<{ userId: string; share: number; shareLabel: string }>;
 
-    // Aucune règle assignée → pas de commission créée (pas de fallback dangereux)
-    if (activeAssignments.length === 0) return null;
+    if (dealAssignments.length > 0) {
+      assignmentTargets = dealAssignments.map((da) => ({
+        userId: da.userId,
+        share: da.share,
+        shareLabel: `${(da.share * 100).toFixed(0)}%`,
+      }));
+    } else if (deal.assignedToId) {
+      // Rétrocompat : pas de DealAssignment → commercial principal à 100%
+      assignmentTargets = [{ userId: deal.assignedToId, share: 1.0, shareLabel: '100%' }];
+    } else {
+      return null;
+    }
 
-    const results = await Promise.all(
-      activeAssignments.map(async (assignment) => {
+    const allResults = [];
+
+    for (const target of assignmentTargets) {
+      const activeAssignments = await ruleAssignmentRepository.findActiveForUser(
+        target.userId,
+        tenantId,
+      );
+
+      if (activeAssignments.length === 0) continue;
+
+      for (const assignment of activeAssignments) {
         const config = assignment.rule.config as unknown as CommissionRuleConfig;
-        const { amount, explanation } = calculateCommissionAmount(deal.amount, config);
 
-        // Calcul de la date de paiement différé si la règle a un délai configuré
-        let scheduledPaymentAt: Date | null = null;
-        if (assignment.rule.paymentDelayDays && assignment.rule.paymentDelayDays > 0) {
-          const baseDate = deal.closedAt ?? new Date();
-          scheduledPaymentAt = new Date(baseDate);
-          scheduledPaymentAt.setDate(scheduledPaymentAt.getDate() + assignment.rule.paymentDelayDays);
+        // ── Choisir la base de calcul AVANT split (Option A : cap sur total) ──
+        let fullBasisAmount: number;
+        let basisLabel: string;
+
+        if (config.calculationBasis === 'MARGIN') {
+          if (deal.marginAmount === null || deal.marginAmount === undefined) {
+            // Règle marge mais marginAmount inconnu → commission à 0€ visible manager
+            const calculationDetail = `${assignment.rule.name} : Règle marge non applicable — marge inconnue sur ce deal`;
+            const result = await commissionRepository.upsertForDeal(
+              tenantId, target.userId, dealId, assignment.ruleId,
+              0, calculationDetail, null, false,
+            );
+            allResults.push(result);
+            continue;
+          }
+          fullBasisAmount = deal.marginAmount;
+          basisLabel = 'marge';
+        } else {
+          // REVENUE ou non défini — comportement historique
+          fullBasisAmount = deal.amount;
+          basisLabel = 'CA';
         }
 
-        return commissionRepository.upsertForDeal(
-          tenantId,
-          deal.assignedToId!,
-          dealId,
-          assignment.ruleId,
-          amount,
-          `${assignment.rule.name} : ${explanation}`,
-          scheduledPaymentAt,
+        // ── Calcul sur le total (floor/cap appliqués sur le total) ──
+        const { amount: totalAmount, explanation, skippedReason } = calculateCommissionAmount(
+          fullBasisAmount,
+          config,
         );
-      }),
-    );
 
-    return results[0] ?? null;
+        // Si floor non atteint → commission à 0€ visible
+        if (skippedReason) {
+          const calculationDetail = `${assignment.rule.name} : ${explanation}`;
+          const result = await commissionRepository.upsertForDeal(
+            tenantId, target.userId, dealId, assignment.ruleId,
+            0, calculationDetail, null, false,
+          );
+          allResults.push(result);
+          continue;
+        }
+
+        // ── Appliquer le share APRÈS le cap (Option A) ──
+        const amount = totalAmount * target.share;
+        const splitDetail = target.share < 1.0
+          ? `Part ${target.shareLabel} sur ${basisLabel} ${fullBasisAmount.toFixed(2)}€ → `
+          : '';
+        const splitSuffix = target.share < 1.0
+          ? ` × ${target.shareLabel} = ${amount.toFixed(2)}€`
+          : '';
+        const calculationDetail = `${splitDetail}${assignment.rule.name} : ${explanation}${splitSuffix}`;
+
+        // ── paymentTrigger ──
+        let scheduledPaymentAt: Date | null = null;
+        let awaitingClientPayment = false;
+
+        if (config.paymentTrigger === 'CLIENT_PAID') {
+          awaitingClientPayment = true;
+          // scheduledPaymentAt sera calculé quand le manager clique "Client a payé"
+        } else {
+          // DEAL_WON (défaut) — délai normal
+          if (assignment.rule.paymentDelayDays && assignment.rule.paymentDelayDays > 0) {
+            const baseDate = deal.closedAt ? new Date(deal.closedAt) : new Date();
+            scheduledPaymentAt = new Date(baseDate);
+            scheduledPaymentAt.setDate(scheduledPaymentAt.getDate() + assignment.rule.paymentDelayDays);
+          }
+        }
+
+        const result = await commissionRepository.upsertForDeal(
+          tenantId, target.userId, dealId, assignment.ruleId,
+          amount, calculationDetail, scheduledPaymentAt, awaitingClientPayment,
+        );
+        allResults.push(result);
+      }
+    }
+
+    return allResults[0] ?? null;
   },
 };

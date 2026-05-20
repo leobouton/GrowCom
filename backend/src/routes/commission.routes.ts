@@ -24,6 +24,11 @@ router.patch(
   checkRole(UserRole.MANAGER, UserRole.BU_MANAGER, UserRole.TEAM_LEAD),
   commissionController.updateStatus,
 );
+router.post(
+  '/:id/mark-client-paid',
+  checkRole(UserRole.MANAGER, UserRole.BU_MANAGER, UserRole.TEAM_LEAD),
+  commissionController.markClientPaid,
+);
 
 // Routes commerciales : tous les rôles non-admin peuvent voir leurs propres commissions
 router.get(

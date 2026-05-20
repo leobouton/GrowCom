@@ -321,3 +321,217 @@ CREATE UNIQUE INDEX IF NOT EXISTS "Deal_tenantId_odooId_key" ON "Deal"("tenantId
 -- 14. Nom du client sur les deals (importé depuis Odoo)
 
 ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "clientName" TEXT;
+
+
+-- ============================================================
+-- 15. Import fichier — Extension du modèle Deal + ImportLog
+-- ============================================================
+
+-- 15a. Enums source et statut d'import
+
+DO $$ BEGIN
+    CREATE TYPE "DealSource" AS ENUM ('ODOO', 'FILE');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE "ImportStatus" AS ENUM ('PENDING', 'PROCESSING', 'SUCCESS', 'PARTIAL_ERROR', 'FAILED');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- 15b. Rendre odooId nullable (les deals importés via fichier n'ont pas d'ID Odoo)
+-- Les deals existants gardent leur odooId — aucune donnée perdue
+ALTER TABLE "Deal" ALTER COLUMN "odooId" DROP NOT NULL;
+
+-- 15c. Nouveaux champs sur Deal (source de données + champs pivot)
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "source"         "DealSource" NOT NULL DEFAULT 'ODOO';
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "fileExternalId" TEXT;
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "currency"       TEXT NOT NULL DEFAULT 'EUR';
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "dealType"       TEXT;
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "notes"          TEXT;
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "importLogId"    TEXT;
+
+-- 15d. Index unique pour les deals importés via fichier (déduplication sur external_id)
+CREATE UNIQUE INDEX IF NOT EXISTS "Deal_tenantId_fileExternalId_key"
+    ON "Deal"("tenantId", "fileExternalId");
+
+CREATE INDEX IF NOT EXISTS "Deal_importLogId_idx" ON "Deal"("importLogId");
+
+-- 15e. Table ImportLog
+CREATE TABLE IF NOT EXISTS "ImportLog" (
+    "id"          TEXT NOT NULL,
+    "tenantId"    TEXT NOT NULL,
+    "uploadedBy"  TEXT NOT NULL,
+    "fileName"    TEXT NOT NULL,
+    "status"      "ImportStatus" NOT NULL DEFAULT 'PENDING',
+    "totalRows"   INTEGER NOT NULL DEFAULT 0,
+    "successRows" INTEGER NOT NULL DEFAULT 0,
+    "errorRows"   INTEGER NOT NULL DEFAULT 0,
+    "skippedRows" INTEGER NOT NULL DEFAULT 0,
+    "errors"      JSONB NOT NULL DEFAULT '[]'::jsonb,
+    "pendingRows" JSONB,
+    "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completedAt" TIMESTAMP(3),
+    CONSTRAINT "ImportLog_pkey" PRIMARY KEY ("id")
+);
+
+CREATE INDEX IF NOT EXISTS "ImportLog_tenantId_idx"           ON "ImportLog"("tenantId");
+CREATE INDEX IF NOT EXISTS "ImportLog_tenantId_createdAt_idx" ON "ImportLog"("tenantId", "createdAt");
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ImportLog_tenantId_fkey') THEN
+        ALTER TABLE "ImportLog"
+            ADD CONSTRAINT "ImportLog_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ImportLog_uploadedBy_fkey') THEN
+        ALTER TABLE "ImportLog"
+            ADD CONSTRAINT "ImportLog_uploadedBy_fkey"
+            FOREIGN KEY ("uploadedBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Deal_importLogId_fkey') THEN
+        ALTER TABLE "Deal"
+            ADD CONSTRAINT "Deal_importLogId_fkey"
+            FOREIGN KEY ("importLogId") REFERENCES "ImportLog"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+-- 15f. RLS sur ImportLog
+ALTER TABLE "ImportLog" ENABLE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE "ImportLog" FROM anon, authenticated;
+
+
+-- ============================================================
+-- SESSION A — Fondations data
+-- ============================================================
+
+-- 16. Marge sur les Deals
+
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "costAmount"   DOUBLE PRECISION;
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "marginAmount" DOUBLE PRECISION;
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "marginSource" TEXT;
+
+
+-- 17. Statut CANCELLED sur Commission
+
+ALTER TYPE "CommissionStatus" ADD VALUE IF NOT EXISTS 'CANCELLED';
+
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "cancelledAt"        TIMESTAMP(3);
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "cancelledBy"        TEXT;
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT;
+
+
+-- 18. DealAssignment — Split de commission sur N commerciaux
+
+CREATE TABLE IF NOT EXISTS "DealAssignment" (
+    "id"        TEXT NOT NULL,
+    "tenantId"  TEXT NOT NULL,
+    "dealId"    TEXT NOT NULL,
+    "userId"    TEXT NOT NULL,
+    "share"     DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+    "role"      TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "DealAssignment_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "DealAssignment_dealId_userId_key"
+    ON "DealAssignment"("dealId", "userId");
+
+CREATE INDEX IF NOT EXISTS "DealAssignment_tenantId_idx" ON "DealAssignment"("tenantId");
+CREATE INDEX IF NOT EXISTS "DealAssignment_dealId_idx"   ON "DealAssignment"("dealId");
+CREATE INDEX IF NOT EXISTS "DealAssignment_userId_idx"   ON "DealAssignment"("userId");
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DealAssignment_tenantId_fkey') THEN
+        ALTER TABLE "DealAssignment"
+            ADD CONSTRAINT "DealAssignment_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DealAssignment_dealId_fkey') THEN
+        ALTER TABLE "DealAssignment"
+            ADD CONSTRAINT "DealAssignment_dealId_fkey"
+            FOREIGN KEY ("dealId") REFERENCES "Deal"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DealAssignment_userId_fkey') THEN
+        ALTER TABLE "DealAssignment"
+            ADD CONSTRAINT "DealAssignment_userId_fkey"
+            FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+-- 18b. Migration données existantes : chaque deal avec assignedToId → DealAssignment share=1.0
+INSERT INTO "DealAssignment" ("id", "tenantId", "dealId", "userId", "share", "createdAt")
+SELECT
+    gen_random_uuid()::text,
+    d."tenantId",
+    d."id",
+    d."assignedToId",
+    1.0,
+    NOW()
+FROM "Deal" d
+WHERE d."assignedToId" IS NOT NULL
+ON CONFLICT ("dealId", "userId") DO NOTHING;
+
+-- 18c. RLS sur DealAssignment
+ALTER TABLE "DealAssignment" ENABLE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE "DealAssignment" FROM anon, authenticated;
+
+-- ============================================================
+-- SESSION B — Chantier 4 : Mode "paiement client" sur Commission
+-- ============================================================
+
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "awaitingClientPayment" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "clientPaidAt"          TIMESTAMP(3);
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "clientPaidBy"          TEXT;
+
+-- ============================================================
+-- SESSION B — Chantier 7 : Snapshot historique des objectifs
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS "ObjectiveSnapshot" (
+    "id"           TEXT NOT NULL,
+    "tenantId"     TEXT NOT NULL,
+    "userId"       TEXT NOT NULL,
+    "objectiveId"  TEXT NOT NULL,
+    "periodLabel"  TEXT NOT NULL,
+    "snapshotData" JSONB NOT NULL,
+    "actualValue"  DOUBLE PRECISION NOT NULL,
+    "bonusEarned"  DOUBLE PRECISION NOT NULL,
+    "snapshotAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ObjectiveSnapshot_pkey" PRIMARY KEY ("id")
+);
+
+CREATE INDEX IF NOT EXISTS "ObjectiveSnapshot_tenantId_idx"        ON "ObjectiveSnapshot"("tenantId");
+CREATE INDEX IF NOT EXISTS "ObjectiveSnapshot_userId_idx"           ON "ObjectiveSnapshot"("userId");
+CREATE INDEX IF NOT EXISTS "ObjectiveSnapshot_userId_snapshotAt_idx" ON "ObjectiveSnapshot"("userId", "snapshotAt");
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ObjectiveSnapshot_tenantId_fkey') THEN
+        ALTER TABLE "ObjectiveSnapshot"
+            ADD CONSTRAINT "ObjectiveSnapshot_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ObjectiveSnapshot_userId_fkey') THEN
+        ALTER TABLE "ObjectiveSnapshot"
+            ADD CONSTRAINT "ObjectiveSnapshot_userId_fkey"
+            FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+ALTER TABLE "ObjectiveSnapshot" ENABLE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE "ObjectiveSnapshot" FROM anon, authenticated;

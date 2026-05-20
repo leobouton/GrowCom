@@ -55,6 +55,7 @@ export function CommissionStatusBadge({
     PENDING: { label: 'En attente', variant: 'yellow' },
     VALIDATED: { label: 'Validée', variant: 'blue' },
     PAID: { label: 'Payée', variant: 'green' },
+    CANCELLED: { label: 'Annulée', variant: 'red' },
   };
 
   const { label, variant } = config[status] ?? { label: status, variant: 'gray' };

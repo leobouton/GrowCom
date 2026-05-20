@@ -5,6 +5,8 @@ import { odooService } from '../integrations/odoo.service';
 import { prisma } from '../config/prisma';
 import { decrypt } from '../utils/encryption';
 import { UserRole } from '@prisma/client';
+import { generateOccurrencesForAllTenants } from './objectiveRecurrence.service';
+import { snapshotEndedObjectives } from './objectiveSnapshot.service';
 
 /**
  * Synchronise tous les tenants qui ont Odoo configuré.
@@ -66,8 +68,8 @@ async function syncAllTenants(): Promise<void> {
 }
 
 /**
- * Valide automatiquement les commissions différées dont la date de paiement est arrivée.
- * Passe toutes les commissions PENDING avec scheduledPaymentAt <= maintenant en VALIDATED.
+ * Valide et paie automatiquement les commissions différées dont la date de paiement est arrivée.
+ * Passe toutes les commissions PENDING avec scheduledPaymentAt <= maintenant en PAID (validée = payée).
  */
 async function autoValidateDeferredCommissions(): Promise<void> {
   logger.info('[Scheduler] Vérification des commissions différées à valider');
@@ -80,8 +82,9 @@ async function autoValidateDeferredCommissions(): Promise<void> {
       scheduledPaymentAt: { lte: now },
     },
     data: {
-      status: 'VALIDATED',
+      status: 'PAID',
       validatedAt: now,
+      paidAt: now,
     },
   });
 
@@ -118,6 +121,22 @@ export function startScheduler(): void {
     );
   });
 
+  // Génération des occurrences récurrentes — le 1er de chaque mois à 6h00
+  cron.schedule('0 6 1 * *', () => {
+    generateOccurrencesForAllTenants().catch((err) =>
+      logger.error('[Scheduler] Erreur lors de la génération des occurrences récurrentes', { error: err }),
+    );
+  });
+
+  // Snapshot des objectifs terminés — tous les jours à 7h00
+  cron.schedule('0 7 * * *', () => {
+    snapshotEndedObjectives().catch((err) =>
+      logger.error('[Scheduler] Erreur lors du snapshot des objectifs', { error: err }),
+    );
+  });
+
   logger.info('[Scheduler] Synchronisation automatique Odoo activée (toutes les heures)');
   logger.info('[Scheduler] Validation automatique des commissions différées activée (tous les jours à 8h)');
+  logger.info('[Scheduler] Génération occurrences récurrentes activée (1er du mois à 6h)');
+  logger.info('[Scheduler] Snapshot objectifs terminés activé (tous les jours à 7h)');
 }

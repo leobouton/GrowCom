@@ -1,5 +1,6 @@
 import { logger } from '../config/logger';
 import { dealRepository } from '../repositories/deal.repository';
+import { dealAssignmentRepository } from '../repositories/dealAssignment.repository';
 import { userRepository } from '../repositories/user.repository';
 import { tenantRepository } from '../repositories/tenant.repository';
 import { auditLogRepository } from '../repositories/auditLog.repository';
@@ -23,6 +24,8 @@ interface OdooCrmLead {
   date_closed: string | false;
   write_date: string | false;  // Date de dernière modif (≈ date de passage WON si date_closed absent)
   active: boolean;
+  planned_cost: number;        // Coût prévu (champ Odoo)
+  margin: number;              // Marge calculée par Odoo
 }
 
 // ─── XML-RPC builder ─────────────────────────────────────────────────────────
@@ -311,7 +314,7 @@ export const odooService = {
         // active IN (true, false) : récupère actifs ET archivés (deals perdus dans Odoo)
         [[['active', 'in', [true, false]]]],
         {
-          fields: ['id', 'name', 'partner_id', 'expected_revenue', 'probability', 'stage_id', 'user_id', 'date_closed', 'write_date', 'active'],
+          fields: ['id', 'name', 'partner_id', 'expected_revenue', 'probability', 'stage_id', 'user_id', 'date_closed', 'write_date', 'active', 'planned_cost', 'margin'],
           limit: ODOO_DEAL_LIMIT,
         },
       ],
@@ -329,6 +332,8 @@ export const odooService = {
       date_closed: typeof r['date_closed'] === 'string' && r['date_closed'] ? r['date_closed'] : false,
       write_date: typeof r['write_date'] === 'string' && r['write_date'] ? r['write_date'] : false,
       active: Boolean(r['active']),
+      planned_cost: Number(r['planned_cost'] ?? 0),
+      margin: Number(r['margin'] ?? 0),
     }));
   },
 
@@ -476,6 +481,21 @@ export const odooService = {
 
           const clientName = lead.partner_id ? lead.partner_id[1] : null;
 
+          // Calcul des champs de marge depuis Odoo
+          let costAmount: number | null = null;
+          let marginAmount: number | null = null;
+          let marginSource: string | null = null;
+
+          if (lead.margin && lead.margin > 0) {
+            marginAmount = lead.margin;
+            marginSource = 'ODOO';
+            costAmount = lead.expected_revenue - lead.margin;
+          } else if (lead.planned_cost && lead.planned_cost > 0) {
+            costAmount = lead.planned_cost;
+            marginAmount = lead.expected_revenue - lead.planned_cost;
+            marginSource = 'COMPUTED';
+          }
+
           const upsertedDeal = await dealRepository.upsert({
             tenantId,
             odooId: String(lead.id),
@@ -486,7 +506,28 @@ export const odooService = {
             probability: lead.probability,
             assignedToId,
             closedAt,
+            costAmount,
+            marginAmount,
+            marginSource,
           });
+
+          // DealAssignment : créer une assignation 100% si aucune n'existe encore
+          if (assignedToId) {
+            try {
+              const existingAssignments = await dealAssignmentRepository.findByDealId(upsertedDeal.id, tenantId);
+              if (existingAssignments.length === 0) {
+                await dealAssignmentRepository.upsertForDeal(upsertedDeal.id, tenantId, [
+                  { userId: assignedToId, share: 1.0 },
+                ]);
+              }
+              // Si des assignations custom existent déjà, ne pas écraser
+            } catch (assignErr) {
+              logger.warn('Impossible de créer DealAssignment Odoo', {
+                dealId: upsertedDeal.id,
+                error: assignErr instanceof Error ? assignErr.message : String(assignErr),
+              });
+            }
+          }
 
           // Créer/mettre à jour la commission si le deal est WON et assigné
           if (status === PrismaDealStatus.WON && assignedToId) {

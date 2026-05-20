@@ -12,7 +12,7 @@ import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
-import type { CommissionRuleConfig, Contest, ContestLeaderboardEntry, PublicUser, Objective, ObjectivePeriodType, ObjectiveBonus } from '@shared/types';
+import type { CommissionRuleConfig, Contest, ContestLeaderboardEntry, PublicUser, Objective, ObjectivePeriodType, ObjectiveBonus, ObjectiveBonusMode, ObjectiveBonusTier, ObjectiveRecurrence } from '@shared/types';
 import { CommissionRuleType, ContestMetric, ContestStatus, RuleScope, UserRole } from '@shared/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -22,7 +22,7 @@ import { fr } from 'date-fns/locale';
 // ============================================================
 
 type Tab = 'commissions' | 'objectifs' | 'concours';
-type FilterTab = 'all' | 'active' | 'archived';
+type FilterTab = 'active' | 'archived';
 
 // ============================================================
 // Helpers communs
@@ -170,6 +170,7 @@ function getMedalColor(rank: number): string {
 const ruleSchema = z.object({
   name: z.string().min(1, 'Le nom est requis'),
   dealType: z.string().max(50).optional(),
+  paymentDelayDays: z.coerce.number().int().min(1).max(730).optional().nullable(),
   description: z.string().min(10, 'Décrivez la règle en au moins 10 caractères').max(1000),
 });
 type RuleFormData = z.infer<typeof ruleSchema>;
@@ -248,6 +249,7 @@ function CommissionsTab() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [editingRule, setEditingRule] = useState<CommissionRuleWithCount | null>(null);
   const [generatedRule, setGeneratedRule] = useState<CommissionRuleWithCount | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filterTab, setFilterTab] = useState<FilterTab>('active');
@@ -267,19 +269,49 @@ function CommissionsTab() {
 
   useEffect(() => { void loadRules(); }, []);
 
+  const handleEditClick = (rule: CommissionRuleWithCount) => {
+    setEditingRule(rule);
+    setGeneratedRule(null);
+    setError(null);
+    reset({
+      name: rule.name,
+      description: rule.description,
+      dealType: rule.dealType ?? undefined,
+      paymentDelayDays: rule.paymentDelayDays ?? undefined,
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingRule(null);
+    setError(null);
+    reset({ name: '', description: '', dealType: undefined, paymentDelayDays: undefined });
+  };
+
   const onSubmit = async (data: RuleFormData) => {
     setError(null);
     setGenerating(true);
     setGeneratedRule(null);
     try {
-      const rule = await commissionRuleApiService.generate({
-        name: data.name,
-        description: data.description,
-        dealType: data.dealType || null,
-      });
-      setGeneratedRule({ ...rule, assignmentCount: 0 });
+      if (editingRule) {
+        await commissionRuleApiService.update(editingRule.id, {
+          name: data.name,
+          description: data.description,
+          dealType: data.dealType || null,
+          paymentDelayDays: data.paymentDelayDays || null,
+        });
+        setEditingRule(null);
+        reset({ name: '', description: '', dealType: undefined, paymentDelayDays: undefined });
+      } else {
+        const rule = await commissionRuleApiService.generate({
+          name: data.name,
+          description: data.description,
+          dealType: data.dealType || null,
+          paymentDelayDays: data.paymentDelayDays || null,
+        });
+        setGeneratedRule({ ...rule, assignmentCount: 0 });
+        reset();
+      }
       await loadRules();
-      reset();
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
@@ -301,6 +333,7 @@ function CommissionsTab() {
       await commissionRuleApiService.archive(ruleId);
       await loadRules();
       if (generatedRule?.id === ruleId) setGeneratedRule(null);
+      if (editingRule?.id === ruleId) handleCancelEdit();
     } finally {
       setArchivingId(null);
     }
@@ -316,11 +349,9 @@ function CommissionsTab() {
     }
   };
 
-  const filteredRules = rules.filter((r) => {
-    if (filterTab === 'active') return !r.isArchived;
-    if (filterTab === 'archived') return r.isArchived;
-    return true;
-  });
+  const filteredRules = rules.filter((r) =>
+    filterTab === 'active' ? !r.isArchived : r.isArchived,
+  );
 
   if (loading) {
     return <div className="flex items-center justify-center h-40"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" /></div>;
@@ -331,16 +362,16 @@ function CommissionsTab() {
       {/* Bibliothèque */}
       <div className="lg:col-span-2 space-y-4">
         <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-          {([['all', 'Toutes'], ['active', 'Actives'], ['archived', 'Archivées']] as [FilterTab, string][]).map(([tab, label]) => (
+          {([['active', 'Actives'], ['archived', 'Archivées']] as [FilterTab, string][]).map(([tab, label]) => (
             <button
               key={tab}
-              onClick={() => setFilterTab(tab)}
+              onClick={() => { setFilterTab(tab); handleCancelEdit(); }}
               className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${filterTab === tab ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
               {label}
-              {tab !== 'archived' && (
-                <span className="ml-1 text-gray-400">({tab === 'all' ? rules.length : rules.filter((r) => !r.isArchived).length})</span>
-              )}
+              <span className="ml-1 text-gray-400">
+                ({tab === 'active' ? rules.filter((r) => !r.isArchived).length : rules.filter((r) => r.isArchived).length})
+              </span>
             </button>
           ))}
         </div>
@@ -378,7 +409,17 @@ function CommissionsTab() {
                     {rule.isArchived ? (
                       <Button variant="ghost" size="sm" onClick={() => void handleUnarchive(rule.id)} loading={archivingId === rule.id}>Restaurer</Button>
                     ) : (
-                      <Button variant="ghost" size="sm" onClick={() => void handleArchive(rule.id)} loading={archivingId === rule.id} className="text-red-500 hover:text-red-600 hover:bg-red-50">Archiver</Button>
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditClick(rule)}
+                          className={editingRule?.id === rule.id ? 'bg-primary-50 text-primary-700' : ''}
+                        >
+                          Modifier
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => void handleArchive(rule.id)} loading={archivingId === rule.id} className="text-red-500 hover:text-red-600 hover:bg-red-50">Archiver</Button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -391,19 +432,52 @@ function CommissionsTab() {
       {/* Formulaire IA */}
       <div className="lg:col-span-3 space-y-4">
         <Card>
-          <div className="flex items-center gap-2 mb-5">
-            <div className="w-7 h-7 bg-primary-100 rounded-lg flex items-center justify-center flex-shrink-0">
-              <svg className="w-4 h-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${editingRule ? 'bg-amber-100' : 'bg-primary-100'}`}>
+                {editingRule ? (
+                  <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                )}
+              </div>
+              <h2 className="text-base font-semibold text-gray-900">
+                {editingRule ? `Modifier « ${editingRule.name} »` : 'Créer une nouvelle règle'}
+              </h2>
             </div>
-            <h2 className="text-base font-semibold text-gray-900">Créer une nouvelle règle</h2>
+            {editingRule && (
+              <button type="button" onClick={handleCancelEdit} className="text-xs text-gray-400 hover:text-gray-600">
+                Annuler
+              </button>
+            )}
           </div>
           <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} className="space-y-4">
             <Input label="Nom de la règle" placeholder="Ex : Commission CDI Senior" error={errors.name?.message} {...register('name')} />
             <Input label="Type de deal concerné (optionnel)" placeholder="Ex : CDI, CDD, Intérim, Placement..." error={errors.dealType?.message} hint="Laissez vide pour une règle applicable à tous les deals" {...register('dealType')} />
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Décrivez votre règle de commission</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Délai de paiement (optionnel)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={730}
+                  placeholder="Ex : 90"
+                  className="block w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  {...register('paymentDelayDays')}
+                />
+                <span className="text-sm text-gray-500">jours après la signature</span>
+              </div>
+              {errors.paymentDelayDays && <p className="mt-1 text-xs text-red-600">{errors.paymentDelayDays.message}</p>}
+              <p className="mt-1 text-xs text-gray-400">Laissez vide pour un paiement immédiat. Ex : 90 = paiement 3 mois après la vente.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {editingRule ? 'Description de la règle' : 'Décrivez votre règle de commission'}
+              </label>
               <textarea
                 className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none"
                 rows={5}
@@ -411,6 +485,7 @@ function CommissionsTab() {
                 {...register('description')}
               />
               {errors.description && <p className="mt-1 text-xs text-red-600">{errors.description.message}</p>}
+              {editingRule && <p className="mt-1 text-xs text-gray-400">La modification de la description ne recalcule pas le barème — créez une nouvelle règle pour changer le calcul.</p>}
             </div>
             {error && (
               <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
@@ -418,7 +493,9 @@ function CommissionsTab() {
               </div>
             )}
             <Button type="submit" loading={generating} className="w-full">
-              {generating ? 'Génération en cours...' : "Générer avec l'IA"}
+              {generating
+                ? (editingRule ? 'Enregistrement...' : 'Génération en cours...')
+                : (editingRule ? 'Enregistrer les modifications' : "Générer avec l'IA")}
             </Button>
           </form>
         </Card>
@@ -1159,10 +1236,42 @@ interface ObjectiveEditorProps {
 
 function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }: ObjectiveEditorProps) {
   const bonus = obj.bonus ?? { enabled: false, type: 'percentage' as const, value: 10 };
+  const bonusMode: ObjectiveBonusMode = obj.bonusMode ?? (bonus.enabled ? 'simple' : 'none');
+  const tiers: ObjectiveBonusTier[] = obj.bonusTiers ?? [];
+  const recurrence: ObjectiveRecurrence = obj.recurrence ?? 'none';
+  const recurrenceEnabled = recurrence !== 'none';
 
   const setBonus = (patch: Partial<ObjectiveBonus>) => {
     onChange(obj.id, 'bonus', { ...bonus, ...patch });
   };
+
+  const setBonusMode = (mode: ObjectiveBonusMode) => {
+    onChange(obj.id, 'bonusMode', mode);
+    if (mode === 'simple') onChange(obj.id, 'bonus', { ...bonus, enabled: true });
+    if (mode === 'none') onChange(obj.id, 'bonus', { ...bonus, enabled: false });
+  };
+
+  const addTier = () => {
+    const lastThreshold = tiers.length > 0 ? tiers[tiers.length - 1].threshold : 0;
+    const newTier: ObjectiveBonusTier = {
+      threshold: Math.min(lastThreshold + 20, 200),
+      reward: { type: 'fixed', value: 100 },
+    };
+    onChange(obj.id, 'bonusTiers', [...tiers, newTier]);
+  };
+
+  const updateTier = (i: number, patch: Partial<ObjectiveBonusTier>) => {
+    const updated = tiers.map((t, idx) => idx === i ? { ...t, ...patch } : t);
+    onChange(obj.id, 'bonusTiers', updated);
+  };
+
+  const removeTier = (i: number) => {
+    onChange(obj.id, 'bonusTiers', tiers.filter((_, idx) => idx !== i));
+  };
+
+  const previewTiers = [...tiers].sort((a, b) => a.threshold - b.threshold)
+    .map((t) => `À ${t.threshold}% → +${t.reward.type === 'fixed' ? `${t.reward.value}€` : `${t.reward.value}% CA`}`)
+    .join(' | ');
 
   return (
     <div className="border border-gray-200 rounded-xl p-4 bg-gray-50/50 space-y-4">
@@ -1207,39 +1316,133 @@ function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }: Objec
 
       <PeriodFields obj={obj} onChange={onChange} />
 
-      <div className="border-t border-gray-200 pt-4">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-xs font-semibold text-gray-700">Prime de dépassement</p>
-            <p className="text-xs text-gray-400">Récompense si le commercial dépasse la cible</p>
+      {/* ── Prime de dépassement ── */}
+      <div className="border-t border-gray-200 pt-4 space-y-3">
+        <p className="text-xs font-semibold text-gray-700">Prime de dépassement</p>
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            { value: 'none',   label: 'Pas de prime',        desc: '' },
+            { value: 'simple', label: 'Prime simple',        desc: '' },
+            { value: 'tiered', label: 'Paliers personnalisés', desc: '' },
+          ] as { value: ObjectiveBonusMode; label: string; desc: string }[]).map((opt) => (
+            <label key={opt.value} className={`flex flex-col gap-0.5 p-2 rounded-lg border-2 cursor-pointer text-center transition-colors ${bonusMode === opt.value ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+              <input type="radio" className="sr-only" checked={bonusMode === opt.value} onChange={() => setBonusMode(opt.value)} />
+              <span className="text-xs font-semibold text-gray-800">{opt.label}</span>
+            </label>
+          ))}
+        </div>
+
+        {bonusMode === 'simple' && (
+          <div className="space-y-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
+            <div className="grid grid-cols-2 gap-2">
+              <label className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer ${bonus.type === 'percentage' ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white'}`}>
+                <input type="radio" className="sr-only" checked={bonus.type === 'percentage'} onChange={() => setBonus({ type: 'percentage' })} />
+                <div><p className="text-xs font-semibold text-gray-800">% des ventes</p><p className="text-xs text-gray-400">Au-dessus de la cible</p></div>
+              </label>
+              <label className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer ${bonus.type === 'fixed' ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white'}`}>
+                <input type="radio" className="sr-only" checked={bonus.type === 'fixed'} onChange={() => setBonus({ type: 'fixed' })} />
+                <div><p className="text-xs font-semibold text-gray-800">Montant fixe</p><p className="text-xs text-gray-400">Dès l'objectif atteint</p></div>
+              </label>
+            </div>
+            <div className="relative">
+              <input type="number" min="0" step={bonus.type === 'percentage' ? '0.5' : '50'} value={bonus.value} onChange={(e) => setBonus({ value: parseFloat(e.target.value) || 0 })} className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white" />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">{bonus.type === 'percentage' ? '%' : '€'}</span>
+            </div>
           </div>
-          <button type="button" onClick={() => setBonus({ enabled: !bonus.enabled })} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${bonus.enabled ? 'bg-primary-500' : 'bg-gray-200'}`}>
-            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${bonus.enabled ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+        )}
+
+        {bonusMode === 'tiered' && (
+          <div className="space-y-2 bg-amber-50 border border-amber-200 rounded-xl p-3">
+            {tiers.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 text-xs font-medium text-gray-500 px-1">
+                  <span>Seuil (%)</span><span>Type</span><span>Montant</span><span />
+                </div>
+                {tiers.map((tier, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                    <input
+                      type="number" min="1" max="200" value={tier.threshold}
+                      onChange={(e) => updateTier(i, { threshold: parseInt(e.target.value) || 1 })}
+                      className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    />
+                    <select
+                      value={tier.reward.type}
+                      onChange={(e) => updateTier(i, { reward: { ...tier.reward, type: e.target.value as 'fixed' | 'percentage' } })}
+                      className="border border-gray-300 rounded-lg px-1 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    >
+                      <option value="fixed">Fixe (€)</option>
+                      <option value="percentage">% CA</option>
+                    </select>
+                    <input
+                      type="number" min="0" value={tier.reward.value}
+                      onChange={(e) => updateTier(i, { reward: { ...tier.reward, value: parseFloat(e.target.value) || 0 } })}
+                      className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    />
+                    <button type="button" onClick={() => removeTier(i)} className="text-gray-300 hover:text-red-400">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={addTier} className="text-xs text-amber-600 hover:text-amber-700 font-medium flex items-center gap-1">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              Ajouter un palier
+            </button>
+            {previewTiers && (
+              <p className="text-xs text-gray-500 italic mt-1">Aperçu : {previewTiers}</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Récurrence ── */}
+      <div className="border-t border-gray-200 pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold text-gray-700">Objectif récurrent</p>
+            <p className="text-xs text-gray-400">Se régénère automatiquement chaque période</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange(obj.id, 'recurrence', recurrenceEnabled ? 'none' : 'monthly')}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${recurrenceEnabled ? 'bg-primary-500' : 'bg-gray-200'}`}
+          >
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${recurrenceEnabled ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
           </button>
         </div>
 
-        {bonus.enabled && (
-          <div className="space-y-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
+        {recurrenceEnabled && (
+          <div className="space-y-3 bg-blue-50 border border-blue-200 rounded-xl p-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-2">Type de prime</label>
-              <div className="grid grid-cols-2 gap-2">
-                <label className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer ${bonus.type === 'percentage' ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white'}`}>
-                  <input type="radio" className="sr-only" checked={bonus.type === 'percentage'} onChange={() => setBonus({ type: 'percentage' })} />
-                  <div><p className="text-xs font-semibold text-gray-800">% des ventes</p><p className="text-xs text-gray-400">Au-dessus de la cible</p></div>
-                </label>
-                <label className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer ${bonus.type === 'fixed' ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white'}`}>
-                  <input type="radio" className="sr-only" checked={bonus.type === 'fixed'} onChange={() => setBonus({ type: 'fixed' })} />
-                  <div><p className="text-xs font-semibold text-gray-800">Montant fixe</p><p className="text-xs text-gray-400">Dès l'objectif atteint</p></div>
-                </label>
+              <label className="block text-xs font-medium text-gray-600 mb-2">Fréquence</label>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { value: 'monthly',   label: 'Mensuel' },
+                  { value: 'quarterly', label: 'Trimestriel' },
+                  { value: 'annual',    label: 'Annuel' },
+                ] as { value: ObjectiveRecurrence; label: string }[]).map((opt) => (
+                  <label key={opt.value} className={`flex items-center justify-center p-2 rounded-lg border-2 cursor-pointer text-xs font-medium transition-colors ${recurrence === opt.value ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>
+                    <input type="radio" className="sr-only" checked={recurrence === opt.value} onChange={() => onChange(obj.id, 'recurrence', opt.value)} />
+                    {opt.label}
+                  </label>
+                ))}
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">{bonus.type === 'percentage' ? 'Taux (%)' : 'Montant (€)'}</label>
-              <div className="relative">
-                <input type="number" min="0" step={bonus.type === 'percentage' ? '0.5' : '50'} value={bonus.value} onChange={(e) => setBonus({ value: parseFloat(e.target.value) || 0 })} className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white" />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">{bonus.type === 'percentage' ? '%' : '€'}</span>
-              </div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Jusqu'au</label>
+              <input
+                type="date"
+                value={obj.recurrenceEndDate ?? ''}
+                onChange={(e) => onChange(obj.id, 'recurrenceEndDate', e.target.value || undefined)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
             </div>
+            {obj.recurrenceEndDate && (
+              <p className="text-xs text-blue-600">
+                Cet objectif sera généré chaque {recurrence === 'monthly' ? 'mois' : recurrence === 'quarterly' ? 'trimestre' : 'an'} jusqu'au {format(new Date(obj.recurrenceEndDate), 'dd/MM/yyyy')}
+              </p>
+            )}
           </div>
         )}
       </div>

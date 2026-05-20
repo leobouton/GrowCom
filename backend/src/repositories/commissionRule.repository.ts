@@ -54,6 +54,22 @@ export const commissionRuleRepository = {
     });
   },
 
+  async updateMeta(
+    id: string,
+    tenantId: string,
+    data: { name: string; dealType?: string | null; paymentDelayDays?: number | null; description: string },
+  ): Promise<CommissionRule> {
+    return prisma.commissionRule.update({
+      where: { id, tenantId },
+      data: {
+        name: data.name,
+        dealType: data.dealType ?? null,
+        paymentDelayDays: data.paymentDelayDays ?? null,
+        description: data.description,
+      },
+    });
+  },
+
   async archive(id: string, tenantId: string): Promise<CommissionRule> {
     return prisma.commissionRule.update({
       where: { id, tenantId },

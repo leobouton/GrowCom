@@ -51,6 +51,7 @@ enum CommissionStatus {
   PENDING
   VALIDATED
   PAID
+  CANCELLED
 }
 
 enum RuleScope {
@@ -75,6 +76,19 @@ enum ContestStatus {
   CANCELLED
 }
 
+enum DealSource {
+  ODOO
+  FILE
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  PARTIAL_ERROR
+  FAILED
+}
+
 // --- Models ---
 
 model Tenant {
@@ -92,14 +106,17 @@ model Tenant {
   odooLimitWarningSentAt     DateTime?    // Date du dernier email d'alerte limite Odoo (throttle 2 jours)
   createdAt                  DateTime     @default(now())
 
-  users           User[]
-  groups          Group[]
-  commissionRules CommissionRule[]
-  deals           Deal[]
-  commissions     Commission[]
-  auditLogs       AuditLog[]
-  ruleAssignments RuleAssignment[]
-  contests        Contest[]
+  users               User[]
+  groups              Group[]
+  commissionRules     CommissionRule[]
+  deals               Deal[]
+  commissions         Commission[]
+  auditLogs           AuditLog[]
+  ruleAssignments     RuleAssignment[]
+  contests            Contest[]
+  importLogs          ImportLog[]
+  dealAssignments     DealAssignment[]
+  objectiveSnapshots  ObjectiveSnapshot[]
 
   @@index([status])
   @@index([slug])
@@ -154,6 +171,9 @@ model User {
   refreshTokens       RefreshToken[]
   ruleAssignments     RuleAssignment[]
   createdContests     Contest[]        @relation("ContestCreator")
+  importLogs          ImportLog[]      @relation("ImportLogUploader")
+  dealAssignments     DealAssignment[]
+  objectiveSnapshots  ObjectiveSnapshot[]
 
   @@index([tenantId])
   @@index([email])
@@ -222,27 +242,40 @@ model RuleAssignment {
 }
 
 model Deal {
-  id           String     @id @default(cuid())
-  tenantId     String
-  odooId       String
-  title        String
-  clientName   String?
-  amount       Float      @default(0)
-  status       DealStatus @default(OPEN)
-  probability  Float      @default(0)
-  assignedToId String?
-  closedAt     DateTime?
-  syncedAt     DateTime   @default(now())
-  createdAt    DateTime   @default(now())
+  id             String     @id @default(cuid())
+  tenantId       String
+  odooId         String?    // Uniquement pour les deals Odoo
+  fileExternalId String?    // Uniquement pour les deals importés via fichier
+  source         DealSource @default(ODOO)
+  title          String
+  clientName     String?
+  amount         Float      @default(0)
+  currency       String     @default("EUR")
+  status         DealStatus @default(OPEN)
+  probability    Float      @default(0)
+  assignedToId   String?
+  closedAt       DateTime?
+  syncedAt       DateTime   @default(now())
+  createdAt      DateTime   @default(now())
+  dealType       String?
+  notes          String?
+  importLogId    String?
+  costAmount     Float?     // Coût du deal (achat, sous-traitance, frais)
+  marginAmount   Float?     // Marge réelle = amount - costAmount si calculée, ou importée directement
+  marginSource   String?    // 'ODOO' | 'CSV_IMPORT' | 'COMPUTED' | null
 
-  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  assignedTo  User?        @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedTo  User?            @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
   commissions Commission[]
+  importLog   ImportLog?       @relation(fields: [importLogId], references: [id], onDelete: SetNull)
+  assignments DealAssignment[]
 
   @@unique([tenantId, odooId])
+  @@unique([tenantId, fileExternalId])
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([assignedToId])
+  @@index([importLogId])
 }
 
 model Commission {
@@ -258,6 +291,12 @@ model Commission {
   scheduledPaymentAt   DateTime?
   validatedAt          DateTime?
   paidAt               DateTime?
+  cancelledAt          DateTime?
+  cancelledBy          String?          // userId du manager qui a annulé (référence souple)
+  cancellationReason   String?
+  awaitingClientPayment Boolean         @default(false)
+  clientPaidAt         DateTime?
+  clientPaidBy         String?          // userId du manager qui a marqué le paiement client
 
   tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -269,6 +308,25 @@ model Commission {
   @@index([userId])
   @@index([tenantId, status])
   @@index([dealId])
+}
+
+model DealAssignment {
+  id        String   @id @default(cuid())
+  tenantId  String
+  dealId    String
+  userId    String
+  share     Float    @default(1.0)  // Part en décimal (0.7 = 70%). Somme des shares d'un deal = 1.0
+  role      String?  // Libre : "Hunter", "Closer", "SDR"... pour traçabilité
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deal   Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId, userId])
+  @@index([tenantId])
+  @@index([dealId])
+  @@index([userId])
 }
 
 model Contest {
@@ -294,6 +352,29 @@ model Contest {
   @@index([tenantId, status])
 }
 
+model ImportLog {
+  id          String       @id @default(cuid())
+  tenantId    String
+  uploadedBy  String
+  fileName    String
+  status      ImportStatus @default(PENDING)
+  totalRows   Int          @default(0)
+  successRows Int          @default(0)
+  errorRows   Int          @default(0)
+  skippedRows Int          @default(0)
+  errors      Json         @default("[]")
+  pendingRows Json?        // Stockage temporaire des lignes validées avant confirmation (nettoyé après)
+  createdAt   DateTime     @default(now())
+  completedAt DateTime?
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  uploader User   @relation("ImportLogUploader", fields: [uploadedBy], references: [id])
+  deals    Deal[]
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+}
+
 model AuditLog {
   id        String   @id @default(cuid())
   tenantId  String
@@ -311,4 +392,23 @@ model AuditLog {
   @@index([userId])
   @@index([entity, entityId])
   @@index([createdAt])
+}
+
+model ObjectiveSnapshot {
+  id           String   @id @default(cuid())
+  tenantId     String
+  userId       String
+  objectiveId  String   // L'id de l'objectif (ou occurrence) au moment du snapshot
+  periodLabel  String   // "Janvier 2026", "T1 2026", "Année 2026"
+  snapshotData Json     // Copie complète de l'objectif
+  actualValue  Float    // CA réel atteint sur la période
+  bonusEarned  Float    // Prime gagnée selon les paliers/bonus
+  snapshotAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([userId, snapshotAt])
 }

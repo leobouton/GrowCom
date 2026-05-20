@@ -2,8 +2,8 @@ import { Commission, CommissionStatus } from '@prisma/client';
 import { prisma } from '../config/prisma';
 
 export interface CommissionWithRelations extends Commission {
-  deal: { title: string; clientName: string | null; amount: number; status: string };
-  rule: { name: string; config: unknown };
+  deal: { title: string; clientName: string | null; amount: number; status: string; closedAt: Date | null };
+  rule: { name: string; config: unknown; paymentDelayDays: number | null };
   user: { firstName: string; lastName: string; email: string };
 }
 
@@ -12,8 +12,8 @@ export const commissionRepository = {
     return prisma.commission.findUnique({
       where: { id },
       include: {
-        deal: { select: { title: true, clientName: true, amount: true, status: true } },
-        rule: { select: { name: true, config: true } },
+        deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
+        rule: { select: { name: true, config: true, paymentDelayDays: true } },
         user: { select: { firstName: true, lastName: true, email: true } },
       },
     }) as Promise<CommissionWithRelations | null>;
@@ -23,8 +23,8 @@ export const commissionRepository = {
     return prisma.commission.findMany({
       where: { tenantId },
       include: {
-        deal: { select: { title: true, clientName: true, amount: true, status: true } },
-        rule: { select: { name: true, config: true } },
+        deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
+        rule: { select: { name: true, config: true, paymentDelayDays: true } },
         user: { select: { firstName: true, lastName: true, email: true } },
       },
       orderBy: { calculatedAt: 'desc' },
@@ -36,8 +36,8 @@ export const commissionRepository = {
     return prisma.commission.findMany({
       where: { userId: { in: userIds }, tenantId },
       include: {
-        deal: { select: { title: true, clientName: true, amount: true, status: true } },
-        rule: { select: { name: true, config: true } },
+        deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
+        rule: { select: { name: true, config: true, paymentDelayDays: true } },
         user: { select: { firstName: true, lastName: true, email: true } },
       },
       orderBy: { calculatedAt: 'desc' },
@@ -49,8 +49,8 @@ export const commissionRepository = {
     return prisma.commission.findMany({
       where: { userId: { in: userIds }, tenantId, status: CommissionStatus.PENDING },
       include: {
-        deal: { select: { title: true, clientName: true, amount: true, status: true } },
-        rule: { select: { name: true, config: true } },
+        deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
+        rule: { select: { name: true, config: true, paymentDelayDays: true } },
         user: { select: { firstName: true, lastName: true, email: true } },
       },
       orderBy: { calculatedAt: 'desc' },
@@ -61,8 +61,8 @@ export const commissionRepository = {
     return prisma.commission.findMany({
       where: { userId, tenantId },
       include: {
-        deal: { select: { title: true, clientName: true, amount: true, status: true } },
-        rule: { select: { name: true, config: true } },
+        deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
+        rule: { select: { name: true, config: true, paymentDelayDays: true } },
         user: { select: { firstName: true, lastName: true, email: true } },
       },
       orderBy: { calculatedAt: 'desc' },
@@ -73,8 +73,8 @@ export const commissionRepository = {
     return prisma.commission.findMany({
       where: { tenantId, status: CommissionStatus.PENDING },
       include: {
-        deal: { select: { title: true, clientName: true, amount: true, status: true } },
-        rule: { select: { name: true, config: true } },
+        deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
+        rule: { select: { name: true, config: true, paymentDelayDays: true } },
         user: { select: { firstName: true, lastName: true, email: true } },
       },
       orderBy: { calculatedAt: 'desc' },
@@ -101,7 +101,8 @@ export const commissionRepository = {
       data: {
         status,
         ...(status === CommissionStatus.VALIDATED ? { validatedAt: new Date() } : {}),
-        ...(status === CommissionStatus.PAID ? { paidAt: new Date() } : {}),
+        // Quand on passe directement à PAID (validated = paid), on renseigne les deux dates
+        ...(status === CommissionStatus.PAID ? { validatedAt: new Date(), paidAt: new Date() } : {}),
       },
     });
   },
@@ -137,11 +138,11 @@ export const commissionRepository = {
       where: {
         userId: { in: userIds },
         tenantId,
-        calculatedAt: { gte: startDate, lte: endDate },
+        validatedAt: { gte: startDate, lte: endDate },
       },
       include: {
-        deal: { select: { title: true, clientName: true, amount: true, status: true } },
-        rule: { select: { name: true, config: true } },
+        deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
+        rule: { select: { name: true, config: true, paymentDelayDays: true } },
         user: { select: { firstName: true, lastName: true, email: true } },
       },
       orderBy: { calculatedAt: 'desc' },
@@ -161,8 +162,8 @@ export const commissionRepository = {
         calculatedAt: { gte: startDate, lte: endDate },
       },
       include: {
-        deal: { select: { title: true, clientName: true, amount: true, status: true } },
-        rule: { select: { name: true, config: true } },
+        deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
+        rule: { select: { name: true, config: true, paymentDelayDays: true } },
         user: { select: { firstName: true, lastName: true, email: true } },
       },
       orderBy: { calculatedAt: 'desc' },
@@ -204,11 +205,58 @@ export const commissionRepository = {
     amount: number,
     calculationDetail?: string,
     scheduledPaymentAt?: Date | null,
+    awaitingClientPayment?: boolean,
   ): Promise<Commission> {
     return prisma.commission.upsert({
       where: { dealId_userId_ruleId: { dealId, userId, ruleId } },
-      update: { amount, calculatedAt: new Date(), calculationDetail: calculationDetail ?? null, scheduledPaymentAt: scheduledPaymentAt ?? null },
-      create: { tenantId, userId, dealId, ruleId, amount, calculationDetail: calculationDetail ?? null, scheduledPaymentAt: scheduledPaymentAt ?? null },
+      update: {
+        amount,
+        calculatedAt: new Date(),
+        calculationDetail: calculationDetail ?? null,
+        scheduledPaymentAt: scheduledPaymentAt ?? null,
+        awaitingClientPayment: awaitingClientPayment ?? false,
+      },
+      create: {
+        tenantId, userId, dealId, ruleId, amount,
+        calculationDetail: calculationDetail ?? null,
+        scheduledPaymentAt: scheduledPaymentAt ?? null,
+        awaitingClientPayment: awaitingClientPayment ?? false,
+      },
+    });
+  },
+
+  async markClientPaid(
+    id: string,
+    managerId: string,
+    paymentDelayDays?: number | null,
+  ): Promise<Commission> {
+    const now = new Date();
+
+    if (paymentDelayDays && paymentDelayDays > 0) {
+      // Délai configuré → PENDING avec scheduledPaymentAt (validation auto via cron)
+      const scheduledPaymentAt = new Date(now);
+      scheduledPaymentAt.setDate(scheduledPaymentAt.getDate() + paymentDelayDays);
+      return prisma.commission.update({
+        where: { id },
+        data: {
+          awaitingClientPayment: false,
+          clientPaidAt: now,
+          clientPaidBy: managerId,
+          scheduledPaymentAt,
+        },
+      });
+    }
+
+    // Pas de délai → validation directe
+    return prisma.commission.update({
+      where: { id },
+      data: {
+        awaitingClientPayment: false,
+        clientPaidAt: now,
+        clientPaidBy: managerId,
+        status: 'VALIDATED',
+        validatedAt: now,
+      },
     });
   },
 };

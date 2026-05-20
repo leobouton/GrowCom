@@ -27,6 +27,11 @@ const commissionRuleConfigSchema = z.object({
   rate: z.number().min(0).max(1).optional(),
   fixedAmount: z.number().min(0).optional(),
   examples: z.array(exampleSchema).min(1),
+  // Champs Session B — optionnels
+  calculationBasis: z.enum(['REVENUE', 'MARGIN']).optional(),
+  paymentTrigger: z.enum(['DEAL_WON', 'CLIENT_PAID']).optional(),
+  cap: z.number().positive().optional(),
+  floor: z.number().positive().optional(),
 });
 
 export type GeneratedRuleConfig = z.infer<typeof commissionRuleConfigSchema>;
@@ -42,6 +47,14 @@ RÈGLES STRICTES :
 - Le dernier palier a max: null (infini)
 - Les exemples doivent être des calculs réels basés sur les règles définies
 - Fournis au moins 3 exemples représentatifs (montants typiques pour chaque palier)
+- Dans les exemples, le champ "saleAmount" représente la BASE de calcul (CA ou marge selon calculationBasis)
+
+DÉTECTION DES CHAMPS AVANCÉS (optionnels) :
+- "sur la marge", "marge brute", "marge", "selon le profit" → calculationBasis: "MARGIN"
+- "plafonné à X€", "max X€", "plafond X€", "pas plus de X€" → cap: X
+- "à partir de X€", "minimum X€ de vente", "seuil de X€", "si deal > X€" → floor: X
+- "quand le client paie", "au règlement client", "à la facturation", "après encaissement" → paymentTrigger: "CLIENT_PAID"
+- Sinon (défaut) : calculationBasis: "REVENUE", paymentTrigger: "DEAL_WON" (ne pas inclure si valeur par défaut)
 
 FORMAT JSON ATTENDU :
 {
@@ -50,8 +63,60 @@ FORMAT JSON ATTENDU :
   "tiers": [{ "min": 0, "max": 10000, "rate": 0.10 }, ...],  // uniquement si TIERED
   "rate": 0.10,  // uniquement si PERCENTAGE simple
   "fixedAmount": 500,  // uniquement si FIXED
+  "calculationBasis": "MARGIN",   // seulement si calcul sur marge
+  "paymentTrigger": "CLIENT_PAID", // seulement si paiement déclenché au règlement client
+  "cap": 5000,    // seulement si plafond explicite
+  "floor": 1000,  // seulement si seuil minimum explicite
   "examples": [
-    { "saleAmount": 8000, "commission": 800, "explanation": "8 000€ × 10% = 800€" }
+    { "saleAmount": 8000, "commission": 800, "explanation": "CA 8 000€ × 10% = 800€" }
+  ]
+}
+
+EXEMPLES DE CONVERSION :
+
+Entrée : "15% sur la marge brute, plafonnée à 5000€"
+Sortie :
+{
+  "type": "PERCENTAGE",
+  "description": "15% de la marge brute du deal, plafonnée à 5 000€",
+  "rate": 0.15,
+  "calculationBasis": "MARGIN",
+  "cap": 5000,
+  "examples": [
+    { "saleAmount": 10000, "commission": 1500, "explanation": "Marge 10 000€ × 15% = 1 500€" },
+    { "saleAmount": 20000, "commission": 3000, "explanation": "Marge 20 000€ × 15% = 3 000€" },
+    { "saleAmount": 40000, "commission": 5000, "explanation": "Marge 40 000€ × 15% = 6 000€ → plafonné à 5 000€" }
+  ]
+}
+
+Entrée : "500€ fixe par deal à partir de 10 000€ de CA, versé quand le client paie"
+Sortie :
+{
+  "type": "FIXED",
+  "description": "Prime fixe de 500€ par deal ≥ 10 000€, versée au règlement client",
+  "fixedAmount": 500,
+  "floor": 10000,
+  "paymentTrigger": "CLIENT_PAID",
+  "examples": [
+    { "saleAmount": 10000, "commission": 500, "explanation": "Deal ≥ 10 000€ → prime fixe 500€" },
+    { "saleAmount": 25000, "commission": 500, "explanation": "Deal ≥ 10 000€ → prime fixe 500€" },
+    { "saleAmount": 9500, "commission": 0, "explanation": "Deal < 10 000€ → sous le seuil, pas de prime" }
+  ]
+}
+
+Entrée : "10% jusqu'à 10 000€, 12% au-delà"
+Sortie :
+{
+  "type": "TIERED",
+  "description": "10% jusqu'à 10 000€ de CA, 12% au-delà",
+  "tiers": [
+    { "min": 0, "max": 10000, "rate": 0.10 },
+    { "min": 10000, "max": null, "rate": 0.12 }
+  ],
+  "examples": [
+    { "saleAmount": 5000, "commission": 500, "explanation": "5 000€ × 10% = 500€" },
+    { "saleAmount": 10000, "commission": 1000, "explanation": "10 000€ × 10% = 1 000€" },
+    { "saleAmount": 15000, "commission": 1600, "explanation": "CA 15 000€ par paliers : 10 000€ × 10% = 1 000€ + 5 000€ × 12% = 600€ = 1 600€" }
   ]
 }`;
 

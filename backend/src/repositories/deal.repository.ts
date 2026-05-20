@@ -3,7 +3,7 @@ import { prisma } from '../config/prisma';
 
 export interface UpsertDealData {
   tenantId: string;
-  odooId: string;
+  odooId: string; // Requis pour les deals Odoo
   title: string;
   clientName?: string | null;
   amount: number;
@@ -11,6 +11,27 @@ export interface UpsertDealData {
   probability: number;
   assignedToId?: string | null;
   closedAt?: Date | null;
+  costAmount?: number | null;
+  marginAmount?: number | null;
+  marginSource?: string | null;
+}
+
+export interface CreateFileImportDealData {
+  tenantId: string;
+  fileExternalId: string;
+  title: string;
+  clientName?: string | null;
+  amount: number;
+  currency: string;
+  status: DealStatus;
+  assignedToId?: string | null;
+  closedAt?: Date | null;
+  dealType?: string | null;
+  notes?: string | null;
+  importLogId: string;
+  costAmount?: number | null;
+  marginAmount?: number | null;
+  marginSource?: string | null;
 }
 
 export const dealRepository = {
@@ -50,6 +71,37 @@ export const dealRepository = {
     });
   },
 
+  async findByFileExternalId(fileExternalId: string, tenantId: string): Promise<Deal | null> {
+    return prisma.deal.findUnique({
+      where: { tenantId_fileExternalId: { tenantId, fileExternalId } },
+    });
+  },
+
+  async createFromFileImport(data: CreateFileImportDealData): Promise<Deal> {
+    return prisma.deal.create({
+      data: {
+        tenantId: data.tenantId,
+        fileExternalId: data.fileExternalId,
+        source: 'FILE',
+        title: data.title,
+        clientName: data.clientName ?? null,
+        amount: data.amount,
+        currency: data.currency,
+        status: data.status,
+        probability: data.status === DealStatus.WON ? 100 : 0,
+        assignedToId: data.assignedToId ?? null,
+        closedAt: data.closedAt ?? null,
+        dealType: data.dealType ?? null,
+        notes: data.notes ?? null,
+        importLogId: data.importLogId,
+        costAmount: data.costAmount ?? null,
+        marginAmount: data.marginAmount ?? null,
+        marginSource: data.marginSource ?? null,
+        syncedAt: new Date(),
+      },
+    });
+  },
+
   async deleteByOdooId(odooId: string, tenantId: string): Promise<void> {
     await prisma.deal.delete({ where: { tenantId_odooId: { tenantId, odooId } } });
   },
@@ -65,6 +117,9 @@ export const dealRepository = {
         probability: data.probability,
         assignedToId: data.assignedToId,
         closedAt: data.closedAt,
+        costAmount: data.costAmount ?? null,
+        marginAmount: data.marginAmount ?? null,
+        marginSource: data.marginSource ?? null,
         syncedAt: new Date(),
       },
       create: {

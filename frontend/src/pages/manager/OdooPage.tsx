@@ -8,6 +8,7 @@ import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
+import { FileImportPanel } from '../../components/FileImportPanel';
 import type { OdooSyncResult } from '@shared/types';
 
 const configSchema = z.object({
@@ -93,7 +94,7 @@ export function OdooPage() {
     <div className="space-y-6 max-w-2xl">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Connexion CRM</h1>
-        <p className="text-gray-500 mt-1">Connectez votre Odoo pour importer vos deals automatiquement</p>
+        <p className="text-gray-500 mt-1">Connectez votre Odoo ou importez vos deals via un fichier Excel / CSV</p>
       </div>
 
       {/* Statut connexion */}
@@ -173,6 +174,13 @@ export function OdooPage() {
         </Card>
       )}
 
+      {/* ─── Séparateur Odoo ─── */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-gray-200" />
+        <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Odoo</span>
+        <div className="flex-1 h-px bg-gray-200" />
+      </div>
+
       {/* Synchronisation */}
       {configured && (
         <Card>
@@ -247,6 +255,16 @@ export function OdooPage() {
           )}
         </Card>
       )}
+
+      {/* ─── Séparateur Import fichier ─── */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-gray-200" />
+        <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Import fichier</span>
+        <div className="flex-1 h-px bg-gray-200" />
+      </div>
+
+      {/* Panel import Excel / CSV */}
+      <FileImportPanel />
     </div>
   );
 }

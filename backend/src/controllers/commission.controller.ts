@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { commissionService } from '../services/commission.service';
+import { auditLogRepository } from '../repositories/auditLog.repository';
 import { AuthenticatedRequest } from '../middlewares/auth';
 import { UserRole } from '../../../shared/types';
 
@@ -83,6 +84,33 @@ export const commissionController = {
       } else {
         commission = await commissionService.markAsPaid(id, user.tenantId!, user.userId, user.role as UserRole);
       }
+
+      res.json({ success: true, data: commission });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async markClientPaid(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const { id } = req.params;
+
+      const commission = await commissionService.markClientPaid(
+        id,
+        user.tenantId!,
+        user.userId,
+        user.role as UserRole,
+      );
+
+      await auditLogRepository.create({
+        tenantId: user.tenantId!,
+        userId: user.userId,
+        action: 'COMMISSION_CLIENT_PAID',
+        entity: 'Commission',
+        entityId: id,
+        metadata: { commissionId: id, amount: commission.amount },
+      });
 
       res.json({ success: true, data: commission });
     } catch (err) {

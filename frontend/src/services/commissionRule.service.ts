@@ -28,6 +28,19 @@ export const commissionRuleApiService = {
     return res.data.data;
   },
 
+  async update(ruleId: string, data: {
+    name: string;
+    description: string;
+    dealType?: string | null;
+    paymentDelayDays?: number | null;
+  }): Promise<CommissionRule> {
+    const res = await api.patch<{ success: true; data: CommissionRule }>(
+      `/commission-rules/${ruleId}`,
+      data,
+    );
+    return res.data.data;
+  },
+
   async archive(ruleId: string): Promise<CommissionRule> {
     const res = await api.patch<{ success: true; data: CommissionRule }>(
       `/commission-rules/${ruleId}/archive`,

@@ -3,7 +3,7 @@ import { commissionApiService } from '../../services/commission.service';
 import { StatCard, Card } from '../../components/ui/Card';
 
 interface Projection {
-  deal: { id: string; title: string; amount: number; probability: number };
+  deal: { id: string; title: string; clientName: string | null; amount: number; probability: number };
   projectedCommission: number;
   explanation: string;
 }
@@ -82,6 +82,7 @@ export function ProjectionsPage() {
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Client</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Montant</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Probabilité</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Commission si gagné</th>
@@ -91,8 +92,11 @@ export function ProjectionsPage() {
               <tbody>
                 {projections.map((proj) => (
                   <tr key={proj.deal.id} className="border-b border-gray-50 last:border-0">
-                    <td className="py-3 px-2 font-medium text-gray-900 max-w-[200px] truncate">
+                    <td className="py-3 px-2 font-medium text-gray-900 max-w-[180px] truncate">
                       {proj.deal.title}
+                    </td>
+                    <td className="py-3 px-2 text-gray-600 max-w-[150px] truncate">
+                      {proj.deal.clientName ?? <span className="text-gray-300 text-xs">—</span>}
                     </td>
                     <td className="py-3 px-2 text-right text-gray-600">
                       {formatEur(proj.deal.amount)}
@@ -121,7 +125,7 @@ export function ProjectionsPage() {
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-gray-200 bg-gray-50">
-                  <td colSpan={3} className="py-3 px-2 font-semibold text-gray-700">Total projeté</td>
+                  <td colSpan={4} className="py-3 px-2 font-semibold text-gray-700">Total projeté</td>
                   <td className="py-3 px-2 text-right font-bold text-primary-700 text-base">
                     {formatEur(total)}
                   </td>

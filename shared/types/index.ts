@@ -42,6 +42,7 @@ export enum CommissionStatus {
   PENDING = 'PENDING',
   VALIDATED = 'VALIDATED',
   PAID = 'PAID',
+  CANCELLED = 'CANCELLED',
 }
 
 export enum RuleScope {
@@ -66,6 +67,29 @@ export enum ContestStatus {
   CANCELLED = 'CANCELLED',
 }
 
+export enum DealSource {
+  ODOO = 'ODOO',
+  FILE = 'FILE',
+}
+
+export enum ImportStatus {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  SUCCESS = 'SUCCESS',
+  PARTIAL_ERROR = 'PARTIAL_ERROR',
+  FAILED = 'FAILED',
+}
+
+// --- Moteur de règles avancé (Session B) ---
+
+export type CommissionCalculationBasis = 'REVENUE' | 'MARGIN';
+export type CommissionPaymentTrigger = 'DEAL_WON' | 'CLIENT_PAID';
+
+// --- Objectifs — modes bonus et récurrence (Session B) ---
+
+export type ObjectiveBonusMode = 'none' | 'simple' | 'tiered';
+export type ObjectiveRecurrence = 'none' | 'monthly' | 'quarterly' | 'annual';
+
 // --- Tenant ---
 
 export interface Tenant {
@@ -89,6 +113,14 @@ export interface ObjectiveBonus {
   value: number;                // ex : 10 pour 10 %, ou 500 pour 500 €
 }
 
+export interface ObjectiveBonusTier {
+  threshold: number;  // % d'atteinte (ex: 80 pour 80%)
+  reward: {
+    type: 'fixed' | 'percentage'; // Fixe en €, ou % sur CA réalisé
+    value: number;
+  };
+}
+
 export interface Objective {
   id: string;
   label: string;
@@ -105,6 +137,13 @@ export interface Objective {
   endDate?: string;
   // prime de dépassement
   bonus?: ObjectiveBonus;
+  // mode bonus étendu (Session B) — défaut: 'simple' si bonus.enabled, sinon 'none'
+  bonusMode?: ObjectiveBonusMode;
+  bonusTiers?: ObjectiveBonusTier[];  // utilisé seulement si bonusMode === 'tiered'
+  // récurrence (Session B)
+  recurrence?: ObjectiveRecurrence;        // défaut: 'none'
+  recurrenceEndDate?: string;              // date ISO limite de génération
+  parentObjectiveId?: string;              // id du template si occurrence générée
   // désactivé = archivé (false = objectif inactif, masqué par défaut)
   isActive?: boolean;
 }
@@ -148,6 +187,11 @@ export interface CommissionRuleConfig {
   rate?: number;         // Pour PERCENTAGE simple
   fixedAmount?: number;  // Pour FIXED
   examples: CommissionExample[];
+  // Champs Session B — tous optionnels pour rétrocompatibilité
+  calculationBasis?: CommissionCalculationBasis; // Défaut: 'REVENUE'
+  paymentTrigger?: CommissionPaymentTrigger;      // Défaut: 'DEAL_WON'
+  cap?: number;    // Plafond absolu en € (null = pas de plafond)
+  floor?: number;  // Montant min du deal pour déclencher (null = pas de seuil)
 }
 
 export interface CommissionRule {
@@ -186,16 +230,38 @@ export interface RuleAssignment {
 export interface Deal {
   id: string;
   tenantId: string;
-  odooId: string;
+  odooId: string | null;
+  fileExternalId: string | null;
+  source: DealSource;
   title: string;
   clientName: string | null;
   amount: number;
+  currency: string;
   status: DealStatus;
   probability: number;
   assignedToId: string | null;
   closedAt: string | null;
   syncedAt: string;
   createdAt: string;
+  dealType: string | null;
+  notes: string | null;
+  importLogId: string | null;
+  costAmount: number | null;
+  marginAmount: number | null;
+  marginSource: 'ODOO' | 'CSV_IMPORT' | 'COMPUTED' | null;
+}
+
+// --- Deal Assignment ---
+
+export interface DealAssignment {
+  id: string;
+  tenantId: string;
+  dealId: string;
+  userId: string;
+  share: number;        // 0.0 - 1.0
+  role: string | null;
+  createdAt: string;
+  user?: Pick<User, 'firstName' | 'lastName' | 'email'>;
 }
 
 // --- Commission ---
@@ -212,10 +278,17 @@ export interface Commission {
   scheduledPaymentAt: string | null;
   validatedAt: string | null;
   paidAt: string | null;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  cancellationReason: string | null;
+  // Champs Session B — mode "paiement client"
+  awaitingClientPayment: boolean;
+  clientPaidAt: string | null;
+  clientPaidBy: string | null;
 }
 
 export interface CommissionWithDetails extends Commission {
-  deal: Pick<Deal, 'title' | 'clientName' | 'amount' | 'status'>;
+  deal: Pick<Deal, 'title' | 'clientName' | 'amount' | 'status' | 'closedAt'>;
   rule: Pick<CommissionRule, 'name' | 'config'>;
   user: Pick<User, 'firstName' | 'lastName' | 'email'>;
   calculationDetail: string;
@@ -340,6 +413,78 @@ export interface OdooSyncResult {
   updated: number;
   errors: string[];
   syncedAt: string;
+}
+
+// --- File Import ---
+
+export interface ImportLog {
+  id: string;
+  tenantId: string;
+  uploadedBy: string;
+  fileName: string;
+  status: ImportStatus;
+  totalRows: number;
+  successRows: number;
+  errorRows: number;
+  skippedRows: number;
+  errors: ImportRowError[];
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface ImportRowError {
+  row: number;
+  column: string;
+  message: string;
+  value?: string;
+}
+
+export interface ImportPreview {
+  importLogId: string;              // ID de l'ImportLog PENDING
+  totalRows: number;
+  validRows: number;
+  errorRows: number;
+  duplicateRows: number;            // external_id déjà existant
+  unmatchedCommercials: number;     // commercial non trouvé (ni par email, ni par nom)
+  errors: ImportRowError[];
+  unmatchedIdentifiers: string[];   // emails ou noms non reconnus
+  sample: ImportPreviewRow[];       // Aperçu des 5 premières lignes valides
+}
+
+export interface ImportPreviewRow {
+  externalId: string;
+  dealName: string;
+  amount: number;
+  currency: string;
+  closedAt: string;
+  commercialEmail: string | null;     // null si le fichier ne contient qu'un nom
+  commercialIdentifier: string;       // valeur brute du fichier (email ou nom)
+  commercialName: string | null;      // nom résolu depuis GrowCom, null si non reconnu
+  clientName: string | null;
+  dealType: string | null;
+  isDuplicate: boolean;
+  isUnmatched: boolean;
+}
+
+export interface FileImportConfirmResult {
+  created: number;
+  skipped: number;
+  errors: number;
+  importLogId: string;
+}
+
+// --- Objective Snapshot (Session B - Chantier 7) ---
+
+export interface ObjectiveSnapshot {
+  id: string;
+  tenantId: string;
+  userId: string;
+  objectiveId: string;
+  periodLabel: string;   // "Janvier 2026", "T1 2026", "Année 2026"
+  snapshotData: Objective;
+  actualValue: number;
+  bonusEarned: number;
+  snapshotAt: string;
 }
 
 // --- Stripe ---

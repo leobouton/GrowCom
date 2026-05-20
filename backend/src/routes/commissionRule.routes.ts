@@ -21,6 +21,11 @@ router.post(
   commissionRuleController.generate,
 );
 router.patch(
+  '/:id',
+  checkRole(UserRole.MANAGER, UserRole.BU_MANAGER),
+  commissionRuleController.update,
+);
+router.patch(
   '/:id/archive',
   checkRole(UserRole.MANAGER, UserRole.BU_MANAGER),
   commissionRuleController.archive,

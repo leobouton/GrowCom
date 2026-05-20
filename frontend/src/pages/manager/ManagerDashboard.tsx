@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { commissionApiService } from '../../services/commission.service';
+import { dealAssignmentApiService } from '../../services/dealAssignment.service';
 import { StatCard, Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { CommissionStatusBadge } from '../../components/ui/Badge';
-import type { CommissionWithDetails } from '@shared/types';
+import { Badge, CommissionStatusBadge } from '../../components/ui/Badge';
+import { DealAssignmentModal } from '../../components/DealAssignmentModal';
+import type { CommissionWithDetails, DealAssignment } from '@shared/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -46,6 +48,16 @@ export function ManagerDashboard() {
   const [loading, setLoading] = useState(true);
   const [rankingLoading, setRankingLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Modal d'assignation
+  const [assignModal, setAssignModal] = useState<{
+    dealId: string;
+    dealTitle: string;
+    existingAssignments: DealAssignment[];
+  } | null>(null);
+
+  // Modal confirmation "Client a payé"
+  const [clientPaidConfirm, setClientPaidConfirm] = useState<CommissionWithDetails | null>(null);
 
   const [periodType, setPeriodType] = useState<PeriodType>('month');
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
@@ -114,6 +126,26 @@ export function ManagerDashboard() {
     }
   };
 
+  const handleClientPaid = async (id: string) => {
+    setActionLoading(id);
+    try {
+      await commissionApiService.markClientPaid(id);
+      await loadStats();
+    } finally {
+      setActionLoading(null);
+      setClientPaidConfirm(null);
+    }
+  };
+
+  const handleOpenAssignModal = async (commission: CommissionWithDetails) => {
+    const assignments = await dealAssignmentApiService.getByDealId(commission.dealId);
+    setAssignModal({
+      dealId: commission.dealId,
+      dealTitle: commission.deal.title,
+      existingAssignments: assignments,
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -131,7 +163,7 @@ export function ManagerDashboard() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <StatCard
           title="En attente de validation"
           value={formatEur(stats?.totalPendingCommissions ?? 0)}
@@ -149,16 +181,6 @@ export function ManagerDashboard() {
           icon={
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          }
-        />
-        <StatCard
-          title="Validées (à payer)"
-          value={formatEur(stats?.totalValidatedCommissions ?? 0)}
-          color="indigo"
-          icon={
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           }
         />
@@ -397,11 +419,33 @@ export function ManagerDashboard() {
                       {formatEur(commission.amount)}
                     </td>
                     <td className="py-3 px-2">
-                      <CommissionStatusBadge status={commission.status} scheduledPaymentAt={commission.scheduledPaymentAt} />
+                      {commission.awaitingClientPayment
+                        ? <Badge variant="orange">En attente paiement client</Badge>
+                        : <CommissionStatusBadge status={commission.status} scheduledPaymentAt={commission.scheduledPaymentAt} />
+                      }
                     </td>
                     <td className="py-3 px-2 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {commission.status === 'PENDING' && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void handleOpenAssignModal(commission)}
+                          title="Modifier l'affectation"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                        </Button>
+                        {commission.awaitingClientPayment && (
+                          <Button
+                            size="sm"
+                            loading={actionLoading === commission.id}
+                            onClick={() => setClientPaidConfirm(commission)}
+                          >
+                            Client a payé
+                          </Button>
+                        )}
+                        {!commission.awaitingClientPayment && commission.status === 'PENDING' && (
                           <Button
                             size="sm"
                             loading={actionLoading === commission.id}
@@ -410,7 +454,7 @@ export function ManagerDashboard() {
                             Valider
                           </Button>
                         )}
-                        {commission.status === 'VALIDATED' && (
+                        {!commission.awaitingClientPayment && commission.status === 'VALIDATED' && (
                           <Button
                             size="sm"
                             variant="secondary"
@@ -429,6 +473,44 @@ export function ManagerDashboard() {
           </div>
         )}
       </Card>
+      {/* Modal modification affectation */}
+      {assignModal && (
+        <DealAssignmentModal
+          dealId={assignModal.dealId}
+          dealTitle={assignModal.dealTitle}
+          existingAssignments={assignModal.existingAssignments}
+          onClose={() => setAssignModal(null)}
+          onSaved={() => {
+            setAssignModal(null);
+            void loadStats();
+          }}
+        />
+      )}
+
+      {/* Modal confirmation "Client a payé" */}
+      {clientPaidConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="text-base font-semibold text-gray-900 mb-2">Confirmer le paiement client</h3>
+            <p className="text-sm text-gray-600 mb-5">
+              Confirmer que le client a payé la prestation pour{' '}
+              <span className="font-medium text-gray-900">"{clientPaidConfirm.deal.title}"</span> ?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button variant="secondary" size="sm" onClick={() => setClientPaidConfirm(null)}>
+                Annuler
+              </Button>
+              <Button
+                size="sm"
+                loading={actionLoading === clientPaidConfirm.id}
+                onClick={() => void handleClientPaid(clientPaidConfirm.id)}
+              >
+                Confirmer
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

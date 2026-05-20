@@ -25,7 +25,7 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-type FilterTab = 'all' | 'active' | 'archived';
+type FilterTab = 'active' | 'archived';
 
 function formatEur(amount: number) {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
@@ -79,6 +79,7 @@ export function CommissionRulesPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [editingRule, setEditingRule] = useState<CommissionRuleWithCount | null>(null);
   const [generatedRule, setGeneratedRule] = useState<CommissionRuleWithCount | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filterTab, setFilterTab] = useState<FilterTab>('active');
@@ -98,21 +99,50 @@ export function CommissionRulesPage() {
 
   useEffect(() => { void loadRules(); }, []);
 
+  const handleEditClick = (rule: CommissionRuleWithCount) => {
+    setEditingRule(rule);
+    setGeneratedRule(null);
+    setError(null);
+    reset({
+      name: rule.name,
+      description: rule.description,
+      dealType: rule.dealType ?? undefined,
+      paymentDelayDays: rule.paymentDelayDays ?? undefined,
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingRule(null);
+    setError(null);
+    reset({ name: '', description: '', dealType: undefined, paymentDelayDays: undefined });
+  };
+
   const onSubmit = async (data: FormData) => {
     setError(null);
     setGenerating(true);
     setGeneratedRule(null);
     try {
-      const rule = await commissionRuleApiService.generate({
-        name: data.name,
-        description: data.description,
-        dealType: data.dealType || null,
-        paymentDelayDays: data.paymentDelayDays || null,
-      });
-      const ruleWithCount: CommissionRuleWithCount = { ...rule, assignmentCount: 0 };
-      setGeneratedRule(ruleWithCount);
+      if (editingRule) {
+        await commissionRuleApiService.update(editingRule.id, {
+          name: data.name,
+          description: data.description,
+          dealType: data.dealType || null,
+          paymentDelayDays: data.paymentDelayDays || null,
+        });
+        setEditingRule(null);
+        reset({ name: '', description: '', dealType: undefined, paymentDelayDays: undefined });
+      } else {
+        const rule = await commissionRuleApiService.generate({
+          name: data.name,
+          description: data.description,
+          dealType: data.dealType || null,
+          paymentDelayDays: data.paymentDelayDays || null,
+        });
+        const ruleWithCount: CommissionRuleWithCount = { ...rule, assignmentCount: 0 };
+        setGeneratedRule(ruleWithCount);
+        reset();
+      }
       await loadRules();
-      reset();
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
@@ -149,11 +179,9 @@ export function CommissionRulesPage() {
     }
   };
 
-  const filteredRules = rules.filter((r) => {
-    if (filterTab === 'active') return !r.isArchived;
-    if (filterTab === 'archived') return r.isArchived;
-    return true;
-  });
+  const filteredRules = rules.filter((r) =>
+    filterTab === 'active' ? !r.isArchived : r.isArchived,
+  );
 
   if (loading) {
     return (
@@ -177,11 +205,11 @@ export function CommissionRulesPage() {
 
           {/* Onglets filtre */}
           <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-            {([['all', 'Toutes'], ['active', 'Actives'], ['archived', 'Archivées']] as [FilterTab, string][]).map(
+            {([['active', 'Actives'], ['archived', 'Archivées']] as [FilterTab, string][]).map(
               ([tab, label]) => (
                 <button
                   key={tab}
-                  onClick={() => setFilterTab(tab)}
+                  onClick={() => { setFilterTab(tab); handleCancelEdit(); }}
                   className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
                     filterTab === tab
                       ? 'bg-white text-gray-900 shadow-sm'
@@ -189,11 +217,9 @@ export function CommissionRulesPage() {
                   }`}
                 >
                   {label}
-                  {tab !== 'archived' && (
-                    <span className="ml-1 text-gray-400">
-                      ({tab === 'all' ? rules.length : rules.filter((r) => !r.isArchived).length})
-                    </span>
-                  )}
+                  <span className="ml-1 text-gray-400">
+                    ({tab === 'active' ? rules.filter((r) => !r.isArchived).length : rules.filter((r) => r.isArchived).length})
+                  </span>
                 </button>
               ),
             )}
@@ -255,15 +281,25 @@ export function CommissionRulesPage() {
                           Restaurer
                         </Button>
                       ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void handleArchive(rule.id)}
-                          loading={archivingId === rule.id}
-                          className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                        >
-                          Archiver
-                        </Button>
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEditClick(rule)}
+                            className={editingRule?.id === rule.id ? 'bg-primary-50 text-primary-700' : ''}
+                          >
+                            Modifier
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void handleArchive(rule.id)}
+                            loading={archivingId === rule.id}
+                            className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                          >
+                            Archiver
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -276,13 +312,28 @@ export function CommissionRulesPage() {
         {/* ── Colonne droite : créer une règle ── */}
         <div className="lg:col-span-3 space-y-4">
           <Card>
-            <div className="flex items-center gap-2 mb-5">
-              <div className="w-7 h-7 bg-primary-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <svg className="w-4 h-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${editingRule ? 'bg-amber-100' : 'bg-primary-100'}`}>
+                  {editingRule ? (
+                    <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  )}
+                </div>
+                <h2 className="text-base font-semibold text-gray-900">
+                  {editingRule ? `Modifier « ${editingRule.name} »` : 'Créer une nouvelle règle'}
+                </h2>
               </div>
-              <h2 className="text-base font-semibold text-gray-900">Créer une nouvelle règle</h2>
+              {editingRule && (
+                <button type="button" onClick={handleCancelEdit} className="text-xs text-gray-400 hover:text-gray-600">
+                  Annuler
+                </button>
+              )}
             </div>
 
             <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} className="space-y-4">
@@ -346,7 +397,9 @@ export function CommissionRulesPage() {
               )}
 
               <Button type="submit" loading={generating} className="w-full">
-                {generating ? 'Génération en cours...' : 'Générer avec l\'IA'}
+                {generating
+                  ? (editingRule ? 'Enregistrement...' : 'Génération en cours...')
+                  : (editingRule ? 'Enregistrer les modifications' : 'Générer avec l\'IA')}
               </Button>
             </form>
           </Card>
