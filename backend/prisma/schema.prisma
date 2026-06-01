@@ -47,6 +47,12 @@ enum DealStatus {
   LOST
 }
 
+enum DisputeStatus {
+  OPEN
+  RESOLVED_ACCEPTED
+  RESOLVED_REJECTED
+}
+
 enum CommissionStatus {
   PENDING
   VALIDATED
@@ -68,6 +74,7 @@ enum AssigneeType {
 enum ContestMetric {
   REVENUE
   DEAL_COUNT
+  MARGIN
 }
 
 enum ContestStatus {
@@ -87,6 +94,17 @@ enum ImportStatus {
   SUCCESS
   PARTIAL_ERROR
   FAILED
+}
+
+enum ImportBatchStatus {
+  COMPLETED
+  CANCELLED
+  PARTIALLY_CANCELLED
+}
+
+enum ImportSource {
+  CSV
+  XLSX
 }
 
 // --- Models ---
@@ -115,8 +133,11 @@ model Tenant {
   ruleAssignments     RuleAssignment[]
   contests            Contest[]
   importLogs          ImportLog[]
+  importBatches       ImportBatch[]
   dealAssignments     DealAssignment[]
-  objectiveSnapshots  ObjectiveSnapshot[]
+  objectiveSnapshots    ObjectiveSnapshot[]
+  commissionAdjustments CommissionAdjustment[]
+  commissionDisputes    CommissionDispute[]
 
   @@index([status])
   @@index([slug])
@@ -172,8 +193,10 @@ model User {
   ruleAssignments     RuleAssignment[]
   createdContests     Contest[]        @relation("ContestCreator")
   importLogs          ImportLog[]      @relation("ImportLogUploader")
-  dealAssignments     DealAssignment[]
-  objectiveSnapshots  ObjectiveSnapshot[]
+  dealAssignments       DealAssignment[]
+  objectiveSnapshots    ObjectiveSnapshot[]
+  commissionAdjustments CommissionAdjustment[]
+  raisedDisputes        CommissionDispute[]    @relation("DisputeRaiser")
 
   @@index([tenantId])
   @@index([email])
@@ -263,11 +286,13 @@ model Deal {
   costAmount     Float?     // Coût du deal (achat, sous-traitance, frais)
   marginAmount   Float?     // Marge réelle = amount - costAmount si calculée, ou importée directement
   marginSource   String?    // 'ODOO' | 'CSV_IMPORT' | 'COMPUTED' | null
+  importBatchId  String?
 
   tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   assignedTo  User?            @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
   commissions Commission[]
   importLog   ImportLog?       @relation(fields: [importLogId], references: [id], onDelete: SetNull)
+  importBatch ImportBatch?     @relation("ImportBatchDeals", fields: [importBatchId], references: [id], onDelete: SetNull)
   assignments DealAssignment[]
 
   @@unique([tenantId, odooId])
@@ -276,6 +301,7 @@ model Deal {
   @@index([tenantId, status])
   @@index([assignedToId])
   @@index([importLogId])
+  @@index([importBatchId])
 }
 
 model Commission {
@@ -298,10 +324,11 @@ model Commission {
   clientPaidAt         DateTime?
   clientPaidBy         String?          // userId du manager qui a marqué le paiement client
 
-  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  deal   Deal           @relation(fields: [dealId], references: [id], onDelete: Cascade)
-  rule   CommissionRule @relation(fields: [ruleId], references: [id])
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deal     Deal           @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  rule     CommissionRule @relation(fields: [ruleId], references: [id])
+  disputes CommissionDispute[]
 
   @@unique([dealId, userId, ruleId])
   @@index([tenantId])
@@ -330,20 +357,21 @@ model DealAssignment {
 }
 
 model Contest {
-  id             String        @id @default(cuid())
-  tenantId       String
-  name           String
-  description    String        @default("")
-  prize          String
-  metric         ContestMetric
-  scope          RuleScope     @default(GLOBAL)
-  teamName       String?
-  participantIds Json          @default("[]")
-  periodStart    DateTime
-  periodEnd      DateTime
-  status         ContestStatus @default(ACTIVE)
-  createdBy      String
-  createdAt      DateTime      @default(now())
+  id                    String        @id @default(cuid())
+  tenantId              String
+  name                  String
+  description           String        @default("")
+  prize                 String
+  metric                ContestMetric
+  scope                 RuleScope     @default(GLOBAL)
+  teamName              String?
+  participantIds        Json          @default("[]")
+  periodStart           DateTime
+  periodEnd             DateTime
+  status                ContestStatus @default(ACTIVE)
+  anonymousLeaderboard  Boolean       @default(false)
+  createdBy             String
+  createdAt             DateTime      @default(now())
 
   tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   creator User   @relation("ContestCreator", fields: [createdBy], references: [id])
@@ -373,6 +401,33 @@ model ImportLog {
 
   @@index([tenantId])
   @@index([tenantId, createdAt])
+}
+
+model ImportBatch {
+  id                  String            @id @default(cuid())
+  tenantId            String
+  importedBy          String
+  source              ImportSource
+  originalFileName    String?
+  totalRows           Int
+  createdRows         Int
+  updatedRows         Int
+  errorRows           Int
+  status              ImportBatchStatus @default(COMPLETED)
+  cancelledAt         DateTime?
+  cancelledBy         String?
+  cancellationReason  String?
+  cancellationSummary Json?
+  updatedDealSnapshots Json?
+  importErrors        Json?
+  createdAt           DateTime          @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deals  Deal[] @relation("ImportBatchDeals")
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([importedBy])
 }
 
 model AuditLog {
@@ -411,4 +466,46 @@ model ObjectiveSnapshot {
   @@index([tenantId])
   @@index([userId])
   @@index([userId, snapshotAt])
+}
+
+model CommissionAdjustment {
+  id                   String           @id @default(cuid())
+  tenantId             String
+  userId               String
+  originalCommissionId String?          // Commission d'origine si clawback (référence souple, pas de FK)
+  amount               Float            // Peut être négatif (clawback) ou positif (bonus exceptionnel)
+  reason               String
+  status               CommissionStatus @default(VALIDATED)
+  createdBy            String           // userId du manager
+  createdAt            DateTime         @default(now())
+  paidAt               DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([originalCommissionId])
+}
+
+model CommissionDispute {
+  id              String        @id @default(cuid())
+  tenantId        String
+  commissionId    String
+  raisedBy        String        // userId du commercial qui conteste
+  reason          String
+  status          DisputeStatus @default(OPEN)
+  managerResponse String?
+  resolvedBy      String?
+  resolvedAt      DateTime?
+  createdAt       DateTime      @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  commission Commission @relation(fields: [commissionId], references: [id], onDelete: Cascade)
+  raiser     User       @relation("DisputeRaiser", fields: [raisedBy], references: [id])
+
+  @@index([tenantId])
+  @@index([commissionId])
+  @@index([raisedBy])
+  @@index([status])
 }

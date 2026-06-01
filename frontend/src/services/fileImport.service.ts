@@ -4,10 +4,14 @@ import type { ImportPreview, FileImportConfirmResult, ImportLog } from '@shared/
 export const fileImportApiService = {
   /**
    * Upload + prévisualisation (étape 1)
+   * Si customMapping est fourni, le backend utilise ces correspondances manuelles.
    */
-  async upload(file: File): Promise<ImportPreview> {
+  async upload(file: File, customMapping?: Record<string, string>): Promise<ImportPreview> {
     const formData = new FormData();
     formData.append('file', file);
+    if (customMapping) {
+      formData.append('customMapping', JSON.stringify(customMapping));
+    }
     const res = await api.post<{ success: true; data: ImportPreview }>(
       '/sync/upload',
       formData,

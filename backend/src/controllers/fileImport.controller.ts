@@ -26,11 +26,21 @@ export const fileImportController = {
         );
       }
 
+      // Mapping custom envoyé par le frontend en cas de fallback manuel
+      let customMapping: Record<string, string> | undefined;
+      const customMappingRaw = (req.body as Record<string, unknown>)?.customMapping;
+      if (typeof customMappingRaw === 'string') {
+        try { customMapping = JSON.parse(customMappingRaw); } catch { /* ignore */ }
+      } else if (customMappingRaw && typeof customMappingRaw === 'object') {
+        customMapping = customMappingRaw as Record<string, string>;
+      }
+
       const preview = await previewImport(
         user.tenantId,
         user.userId,
         req.file.buffer,
         req.file.originalname,
+        customMapping,
       );
 
       res.json({ success: true, data: preview });

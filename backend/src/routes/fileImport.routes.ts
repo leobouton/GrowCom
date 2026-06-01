@@ -12,8 +12,8 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
 });
 
-// Toutes les routes nécessitent d'être authentifié et MANAGER
-router.use(authenticate, checkTenant, checkRole(UserRole.MANAGER));
+// Toutes les routes nécessitent d'être authentifié et MANAGER ou BU_MANAGER
+router.use(authenticate, checkTenant, checkRole(UserRole.MANAGER, UserRole.BU_MANAGER));
 
 router.post('/upload', upload.single('file'), fileImportController.upload);
 router.post('/confirm', fileImportController.confirm);

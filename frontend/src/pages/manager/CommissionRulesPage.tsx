@@ -16,7 +16,7 @@ import { fr } from 'date-fns/locale';
 const schema = z.object({
   name: z.string().min(1, 'Le nom est requis'),
   dealType: z.string().max(50).optional(),
-  paymentDelayDays: z.coerce.number().int().min(1).max(730).optional().nullable(),
+  paymentDelayDays: z.number().int().min(1, 'Minimum 1 jour').max(730, 'Maximum 730 jours').nullable().optional(),
   description: z
     .string()
     .min(10, 'Décrivez la règle en au moins 10 caractères')
@@ -86,6 +86,7 @@ export function CommissionRulesPage() {
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
+    defaultValues: { paymentDelayDays: undefined },
   });
 
   const loadRules = async () => {
@@ -363,7 +364,9 @@ export function CommissionRulesPage() {
                     max={730}
                     placeholder="Ex : 90"
                     className="block w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    {...register('paymentDelayDays')}
+                    {...register('paymentDelayDays', {
+                      setValueAs: (v) => (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Number(v),
+                    })}
                   />
                   <span className="text-sm text-gray-500">jours après la signature</span>
                 </div>

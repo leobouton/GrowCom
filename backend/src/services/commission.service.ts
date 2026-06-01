@@ -4,10 +4,13 @@ import { ruleAssignmentRepository } from '../repositories/ruleAssignment.reposit
 import { dealAssignmentRepository } from '../repositories/dealAssignment.repository';
 import { dealRepository } from '../repositories/deal.repository';
 import { userRepository } from '../repositories/user.repository';
+import { commissionAdjustmentRepository } from '../repositories/commissionAdjustment.repository';
+import { commissionDisputeRepository } from '../repositories/commissionDispute.repository';
+import { auditLogRepository } from '../repositories/auditLog.repository';
 import { AppError } from '../middlewares/errorHandler';
 import { CommissionStatus, CommissionRuleConfig, CommissionRuleType, UserRole } from '../../../shared/types';
 // CommissionCalculationBasis importé via CommissionRuleConfig (optionnel)
-import { CommissionStatus as PrismaCommissionStatus, UserRole as PrismaUserRole } from '@prisma/client';
+import { CommissionStatus as PrismaCommissionStatus, UserRole as PrismaUserRole, DealStatus as PrismaDealStatus } from '@prisma/client';
 
 // ─── Calcul du montant de commission ─────────────────────────────────────────
 
@@ -84,33 +87,62 @@ export function calculateCommissionAmount(
  *
  * Hiérarchie GrowCom :
  * - MANAGER (Directeur)            → accès total à tout le tenant (null = pas de filtre)
- * - BU_MANAGER                     → accès total à tout le tenant (null = pas de filtre)
- * - TEAM_LEAD (Responsable secteur)→ uniquement les commerciaux/recruteurs de son équipe
+ * - TEAM_LEAD (Responsable secteur)→ uniquement les commerciaux/recruteurs de son équipe (leadId)
+ * - BU_MANAGER                     → uniquement les équipes qu'il supervise (managerId)
+ * - MANAGER                        → uniquement son équipe s'il en a une (leadId ou managerId), sinon accès total
  * - SUPER_ADMIN                    → accès total (null = pas de filtre)
  */
-async function resolveTeamScope(
+export async function resolveTeamScope(
   callerId: string,
   callerRole: UserRole,
   tenantId: string,
 ): Promise<string[] | null> {
+  const memberFilter = {
+    where: {
+      isActive: true,
+      role: { in: [PrismaUserRole.COMMERCIAL, PrismaUserRole.RECRUITER] },
+    },
+    select: { id: true },
+  };
+
   if (callerRole === UserRole.TEAM_LEAD) {
     // Responsable de secteur : voit et valide uniquement son équipe (commerciaux/recruteurs)
     const group = await prisma.group.findFirst({
       where: { leadId: callerId, tenantId },
-      include: {
-        members: {
-          where: {
-            isActive: true,
-            role: { in: [PrismaUserRole.COMMERCIAL, PrismaUserRole.RECRUITER] },
-          },
-          select: { id: true },
-        },
-      },
+      include: { members: memberFilter },
     });
     return group?.members.map((m) => m.id) ?? [];
   }
 
-  // MANAGER, BU_MANAGER, SUPER_ADMIN : accès total à tout le tenant
+  if (callerRole === UserRole.BU_MANAGER) {
+    // Directeur régional : voit les équipes qu'il supervise (managerId)
+    const groups = await prisma.group.findMany({
+      where: { managerId: callerId, tenantId },
+      include: { members: memberFilter },
+    });
+    if (groups.length === 0) return [];
+    const ids = new Set<string>();
+    for (const g of groups) for (const m of g.members) ids.add(m.id);
+    return [...ids];
+  }
+
+  if (callerRole === UserRole.MANAGER) {
+    // Manager général : voit uniquement son équipe s'il en a une (lead ou manager d'un groupe)
+    const groups = await prisma.group.findMany({
+      where: {
+        tenantId,
+        OR: [{ leadId: callerId }, { managerId: callerId }],
+      },
+      include: { members: memberFilter },
+    });
+    // S'il n'a aucune équipe → accès total (filet de sécurité pour le super-manager)
+    if (groups.length === 0) return null;
+    const ids = new Set<string>();
+    for (const g of groups) for (const m of g.members) ids.add(m.id);
+    return [...ids];
+  }
+
+  // SUPER_ADMIN : accès total à tout le tenant
   return null;
 }
 
@@ -125,7 +157,7 @@ async function assertInScope(
   tenantId: string,
 ): Promise<void> {
   const teamIds = await resolveTeamScope(callerId, callerRole, tenantId);
-  if (teamIds === null) return; // Accès total (MANAGER, BU_MANAGER, SUPER_ADMIN)
+  if (teamIds === null) return; // Accès total (SUPER_ADMIN, ou MANAGER sans équipe)
   if (!teamIds.includes(targetUserId)) {
     throw new AppError(403, 'FORBIDDEN', 'Ce commercial n\'appartient pas à votre équipe');
   }
@@ -202,7 +234,7 @@ export const commissionService = {
     const effectiveStart = startDate ?? new Date(now.getFullYear(), now.getMonth(), 1);
     const effectiveEnd = endDate ?? new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
-    // Stats globales (filtrées par équipe si TEAM_LEAD)
+    // Stats globales (filtrées par équipe si TEAM_LEAD, BU_MANAGER, ou MANAGER avec équipe)
     const statsWhere = teamIds !== null
       ? { tenantId, userId: { in: teamIds } }
       : { tenantId };
@@ -262,6 +294,11 @@ export const commissionService = {
     );
     const totalDeferredCommissions = deferredCommissions.reduce((sum, c) => sum + c.amount, 0);
 
+    const [openDisputeCount, totalAdjustmentsThisPeriod] = await Promise.all([
+      commissionDisputeRepository.countOpen(tenantId),
+      commissionAdjustmentRepository.sumByTenantAndPeriod(tenantId, effectiveStart, effectiveEnd),
+    ]);
+
     return {
       totalPendingCommissions: pendingAgg._sum.amount ?? 0,
       totalValidatedCommissions: validatedAgg._sum.amount ?? 0,
@@ -270,6 +307,8 @@ export const commissionService = {
       commercialsSummary,
       pendingCommissions,
       deferredCommissions,
+      openDisputeCount,
+      totalAdjustmentsThisPeriod,
     };
   },
 
@@ -278,13 +317,16 @@ export const commissionService = {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
-    const [totalEarned, allCommissions, openDeals, user, activeAssignments, wonDeals] = await Promise.all([
+    const [totalEarned, allCommissions, openDeals, user, activeAssignments, wonDealsForObjectives, adjustments] = await Promise.all([
       commissionRepository.sumByUserAndMonth(userId, tenantId, startOfMonth, endOfMonth),
       commissionRepository.findByUserId(userId, tenantId),
       dealRepository.findOpenByUserId(userId, tenantId),
       userRepository.findById(userId),
       ruleAssignmentRepository.findActiveForUser(userId, tenantId),
-      dealRepository.findWonByUserId(userId, tenantId),
+      // Chantier 1 : utilise findWonForObjectives pour exclure les deals avec commission CANCELLED
+      // et récupérer le share du DealAssignment pour les splits
+      dealRepository.findWonForObjectives(userId, tenantId),
+      commissionAdjustmentRepository.findByUserId(userId, tenantId),
     ]);
 
     const deferredCommissions = allCommissions.filter(
@@ -327,6 +369,31 @@ export const commissionService = {
 
     const fixedSalary = user?.fixedSalary ?? 0; // Salaire fixe BRUT MENSUEL en euros
 
+    // Enrichir les commissions avec leur dispute (ouvert ou résolu le plus récent)
+    const commissionIds = allCommissions.map((c) => c.id);
+    const allDisputes = commissionIds.length > 0
+      ? await prisma.commissionDispute.findMany({
+          where: { commissionId: { in: commissionIds }, tenantId },
+          select: { id: true, commissionId: true, status: true, managerResponse: true, reason: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+        })
+      : [];
+    // On garde le dispute le plus récent par commission
+    const disputeByCommission = new Map<string, typeof allDisputes[number]>();
+    for (const d of allDisputes) {
+      if (!disputeByCommission.has(d.commissionId)) {
+        disputeByCommission.set(d.commissionId, d);
+      }
+    }
+
+    const commissionsWithDispute = allCommissions.map((c) => {
+      const d = disputeByCommission.get(c.id);
+      return {
+        ...c,
+        dispute: d ? { id: d.id, status: d.status, managerResponse: d.managerResponse, reason: d.reason } : null,
+      };
+    });
+
     return {
       fixedSalary,
       totalEarnedThisMonth: totalEarned,
@@ -336,11 +403,27 @@ export const commissionService = {
       deferredCommissions,
       projectedCommissions,
       projections,
-      commissions: allCommissions,
-      wonDeals: wonDeals.map((d) => ({
+      commissions: commissionsWithDispute,
+      adjustments: adjustments.map((a) => ({
+        id: a.id,
+        tenantId: a.tenantId,
+        userId: a.userId,
+        originalCommissionId: a.originalCommissionId ?? null,
+        amount: a.amount,
+        reason: a.reason,
+        status: a.status,
+        createdBy: a.createdBy,
+        createdAt: a.createdAt.toISOString(),
+        paidAt: a.paidAt?.toISOString() ?? null,
+      })),
+      // Chantier 1 : wonDeals filtrés (excluant commission CANCELLED) avec share et marge
+      // pour le calcul d'objectifs côté frontend
+      wonDeals: wonDealsForObjectives.map((d) => ({
         id: d.id,
         title: d.title,
         amount: d.amount,
+        marginAmount: d.marginAmount ?? null,
+        userShare: d.userShare,
         closedAt: d.closedAt?.toISOString() ?? null,
         syncedAt: d.syncedAt?.toISOString() ?? null,
       })),
@@ -365,6 +448,180 @@ export const commissionService = {
     const paymentDelayDays = commission.rule?.paymentDelayDays ?? null;
 
     return commissionRepository.markClientPaid(commissionId, callerId, paymentDelayDays);
+  },
+
+  /**
+   * Annule une commission. Si déjà PAID, crée un CommissionAdjustment négatif (clawback).
+   * Si cancelDeal=true et qu'aucune autre commission active n'existe sur le deal, passe le deal en LOST.
+   */
+  async cancel(
+    commissionId: string,
+    tenantId: string,
+    callerId: string,
+    callerRole: UserRole,
+    reason: string,
+    options?: { cancelDeal?: boolean },
+  ) {
+    const commission = await commissionRepository.findById(commissionId);
+    if (!commission) throw new AppError(404, 'COMMISSION_NOT_FOUND', 'Commission introuvable');
+    if (commission.tenantId !== tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
+    if (commission.status === CommissionStatus.CANCELLED) {
+      throw new AppError(400, 'ALREADY_CANCELLED', 'Cette commission est déjà annulée');
+    }
+    if (!reason.trim()) {
+      throw new AppError(400, 'REASON_REQUIRED', 'Le motif d\'annulation est requis');
+    }
+
+    await assertInScope(commission.userId, callerId, callerRole, tenantId);
+
+    const wasPaid = commission.status === CommissionStatus.PAID;
+
+    // Annulation de la commission
+    const cancelled = await prisma.commission.update({
+      where: { id: commissionId, tenantId },
+      data: {
+        status: PrismaCommissionStatus.CANCELLED,
+        cancelledAt: new Date(),
+        cancelledBy: callerId,
+        cancellationReason: reason.trim(),
+      },
+    });
+
+    // Clawback si la commission était déjà payée
+    let adjustment = null;
+    if (wasPaid) {
+      adjustment = await commissionAdjustmentRepository.create({
+        tenantId,
+        userId: commission.userId,
+        originalCommissionId: commissionId,
+        amount: -commission.amount,
+        reason: `Clawback (récupération) suite à annulation : ${reason.trim()}`,
+        createdBy: callerId,
+      });
+    }
+
+    // Annulation du deal si demandée (seulement si aucune autre commission active sur ce deal)
+    if (options?.cancelDeal) {
+      const otherActiveCommissions = await prisma.commission.count({
+        where: {
+          dealId: commission.dealId,
+          tenantId,
+          status: { notIn: [PrismaCommissionStatus.CANCELLED] },
+          id: { not: commissionId },
+        },
+      });
+
+      if (otherActiveCommissions === 0) {
+        await dealRepository.updateStatus(commission.dealId, tenantId, PrismaDealStatus.LOST);
+      } else {
+        // Log silencieux : deal partagé, on ne le marque pas LOST
+        console.warn(
+          `[CommissionService] cancelDeal ignoré : ${otherActiveCommissions} autre(s) commission(s) active(s) sur le deal ${commission.dealId}`,
+        );
+      }
+    }
+
+    // Chantier 2 — Propagation de l'annulation aux objectifs/concours
+    // Détermine si le deal est du mois en cours pour décider si on recalcule ou si on préserve le snapshot
+    const deal = await dealRepository.findById(commission.dealId);
+    const now = new Date();
+    const dealDate = deal?.closedAt ?? (deal ? new Date(deal.syncedAt) : now);
+    const dealMonth = new Date(dealDate).getMonth();
+    const dealYear = new Date(dealDate).getFullYear();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const isDealInCurrentMonth = dealMonth === currentMonth && dealYear === currentYear;
+
+    if (isDealInCurrentMonth) {
+      // Mois en cours → les fonctions de calcul (Chantier 1) filtrent déjà les commissions
+      // CANCELLED automatiquement. Rien de spécial à faire côté base.
+      // Le frontend recalculera au prochain chargement du dashboard.
+      // Note : si un cache est présent (React Query), il sera invalidé côté client
+      // car la réponse de l'API d'annulation provoquera un refetch.
+    } else {
+      // Mois passé → snapshot préservé, on ne touche à RIEN
+      // Audit log spécifique pour traçabilité
+      await auditLogRepository.create({
+        tenantId,
+        userId: callerId,
+        action: 'COMMISSION_CANCELLED_PAST_MONTH',
+        entity: 'Commission',
+        entityId: commissionId,
+        metadata: {
+          commissionId,
+          dealMonth: `${dealYear}-${String(dealMonth + 1).padStart(2, '0')}`,
+          currentMonth: `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`,
+          message: 'Objectif/concours du mois passé non recalculé (snapshot préservé)',
+        },
+      });
+    }
+
+    await auditLogRepository.create({
+      tenantId,
+      userId: callerId,
+      action: 'CANCEL_COMMISSION',
+      entity: 'Commission',
+      entityId: commissionId,
+      metadata: {
+        reason: reason.trim(),
+        wasPaid,
+        clawbackId: adjustment?.id ?? null,
+        cancelDeal: options?.cancelDeal ?? false,
+        isDealInCurrentMonth,
+      },
+    });
+
+    return { commission: cancelled, adjustment };
+  },
+
+  /**
+   * Chantier 3 — Retourne les commissions PENDING du commercial pour la page "Mes projections".
+   * Ces commissions correspondent à des ventes WON dont la commission n'est pas encore versée.
+   * Elles comptent déjà dans les objectifs et concours du commercial.
+   */
+  async getProjections(userId: string, tenantId: string) {
+    const pendingCommissions = await prisma.commission.findMany({
+      where: {
+        userId,
+        tenantId,
+        status: PrismaCommissionStatus.PENDING,
+      },
+      include: {
+        deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
+        rule: { select: { name: true, config: true } },
+      },
+      orderBy: { calculatedAt: 'desc' },
+    });
+
+    const totalAmount = pendingCommissions.reduce((sum, c) => sum + c.amount, 0);
+    const awaitingClientPayment = pendingCommissions.filter((c) => c.awaitingClientPayment);
+    const standardPending = pendingCommissions.filter((c) => !c.awaitingClientPayment);
+
+    return {
+      totalAmount,
+      count: pendingCommissions.length,
+      byStatus: {
+        awaitingClientPayment: {
+          count: awaitingClientPayment.length,
+          amount: awaitingClientPayment.reduce((sum, c) => sum + c.amount, 0),
+        },
+        standardPending: {
+          count: standardPending.length,
+          amount: standardPending.reduce((sum, c) => sum + c.amount, 0),
+        },
+      },
+      commissions: pendingCommissions.map((c) => ({
+        id: c.id,
+        amount: c.amount,
+        dealTitle: c.deal.title,
+        clientName: c.deal.clientName,
+        dealClosedAt: c.deal.closedAt?.toISOString() ?? null,
+        awaitingClientPayment: c.awaitingClientPayment,
+        scheduledPaymentAt: c.scheduledPaymentAt?.toISOString() ?? null,
+        ruleName: c.rule.name,
+        calculationDetail: c.calculationDetail ?? c.rule.name,
+      })),
+    };
   },
 
   /**

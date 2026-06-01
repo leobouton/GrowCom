@@ -9,6 +9,11 @@ const updateStatusSchema = z.object({
   action: z.enum(['validate', 'pay']),
 });
 
+const cancelCommissionSchema = z.object({
+  reason: z.string().min(5).max(500),
+  cancelDeal: z.boolean().optional(),
+});
+
 export const commissionController = {
   async getManagerStats(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -113,6 +118,35 @@ export const commissionController = {
       });
 
       res.json({ success: true, data: commission });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async cancel(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const { id } = req.params;
+      const { reason, cancelDeal } = cancelCommissionSchema.parse(req.body);
+      const result = await commissionService.cancel(
+        id,
+        user.tenantId!,
+        user.userId,
+        user.role as UserRole,
+        reason,
+        { cancelDeal },
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async getProjections(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const projections = await commissionService.getProjections(user.userId, user.tenantId!);
+      res.json({ success: true, data: projections });
     } catch (err) {
       next(err);
     }

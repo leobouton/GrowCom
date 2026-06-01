@@ -57,7 +57,7 @@ export const commissionRuleRepository = {
   async updateMeta(
     id: string,
     tenantId: string,
-    data: { name: string; dealType?: string | null; paymentDelayDays?: number | null; description: string },
+    data: { name: string; dealType?: string | null; paymentDelayDays?: number | null; description: string; config?: CommissionRuleConfig; type?: CommissionRuleType },
   ): Promise<CommissionRule> {
     return prisma.commissionRule.update({
       where: { id, tenantId },
@@ -66,6 +66,8 @@ export const commissionRuleRepository = {
         dealType: data.dealType ?? null,
         paymentDelayDays: data.paymentDelayDays ?? null,
         description: data.description,
+        ...(data.config ? { config: data.config as object } : {}),
+        ...(data.type ? { type: data.type } : {}),
       },
     });
   },

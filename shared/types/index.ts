@@ -38,6 +38,8 @@ export enum DealStatus {
   LOST = 'LOST',
 }
 
+export type DisputeStatus = 'OPEN' | 'RESOLVED_ACCEPTED' | 'RESOLVED_REJECTED';
+
 export enum CommissionStatus {
   PENDING = 'PENDING',
   VALIDATED = 'VALIDATED',
@@ -59,6 +61,7 @@ export enum AssigneeType {
 export enum ContestMetric {
   REVENUE = 'REVENUE',
   DEAL_COUNT = 'DEAL_COUNT',
+  MARGIN = 'MARGIN',
 }
 
 export enum ContestStatus {
@@ -78,6 +81,17 @@ export enum ImportStatus {
   SUCCESS = 'SUCCESS',
   PARTIAL_ERROR = 'PARTIAL_ERROR',
   FAILED = 'FAILED',
+}
+
+export enum ImportBatchStatus {
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+  PARTIALLY_CANCELLED = 'PARTIALLY_CANCELLED',
+}
+
+export enum ImportSource {
+  CSV = 'CSV',
+  XLSX = 'XLSX',
 }
 
 // --- Moteur de règles avancé (Session B) ---
@@ -246,6 +260,7 @@ export interface Deal {
   dealType: string | null;
   notes: string | null;
   importLogId: string | null;
+  importBatchId: string | null;
   costAmount: number | null;
   marginAmount: number | null;
   marginSource: 'ODOO' | 'CSV_IMPORT' | 'COMPUTED' | null;
@@ -292,6 +307,50 @@ export interface CommissionWithDetails extends Commission {
   rule: Pick<CommissionRule, 'name' | 'config'>;
   user: Pick<User, 'firstName' | 'lastName' | 'email'>;
   calculationDetail: string;
+  // Dispute sur cette commission (null si aucun)
+  dispute?: { id: string; status: DisputeStatus; managerResponse: string | null; reason: string } | null;
+}
+
+// --- Session C — CommissionAdjustment (clawbacks) ---
+
+export interface CommissionAdjustment {
+  id: string;
+  tenantId: string;
+  userId: string;
+  originalCommissionId: string | null;
+  amount: number;  // Peut être négatif (clawback) ou positif (bonus exceptionnel)
+  reason: string;
+  status: CommissionStatus;
+  createdBy: string;
+  createdAt: string;
+  paidAt: string | null;
+}
+
+// --- Session C — CommissionDispute (contestations) ---
+
+export interface CommissionDispute {
+  id: string;
+  tenantId: string;
+  commissionId: string;
+  raisedBy: string;
+  reason: string;
+  status: DisputeStatus;
+  managerResponse: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  // Relations incluses par le backend
+  raiser?: Pick<User, 'id' | 'firstName' | 'lastName' | 'email'>;
+  commission?: {
+    id: string;
+    userId: string;
+    dealId: string;
+    ruleId: string;
+    amount: number;
+    status: string;
+    deal: Pick<Deal, 'id' | 'title' | 'clientName' | 'amount' | 'currency' | 'status' | 'dealType' | 'closedAt' | 'notes'>;
+    rule: Pick<CommissionRule, 'id' | 'name' | 'config'>;
+  };
 }
 
 // --- Contest ---
@@ -309,8 +368,17 @@ export interface Contest {
   periodStart: string;
   periodEnd: string;
   status: ContestStatus;
+  anonymousLeaderboard: boolean;
   createdBy: string;
   createdAt: string;
+}
+
+/** Réponse anonymisée pour un commercial sur un concours anonyme */
+export interface AnonymousLeaderboardResult {
+  myRank: number;
+  totalParticipants: number;
+  myScore: number;
+  leaderScore: number; // Score du 1er sans nom
 }
 
 export interface ContestLeaderboardEntry {
@@ -391,12 +459,15 @@ export interface ManagerDashboardStats {
     pendingCount: number;
   }>;
   deferredCommissions: CommissionWithDetails[];
+  openDisputeCount: number;
+  totalAdjustmentsThisPeriod: number;
 }
 
 export interface CommercialDashboardStats {
   totalEarnedThisMonth: number;
   totalPendingValidation: number;
   projectedCommissions: number;
+  adjustments: CommissionAdjustment[];
 }
 
 // --- Odoo Sync ---
@@ -413,6 +484,43 @@ export interface OdooSyncResult {
   updated: number;
   errors: string[];
   syncedAt: string;
+}
+
+// --- Import Batch ---
+
+export interface ImportBatch {
+  id: string;
+  tenantId: string;
+  importedBy: string;
+  source: ImportSource;
+  originalFileName: string | null;
+  totalRows: number;
+  createdRows: number;
+  updatedRows: number;
+  errorRows: number;
+  status: ImportBatchStatus;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  cancellationReason: string | null;
+  cancellationSummary: { deletedDeals: number; keptDeals: number; restoredDeals: number; reason: string } | null;
+  importErrors: ImportRowError[] | null;
+  createdAt: string;
+}
+
+export interface ImportBatchWithDetails extends ImportBatch {
+  importer: Pick<User, 'firstName' | 'lastName' | 'email'>;
+  deals?: Array<Pick<Deal, 'id' | 'title' | 'clientName' | 'amount' | 'status'>>;
+}
+
+export interface CancelPreviewResult {
+  toBeDeleted: number;
+  toBeRestored: number;
+  toBeKept: number;
+  affectedCommissions: {
+    pending: number;
+    validated: number;
+    paid: number;
+  };
 }
 
 // --- File Import ---
@@ -439,8 +547,28 @@ export interface ImportRowError {
   value?: string;
 }
 
+export interface ImportMappingField {
+  field: string;
+  label: string;
+  columnIndex: number;
+  columnName: string;
+}
+
+export interface ImportMappingMissing {
+  field: string;
+  label: string;
+}
+
+export interface ImportMappingDetails {
+  mapped: ImportMappingField[];
+  unmapped: string[];
+  missing: ImportMappingMissing[];
+  allHeaders: string[];
+  fieldLabels: Record<string, string>;
+}
+
 export interface ImportPreview {
-  importLogId: string;              // ID de l'ImportLog PENDING
+  importLogId: string;              // ID de l'ImportLog PENDING (vide si mappingIncomplete)
   totalRows: number;
   validRows: number;
   errorRows: number;
@@ -449,6 +577,9 @@ export interface ImportPreview {
   errors: ImportRowError[];
   unmatchedIdentifiers: string[];   // emails ou noms non reconnus
   sample: ImportPreviewRow[];       // Aperçu des 5 premières lignes valides
+  // Champs de mapping intelligent (Chantier A)
+  mappingIncomplete?: boolean;      // true si des colonnes obligatoires manquent
+  mappingDetails?: ImportMappingDetails; // Détails du mapping pour l'UI de fallback
 }
 
 export interface ImportPreviewRow {
@@ -471,6 +602,26 @@ export interface FileImportConfirmResult {
   skipped: number;
   errors: number;
   importLogId: string;
+  batchId?: string;
+}
+
+// --- Payroll Report Preview ---
+
+export interface PayrollReportPreviewItem {
+  userId: string;
+  user: Pick<User, 'firstName' | 'lastName' | 'email'>;
+  fixedSalaryTotal: number;
+  commissionsTotal: number;
+  adjustmentsTotal: number;
+  bonusTotal: number;
+  netTotal: number;
+}
+
+export interface PayrollReportPreview {
+  periodStart: string;
+  periodEnd: string;
+  items: PayrollReportPreviewItem[];
+  grandTotal: number;
 }
 
 // --- Objective Snapshot (Session B - Chantier 7) ---

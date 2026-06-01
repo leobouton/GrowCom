@@ -78,4 +78,45 @@ export const commissionApiService = {
     );
     return res.data.data;
   },
+
+  async cancel(
+    commissionId: string,
+    reason: string,
+    cancelDeal?: boolean,
+  ): Promise<{ commission: CommissionWithDetails; adjustment: unknown | null }> {
+    const res = await api.post<{
+      success: true;
+      data: { commission: CommissionWithDetails; adjustment: unknown | null };
+    }>(`/commissions/${commissionId}/cancel`, { reason, cancelDeal });
+    return res.data.data;
+  },
+
+  /** Chantier 3 — Retourne les commissions PENDING pour la page Mes Projections */
+  async getProjections(): Promise<ProjectionsData> {
+    const res = await api.get<{ success: true; data: ProjectionsData }>('/commissions/projections');
+    return res.data.data;
+  },
 };
+
+/** Type de réponse pour l'endpoint /commissions/projections */
+export interface ProjectionsData {
+  totalAmount: number;
+  count: number;
+  byStatus: {
+    awaitingClientPayment: { count: number; amount: number };
+    standardPending: { count: number; amount: number };
+  };
+  commissions: ProjectionCommission[];
+}
+
+export interface ProjectionCommission {
+  id: string;
+  amount: number;
+  dealTitle: string;
+  clientName: string | null;
+  dealClosedAt: string | null;
+  awaitingClientPayment: boolean;
+  scheduledPaymentAt: string | null;
+  ruleName: string;
+  calculationDetail: string;
+}

@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { userRepository } from '../repositories/user.repository';
 import { AuthenticatedRequest } from '../middlewares/auth';
 import { UserRole } from '../../../shared/types';
+import type { Objective } from '../../../shared/types';
 import { prisma } from '../config/prisma';
+import { logger } from '../config/logger';
 
 export const teamController = {
   async getTeam(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -70,6 +72,14 @@ export const teamController = {
         value: z.number(),
       });
 
+      const objectiveBonusTierSchema = z.object({
+        threshold: z.number().min(1).max(200),
+        reward: z.object({
+          type: z.enum(['fixed', 'percentage']),
+          value: z.number().min(0),
+        }),
+      });
+
       const updateMemberSchema = z.object({
         firstName: z.string().min(1).max(50).optional(),
         lastName: z.string().min(1).max(50).optional(),
@@ -87,6 +97,12 @@ export const teamController = {
           endDate: z.string().optional(),
           bonus: objectiveBonusSchema.optional(),
           isActive: z.boolean().optional(),
+          // Champs Session B — bonus avancé et récurrence
+          bonusMode: z.enum(['none', 'simple', 'tiered']).optional(),
+          bonusTiers: z.array(objectiveBonusTierSchema).optional(),
+          recurrence: z.enum(['none', 'monthly', 'quarterly', 'annual']).optional(),
+          recurrenceEndDate: z.string().optional(),
+          parentObjectiveId: z.string().optional(),
         })).optional(),
       });
 
@@ -115,7 +131,64 @@ export const teamController = {
       if (firstName !== undefined) updateData.firstName = firstName.trim();
       if (lastName !== undefined) updateData.lastName = lastName.trim();
       if (fixedSalary !== undefined) updateData.fixedSalary = fixedSalary;
-      if (objectives !== undefined) updateData.objectives = objectives;
+
+      // ── Logique template vs occurrence pour objectifs récurrents ──
+      if (objectives !== undefined) {
+        const existingObjectives = Array.isArray((member as Record<string, unknown>).objectives)
+          ? ((member as Record<string, unknown>).objectives as Objective[])
+          : [];
+
+        const newObjectives: Objective[] = [];
+        for (const obj of objectives as Objective[]) {
+          const isTemplate = obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId;
+
+          if (isTemplate) {
+            // C'est un template récurrent → conserver les occurrences passées/en cours, régénérer les futures
+            const existingTemplate = existingObjectives.find((e) => e.id === obj.id);
+            newObjectives.push(obj);
+
+            if (existingTemplate) {
+              // Conserver les occurrences passées et en cours (dont la période a commencé)
+              const now = new Date();
+              const existingOccurrences = existingObjectives.filter((e) => e.parentObjectiveId === obj.id);
+              for (const occ of existingOccurrences) {
+                const occStart = getOccurrenceStartDate(occ);
+                if (occStart && occStart <= now) {
+                  // Occurrence passée ou en cours → on la conserve telle quelle
+                  newObjectives.push(occ);
+                }
+                // Les occurrences futures sont supprimées — elles seront régénérées par le cron
+              }
+              logger.info('OBJECTIVE_TEMPLATE_UPDATED', {
+                userId: memberId,
+                tenantId: manager.tenantId,
+                objectiveId: obj.id,
+                keptOccurrences: existingOccurrences.filter((o) => {
+                  const s = getOccurrenceStartDate(o);
+                  return s && s <= now;
+                }).length,
+              });
+            }
+          } else {
+            // Occurrence simple ou objectif non-récurrent → simple update
+            newObjectives.push(obj);
+          }
+        }
+
+        // Conserver aussi les occurrences orphelines (dont le template n'est pas dans la liste envoyée)
+        // Ceci évite de perdre des occurrences si le frontend n'envoie que certains objectifs
+        const sentIds = new Set((objectives as Objective[]).map((o) => o.id));
+        const sentParentIds = new Set((objectives as Objective[]).filter(
+          (o) => o.recurrence && o.recurrence !== 'none' && !o.parentObjectiveId,
+        ).map((o) => o.id));
+        for (const existing of existingObjectives) {
+          if (!sentIds.has(existing.id) && existing.parentObjectiveId && !sentParentIds.has(existing.parentObjectiveId)) {
+            newObjectives.push(existing);
+          }
+        }
+
+        updateData.objectives = newObjectives;
+      }
 
       const updated = await userRepository.update(memberId, updateData as Parameters<typeof userRepository.update>[1]);
 
@@ -176,3 +249,21 @@ export const teamController = {
     }
   },
 };
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Retourne la date de début d'une occurrence d'objectif. */
+function getOccurrenceStartDate(obj: Objective): Date | null {
+  if (obj.startDate) return new Date(obj.startDate);
+  const year = obj.year ?? new Date().getFullYear();
+  if (obj.periodType === 'monthly' && obj.month) {
+    return new Date(year, obj.month - 1, 1);
+  }
+  if (obj.periodType === 'quarterly' && obj.quarter) {
+    return new Date(year, (obj.quarter - 1) * 3, 1);
+  }
+  if (obj.periodType === 'annual') {
+    return new Date(year, 0, 1);
+  }
+  return null;
+}

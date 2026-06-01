@@ -496,6 +496,10 @@ ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "awaitingClientPayment" BOOLEA
 ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "clientPaidAt"          TIMESTAMP(3);
 ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "clientPaidBy"          TEXT;
 
+-- Dates de cycle de vie des commissions (validatedAt et paidAt manquaient dans les migrations précédentes)
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "validatedAt" TIMESTAMP(3);
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "paidAt"      TIMESTAMP(3);
+
 -- ============================================================
 -- SESSION B — Chantier 7 : Snapshot historique des objectifs
 -- ============================================================
@@ -535,3 +539,173 @@ END $$;
 
 ALTER TABLE "ObjectiveSnapshot" ENABLE ROW LEVEL SECURITY;
 REVOKE ALL PRIVILEGES ON TABLE "ObjectiveSnapshot" FROM anon, authenticated;
+-- ============================================================
+-- SESSION C — Chantier 8 : CommissionAdjustment (clawbacks)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS "CommissionAdjustment" (
+    "id"                   TEXT NOT NULL,
+    "tenantId"             TEXT NOT NULL,
+    "userId"               TEXT NOT NULL,
+    "originalCommissionId" TEXT,
+    "amount"               DOUBLE PRECISION NOT NULL,
+    "reason"               TEXT NOT NULL,
+    "status"               TEXT NOT NULL DEFAULT 'VALIDATED',
+    "createdBy"            TEXT NOT NULL,
+    "createdAt"            TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "paidAt"               TIMESTAMP(3),
+    CONSTRAINT "CommissionAdjustment_pkey" PRIMARY KEY ("id")
+);
+
+CREATE INDEX IF NOT EXISTS "CommissionAdjustment_tenantId_idx"             ON "CommissionAdjustment"("tenantId");
+CREATE INDEX IF NOT EXISTS "CommissionAdjustment_userId_idx"               ON "CommissionAdjustment"("userId");
+CREATE INDEX IF NOT EXISTS "CommissionAdjustment_originalCommissionId_idx" ON "CommissionAdjustment"("originalCommissionId");
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CommissionAdjustment_tenantId_fkey') THEN
+        ALTER TABLE "CommissionAdjustment"
+            ADD CONSTRAINT "CommissionAdjustment_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CommissionAdjustment_userId_fkey') THEN
+        ALTER TABLE "CommissionAdjustment"
+            ADD CONSTRAINT "CommissionAdjustment_userId_fkey"
+            FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+ALTER TABLE "CommissionAdjustment" ENABLE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE "CommissionAdjustment" FROM anon, authenticated;
+
+-- ============================================================
+-- SESSION C — Chantier 9 : CommissionDispute (contestations)
+-- ============================================================
+
+DO $$ BEGIN
+    CREATE TYPE "DisputeStatus" AS ENUM ('OPEN', 'RESOLVED_ACCEPTED', 'RESOLVED_REJECTED');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS "CommissionDispute" (
+    "id"              TEXT NOT NULL,
+    "tenantId"        TEXT NOT NULL,
+    "commissionId"    TEXT NOT NULL,
+    "raisedBy"        TEXT NOT NULL,
+    "reason"          TEXT NOT NULL,
+    "status"          "DisputeStatus" NOT NULL DEFAULT 'OPEN',
+    "managerResponse" TEXT,
+    "resolvedBy"      TEXT,
+    "resolvedAt"      TIMESTAMP(3),
+    "createdAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "CommissionDispute_pkey" PRIMARY KEY ("id")
+);
+
+CREATE INDEX IF NOT EXISTS "CommissionDispute_tenantId_idx"     ON "CommissionDispute"("tenantId");
+CREATE INDEX IF NOT EXISTS "CommissionDispute_commissionId_idx" ON "CommissionDispute"("commissionId");
+CREATE INDEX IF NOT EXISTS "CommissionDispute_raisedBy_idx"     ON "CommissionDispute"("raisedBy");
+CREATE INDEX IF NOT EXISTS "CommissionDispute_status_idx"       ON "CommissionDispute"("status");
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CommissionDispute_tenantId_fkey') THEN
+        ALTER TABLE "CommissionDispute"
+            ADD CONSTRAINT "CommissionDispute_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CommissionDispute_commissionId_fkey') THEN
+        ALTER TABLE "CommissionDispute"
+            ADD CONSTRAINT "CommissionDispute_commissionId_fkey"
+            FOREIGN KEY ("commissionId") REFERENCES "Commission"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CommissionDispute_raisedBy_fkey') THEN
+        ALTER TABLE "CommissionDispute"
+            ADD CONSTRAINT "CommissionDispute_raisedBy_fkey"
+            FOREIGN KEY ("raisedBy") REFERENCES "User"("id") ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+ALTER TABLE "CommissionDispute" ENABLE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE "CommissionDispute" FROM anon, authenticated;
+
+
+-- ============================================================
+-- SESSION D — ImportBatch (dédoublonnage + annulation par lot)
+-- ============================================================
+
+-- Enums ImportBatch
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ImportBatchStatus') THEN
+        CREATE TYPE "ImportBatchStatus" AS ENUM ('COMPLETED', 'CANCELLED', 'PARTIALLY_CANCELLED');
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ImportSource') THEN
+        CREATE TYPE "ImportSource" AS ENUM ('CSV', 'XLSX');
+    END IF;
+END $$;
+
+-- Table ImportBatch
+CREATE TABLE IF NOT EXISTS "ImportBatch" (
+    "id"                  TEXT NOT NULL,
+    "tenantId"            TEXT NOT NULL,
+    "importedBy"          TEXT NOT NULL,
+    "source"              "ImportSource" NOT NULL,
+    "originalFileName"    TEXT,
+    "totalRows"           INTEGER NOT NULL,
+    "createdRows"         INTEGER NOT NULL,
+    "updatedRows"         INTEGER NOT NULL,
+    "errorRows"           INTEGER NOT NULL,
+    "status"              "ImportBatchStatus" NOT NULL DEFAULT 'COMPLETED',
+    "cancelledAt"         TIMESTAMP(3),
+    "cancelledBy"         TEXT,
+    "cancellationReason"  TEXT,
+    "cancellationSummary" JSONB,
+    "updatedDealSnapshots" JSONB,
+    "importErrors"        JSONB,
+    "createdAt"           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ImportBatch_pkey" PRIMARY KEY ("id")
+);
+
+CREATE INDEX IF NOT EXISTS "ImportBatch_tenantId_idx" ON "ImportBatch"("tenantId");
+CREATE INDEX IF NOT EXISTS "ImportBatch_tenantId_createdAt_idx" ON "ImportBatch"("tenantId", "createdAt");
+CREATE INDEX IF NOT EXISTS "ImportBatch_importedBy_idx" ON "ImportBatch"("importedBy");
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ImportBatch_tenantId_fkey') THEN
+        ALTER TABLE "ImportBatch"
+            ADD CONSTRAINT "ImportBatch_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+-- RLS deny-by-default sur ImportBatch
+ALTER TABLE "ImportBatch" ENABLE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE "ImportBatch" FROM anon, authenticated;
+
+-- Ajout importBatchId sur Deal
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "importBatchId" TEXT;
+CREATE INDEX IF NOT EXISTS "Deal_importBatchId_idx" ON "Deal"("importBatchId");
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Deal_importBatchId_fkey') THEN
+        ALTER TABLE "Deal"
+            ADD CONSTRAINT "Deal_importBatchId_fkey"
+            FOREIGN KEY ("importBatchId") REFERENCES "ImportBatch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+
+-- ============================================================
+-- SESSION E — Concours : classement anonyme
+-- ============================================================
+
+ALTER TABLE "Contest" ADD COLUMN IF NOT EXISTS "anonymousLeaderboard" BOOLEAN NOT NULL DEFAULT false;

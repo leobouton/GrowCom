@@ -135,8 +135,11 @@ export function startScheduler(): void {
     );
   });
 
-  logger.info('[Scheduler] Synchronisation automatique Odoo activée (toutes les heures)');
-  logger.info('[Scheduler] Validation automatique des commissions différées activée (tous les jours à 8h)');
-  logger.info('[Scheduler] Génération occurrences récurrentes activée (1er du mois à 6h)');
-  logger.info('[Scheduler] Snapshot objectifs terminés activé (tous les jours à 7h)');
+  const cronJobs = [
+    'Odoo sync: toutes les heures (0 * * * *)',
+    'Commissions différées: tous les jours à 8h (0 8 * * *)',
+    'Occurrences récurrentes: 1er du mois à 6h (0 6 1 * *)',
+    'Snapshot objectifs: tous les jours à 7h (0 7 * * *)',
+  ];
+  logger.info('[Scheduler] Cron jobs initialized:', { jobs: cronJobs });
 }

@@ -23,6 +23,9 @@ import contestRoutes from './routes/contest.routes';
 import fileImportRoutes from './routes/fileImport.routes';
 import dealAssignmentRoutes from './routes/dealAssignment.routes';
 import objectiveSnapshotRoutes from './routes/objectiveSnapshot.routes';
+import commissionDisputeRoutes from './routes/commissionDispute.routes';
+import payrollReportRoutes from './routes/payrollReport.routes';
+import importBatchRoutes from './routes/importBatch.routes';
 
 const app = express();
 
@@ -74,6 +77,9 @@ app.use('/api/contests', contestRoutes);
 app.use('/api/sync', fileImportRoutes);
 app.use('/api/deals/:dealId/assignments', dealAssignmentRoutes);
 app.use('/api/objective-snapshots', objectiveSnapshotRoutes);
+app.use('/api/disputes', commissionDisputeRoutes);
+app.use('/api/reports/payroll', payrollReportRoutes);
+app.use('/api/imports', importBatchRoutes);
 
 // ─── Gestion des erreurs ─────────────────────────────────────
 app.use(notFoundHandler);

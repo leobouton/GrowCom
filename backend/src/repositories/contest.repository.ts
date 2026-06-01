@@ -13,6 +13,7 @@ export interface CreateContestData {
   periodStart: Date;
   periodEnd: Date;
   createdBy: string;
+  anonymousLeaderboard?: boolean;
 }
 
 export const contestRepository = {
@@ -78,6 +79,7 @@ export const contestRepository = {
         periodStart: data.periodStart,
         periodEnd: data.periodEnd,
         createdBy: data.createdBy,
+        anonymousLeaderboard: data.anonymousLeaderboard ?? false,
         status: ContestStatus.ACTIVE,
       },
     });
@@ -90,6 +92,16 @@ export const contestRepository = {
     });
   },
 
+  /**
+   * Calcule le leaderboard d'un concours.
+   *
+   * Chantier 1 — Refonte :
+   * - Se base sur les deals WON dans la période du concours
+   * - Exclut les deals dont la commission du commercial est CANCELLED
+   * - Gère les DealAssignment (splits) : utilise amount × share
+   * - Pour la marge : exclut les deals sans marginAmount (null)
+   * - Fallback rétrocompat : si pas de DealAssignment, utilise assignedToId à 100%
+   */
   async getLeaderboard(contest: {
     metric: string;
     periodStart: Date;
@@ -99,75 +111,87 @@ export const contestRepository = {
     teamName: string | null;
     participantIds: unknown;
   }) {
-    // Déterminer le filtre sur les utilisateurs selon le scope
-    let userIdFilter: { in: string[] } | undefined;
+    // 1. Déterminer les participants selon le scope
+    let participantUserIds: string[] | null = null; // null = tous
 
     if (contest.scope === RuleScope.INDIVIDUAL) {
       const ids = Array.isArray(contest.participantIds) ? (contest.participantIds as string[]) : [];
       if (ids.length === 0) return [];
-      userIdFilter = { in: ids };
+      participantUserIds = ids;
     } else if (contest.scope === RuleScope.TEAM && contest.teamName) {
-      // Trouver les membres du groupe
       const group = await prisma.group.findFirst({
         where: { tenantId: contest.tenantId, name: contest.teamName },
         include: { members: { select: { id: true } } },
       });
       if (!group || group.members.length === 0) return [];
-      userIdFilter = { in: group.members.map((m) => m.id) };
+      participantUserIds = group.members.map((m) => m.id);
     }
-    // RuleScope.GLOBAL → pas de filtre userId
 
-    const baseWhere = {
-      tenantId: contest.tenantId,
-      status: 'WON' as const,
-      closedAt: { gte: contest.periodStart, lte: contest.periodEnd },
-      assignedToId: { not: null, ...(userIdFilter ?? {}) },
-    };
+    // 2. Récupérer tous les deals WON dans la période avec leurs commissions et assignments
+    const deals = await prisma.deal.findMany({
+      where: {
+        tenantId: contest.tenantId,
+        status: 'WON',
+        closedAt: { gte: contest.periodStart, lte: contest.periodEnd },
+      },
+      include: {
+        assignments: { select: { userId: true, share: true } },
+        commissions: { select: { userId: true, status: true } },
+      },
+    });
 
-    if (contest.metric === ContestMetric.REVENUE) {
-      const result = await prisma.deal.groupBy({
-        by: ['assignedToId'],
-        where: baseWhere,
-        _sum: { amount: true },
-        orderBy: { _sum: { amount: 'desc' } },
-      });
+    // 3. Calculer les scores par utilisateur
+    const scoreMap = new Map<string, number>();
 
-      const userIds = result.map((r) => r.assignedToId as string);
-      const users = await prisma.user.findMany({
-        where: { id: { in: userIds } },
-        select: { id: true, firstName: true, lastName: true, email: true },
-      });
-      const userMap = new Map(users.map((u) => [u.id, u]));
+    for (const deal of deals) {
+      // Pour la marge, ignorer les deals sans marginAmount
+      if (contest.metric === ContestMetric.MARGIN && (deal.marginAmount === null || deal.marginAmount === undefined)) {
+        continue;
+      }
 
-      return result
-        .filter((r) => r.assignedToId && userMap.has(r.assignedToId))
-        .map((r, i) => ({
-          rank: i + 1,
-          user: userMap.get(r.assignedToId as string)!,
-          value: r._sum.amount ?? 0,
-        }));
-    } else {
-      const result = await prisma.deal.groupBy({
-        by: ['assignedToId'],
-        where: baseWhere,
-        _count: { id: true },
-        orderBy: { _count: { id: 'desc' } },
-      });
+      const valueField = contest.metric === ContestMetric.MARGIN ? deal.marginAmount! : deal.amount;
 
-      const userIds = result.map((r) => r.assignedToId as string);
-      const users = await prisma.user.findMany({
-        where: { id: { in: userIds } },
-        select: { id: true, firstName: true, lastName: true, email: true },
-      });
-      const userMap = new Map(users.map((u) => [u.id, u]));
+      // Déterminer les commerciaux impliqués (DealAssignment ou fallback)
+      const contributors: Array<{ userId: string; share: number }> =
+        deal.assignments.length > 0
+          ? deal.assignments.map((a) => ({ userId: a.userId, share: a.share }))
+          : deal.assignedToId
+            ? [{ userId: deal.assignedToId, share: 1.0 }]
+            : [];
 
-      return result
-        .filter((r) => r.assignedToId && userMap.has(r.assignedToId))
-        .map((r, i) => ({
-          rank: i + 1,
-          user: userMap.get(r.assignedToId as string)!,
-          value: r._count.id,
-        }));
+      for (const contrib of contributors) {
+        // Filtrer par participants si scope limité
+        if (participantUserIds && !participantUserIds.includes(contrib.userId)) continue;
+
+        // Exclure si TOUTES les commissions de ce user sur ce deal sont CANCELLED
+        const userCommissions = deal.commissions.filter((c) => c.userId === contrib.userId);
+        if (userCommissions.length > 0 && userCommissions.every((c) => c.status === 'CANCELLED')) continue;
+
+        const contribution = contest.metric === ContestMetric.DEAL_COUNT
+          ? 1 // 1 deal par deal, même splitté
+          : valueField * contrib.share;
+
+        scoreMap.set(contrib.userId, (scoreMap.get(contrib.userId) ?? 0) + contribution);
+      }
     }
+
+    // 4. Récupérer les infos utilisateurs et trier
+    const userIds = [...scoreMap.keys()];
+    if (userIds.length === 0) return [];
+
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, firstName: true, lastName: true, email: true },
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    return [...scoreMap.entries()]
+      .filter(([uid]) => userMap.has(uid))
+      .sort((a, b) => b[1] - a[1])
+      .map(([uid, value], i) => ({
+        rank: i + 1,
+        user: userMap.get(uid)!,
+        value,
+      }));
   },
 };

@@ -29,6 +29,7 @@ const createSchema = z.object({
   participantIds: z.array(z.string()).default([]),
   periodStart: z.string().datetime(),
   periodEnd: z.string().datetime(),
+  anonymousLeaderboard: z.boolean().default(false),
 });
 
 export const contestController = {
@@ -98,6 +99,7 @@ export const contestController = {
         participantIds: body.participantIds,
         periodStart: start,
         periodEnd: end,
+        anonymousLeaderboard: body.anonymousLeaderboard,
       });
 
       res.status(201).json({ success: true, data: contest });
@@ -175,6 +177,28 @@ export const contestController = {
         participantIds: contest.participantIds,
       });
 
+      // Sécurité : si classement anonyme ET l'utilisateur est un commercial → filtrer les données
+      const isManager = user.role === UserRole.MANAGER || user.role === UserRole.BU_MANAGER || user.role === UserRole.TEAM_LEAD;
+
+      if (contest.anonymousLeaderboard && !isManager) {
+        // Trouver la position du commercial dans le classement
+        const myEntry = entries.find((e) => e.user.id === user.userId);
+        const leaderEntry = entries[0];
+
+        res.json({
+          success: true,
+          data: {
+            anonymous: true,
+            myRank: myEntry?.rank ?? 0,
+            totalParticipants: entries.length,
+            myScore: myEntry?.value ?? 0,
+            leaderScore: leaderEntry?.value ?? 0,
+          },
+        });
+        return;
+      }
+
+      // Manager ou concours non anonyme → classement complet
       res.json({ success: true, data: entries });
     } catch (err) {
       next(err);

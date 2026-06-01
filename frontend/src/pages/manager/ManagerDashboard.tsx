@@ -9,6 +9,97 @@ import type { CommissionWithDetails, DealAssignment } from '@shared/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
+// ─── Modal d'annulation ──────────────────────────────────────────────────────
+function CancelCommissionModal({
+  commission,
+  onClose,
+  onCancelled,
+}: {
+  commission: CommissionWithDetails;
+  onClose: () => void;
+  onCancelled: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [cancelDeal, setCancelDeal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    if (reason.trim().length < 5) {
+      setError('Le motif doit contenir au moins 5 caractères.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await commissionApiService.cancel(commission.id, reason.trim(), cancelDeal);
+      onCancelled();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setError(e?.response?.data?.message ?? 'Une erreur est survenue.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
+        <h3 className="text-base font-semibold text-gray-900 mb-1">Annuler la commission</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Deal : <span className="font-medium text-gray-800">{commission.deal.title}</span> —{' '}
+          <span className="font-medium text-gray-800">
+            {commission.user.firstName} {commission.user.lastName}
+          </span>
+        </p>
+
+        {commission.status === 'PAID' && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 mb-4">
+            Cette commission est déjà payée. Un ajustement négatif sera créé pour compenser le remboursement.
+          </div>
+        )}
+
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Motif d'annulation <span className="text-red-500">*</span>
+        </label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={3}
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+          placeholder="Ex : Deal annulé par le client, erreur de saisie..."
+        />
+
+        <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={cancelDeal}
+            onChange={(e) => setCancelDeal(e.target.checked)}
+            className="rounded border-gray-300 text-red-500 focus:ring-red-400"
+          />
+          <span className="text-sm text-gray-700">Marquer également le deal comme "Perdu"</span>
+        </label>
+
+        {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+
+        <div className="flex gap-3 justify-end mt-5">
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={loading}>
+            Annuler
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            loading={loading}
+            onClick={() => void handleSubmit()}
+          >
+            Confirmer l'annulation
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface Stats {
   totalPendingCommissions: number;
   totalValidatedCommissions: number;
@@ -48,6 +139,7 @@ export function ManagerDashboard() {
   const [loading, setLoading] = useState(true);
   const [rankingLoading, setRankingLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Modal d'assignation
   const [assignModal, setAssignModal] = useState<{
@@ -58,6 +150,9 @@ export function ManagerDashboard() {
 
   // Modal confirmation "Client a payé"
   const [clientPaidConfirm, setClientPaidConfirm] = useState<CommissionWithDetails | null>(null);
+
+  // Modal annulation commission
+  const [cancelModal, setCancelModal] = useState<CommissionWithDetails | null>(null);
 
   const [periodType, setPeriodType] = useState<PeriodType>('month');
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
@@ -108,9 +203,13 @@ export function ManagerDashboard() {
 
   const handleValidate = async (id: string) => {
     setActionLoading(id);
+    setActionError(null);
     try {
       await commissionApiService.validate(id);
       await loadStats();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setActionError(e?.response?.data?.message ?? 'Erreur lors de la validation. Vérifiez que la migration SQL a bien été exécutée dans Supabase.');
     } finally {
       setActionLoading(null);
     }
@@ -118,9 +217,13 @@ export function ManagerDashboard() {
 
   const handlePay = async (id: string) => {
     setActionLoading(id);
+    setActionError(null);
     try {
       await commissionApiService.markAsPaid(id);
       await loadStats();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setActionError(e?.response?.data?.message ?? 'Erreur lors du paiement.');
     } finally {
       setActionLoading(null);
     }
@@ -128,9 +231,13 @@ export function ManagerDashboard() {
 
   const handleClientPaid = async (id: string) => {
     setActionLoading(id);
+    setActionError(null);
     try {
       await commissionApiService.markClientPaid(id);
       await loadStats();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setActionError(e?.response?.data?.message ?? 'Erreur lors de la confirmation du paiement client.');
     } finally {
       setActionLoading(null);
       setClientPaidConfirm(null);
@@ -341,6 +448,7 @@ export function ManagerDashboard() {
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Commercial</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Client</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Commission</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Paiement prévu</th>
                 </tr>
@@ -353,6 +461,9 @@ export function ManagerDashboard() {
                     </td>
                     <td className="py-3 px-2 text-gray-600 max-w-xs truncate">
                       {commission.deal.title}
+                    </td>
+                    <td className="py-3 px-2 text-gray-600 max-w-xs truncate">
+                      {commission.deal.clientName || '—'}
                     </td>
                     <td className="py-3 px-2 text-right font-semibold text-gray-900">
                       {formatEur(commission.amount)}
@@ -373,6 +484,17 @@ export function ManagerDashboard() {
             </table>
           </div>
         </Card>
+      )}
+
+      {/* Erreur action commission */}
+      {actionError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-start gap-2">
+          <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="ml-auto text-red-400 hover:text-red-600">✕</button>
+        </div>
       )}
 
       {/* Commissions en attente de validation */}
@@ -401,6 +523,7 @@ export function ManagerDashboard() {
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Commercial</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Client</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Montant</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Statut</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Actions</th>
@@ -414,6 +537,9 @@ export function ManagerDashboard() {
                     </td>
                     <td className="py-3 px-2 text-gray-600 max-w-xs truncate">
                       {commission.deal.title}
+                    </td>
+                    <td className="py-3 px-2 text-gray-600 max-w-xs truncate">
+                      {commission.deal.clientName || '—'}
                     </td>
                     <td className="py-3 px-2 text-right font-semibold text-gray-900">
                       {formatEur(commission.amount)}
@@ -464,6 +590,16 @@ export function ManagerDashboard() {
                             Marquer payé
                           </Button>
                         )}
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => setCancelModal(commission)}
+                          title="Annuler la commission"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -473,6 +609,18 @@ export function ManagerDashboard() {
           </div>
         )}
       </Card>
+      {/* Modal annulation commission */}
+      {cancelModal && (
+        <CancelCommissionModal
+          commission={cancelModal}
+          onClose={() => setCancelModal(null)}
+          onCancelled={() => {
+            setCancelModal(null);
+            void loadStats();
+          }}
+        />
+      )}
+
       {/* Modal modification affectation */}
       {assignModal && (
         <DealAssignmentModal

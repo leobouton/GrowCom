@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma';
 import { logger } from '../config/logger';
 import { objectiveSnapshotRepository } from '../repositories/objectiveSnapshot.repository';
+import { commissionAdjustmentRepository } from '../repositories/commissionAdjustment.repository';
 import type { Objective, ObjectiveBonusTier } from '@shared/types';
 
 // ─── Helpers période (sans date-fns) ─────────────────────────
@@ -66,13 +67,18 @@ function computeBonus(obj: Objective, current: number): number {
   if (mode === 'none') return 0;
 
   if (mode === 'tiered' && obj.bonusTiers && obj.bonusTiers.length > 0) {
-    const reached = [...obj.bonusTiers]
-      .sort((a: ObjectiveBonusTier, b: ObjectiveBonusTier) => b.threshold - a.threshold)
-      .find((tier: ObjectiveBonusTier) => pct >= tier.threshold);
-    if (!reached) return 0;
-    return reached.reward.type === 'fixed'
-      ? reached.reward.value
-      : current * (reached.reward.value / 100);
+    // Cumuler tous les paliers atteints (du plus bas au plus haut)
+    const reachedTiers = [...obj.bonusTiers]
+      .filter((tier: ObjectiveBonusTier) => pct >= tier.threshold)
+      .sort((a: ObjectiveBonusTier, b: ObjectiveBonusTier) => a.threshold - b.threshold);
+    if (reachedTiers.length === 0) return 0;
+    let total = 0;
+    for (const tier of reachedTiers) {
+      total += tier.reward.type === 'fixed'
+        ? tier.reward.value
+        : current * (tier.reward.value / 100);
+    }
+    return total;
   }
 
   if (!bonus.enabled || current <= obj.target) return 0;
@@ -147,6 +153,22 @@ async function snapshotEndedObjectivesForUser(
       actualValue,
       bonusEarned,
     });
+
+    // Prime automatique : si bonus > 0, créer un ajustement directement payé (sans validation manager)
+    if (bonusEarned > 0) {
+      await commissionAdjustmentRepository.create({
+        tenantId,
+        userId,
+        amount: bonusEarned,
+        reason: `Prime objectif "${obj.label}" — ${periodLabel} (atteint : ${actualValue}${obj.unit === 'euros' ? ' €' : ' deals'} / cible : ${obj.target})`,
+        createdBy: 'SYSTEM',
+        autoPaid: true,
+      });
+      logger.info('[ObjectiveSnapshot] Prime auto-payée', {
+        userId, objectiveId: obj.id, periodLabel, bonusEarned,
+      });
+    }
+
     created++;
   }
 

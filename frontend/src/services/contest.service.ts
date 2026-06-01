@@ -1,5 +1,7 @@
 import { api } from './api';
-import type { Contest, ContestLeaderboardEntry, ContestMetric, RuleScope } from '@shared/types';
+import type { Contest, ContestLeaderboardEntry, AnonymousLeaderboardResult, ContestMetric, RuleScope } from '@shared/types';
+
+export type LeaderboardResponse = ContestLeaderboardEntry[] | (AnonymousLeaderboardResult & { anonymous: true });
 
 interface CreateContestData {
   name: string;
@@ -11,6 +13,7 @@ interface CreateContestData {
   participantIds?: string[];
   periodStart: string;
   periodEnd: string;
+  anonymousLeaderboard?: boolean;
 }
 
 export const contestApiService = {
@@ -34,8 +37,8 @@ export const contestApiService = {
     return res.data.data;
   },
 
-  async getLeaderboard(id: string): Promise<ContestLeaderboardEntry[]> {
-    const res = await api.get<{ success: true; data: ContestLeaderboardEntry[] }>(`/contests/${id}/leaderboard`);
+  async getLeaderboard(id: string): Promise<LeaderboardResponse> {
+    const res = await api.get<{ success: true; data: LeaderboardResponse }>(`/contests/${id}/leaderboard`);
     return res.data.data;
   },
 };

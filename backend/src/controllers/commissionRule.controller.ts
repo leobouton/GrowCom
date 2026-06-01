@@ -91,11 +91,16 @@ export const commissionRuleController = {
       if (rule.isArchived) throw new AppError(400, 'RULE_ARCHIVED', 'Impossible de modifier une règle archivée');
 
       const { name, dealType, paymentDelayDays, description } = updateRuleSchema.parse(req.body);
+
+      const generatedConfig = await commissionAIService.generateRule(description);
+
       const updated = await commissionRuleRepository.updateMeta(id, user.tenantId!, {
         name,
         dealType: dealType ?? null,
         paymentDelayDays: paymentDelayDays ?? null,
         description,
+        config: generatedConfig,
+        type: generatedConfig.type as CommissionRuleType,
       });
 
       await auditLogRepository.create({

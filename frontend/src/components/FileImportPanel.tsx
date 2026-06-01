@@ -1,10 +1,11 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { fileImportApiService } from '../services/fileImport.service';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
-import type { ImportPreview, ImportLog } from '@shared/types';
+import type { ImportPreview, ImportLog, ImportMappingDetails } from '@shared/types';
 
 // ─── Badge statut import ─────────────────────────────────────────────────────
 
@@ -24,25 +25,48 @@ function ImportStatusBadge({ status }: { status: string }) {
 
 export function FileImportPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
   const [dragging, setDragging]     = useState(false);
   const [uploading, setUploading]   = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [preview, setPreview]       = useState<ImportPreview | null>(null);
   const [history, setHistory]       = useState<ImportLog[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [confirmResult, setConfirmResult] = useState<{ created: number; skipped: number; errors: number } | null>(null);
+  const [confirmResult, setConfirmResult] = useState<{ created: number; skipped: number; errors: number; batchId?: string } | null>(null);
+
+  // ── Mapping manuel (fallback) ──
+  const [mappingMode, setMappingMode] = useState(false);
+  const [mappingDetails, setMappingDetails] = useState<ImportMappingDetails | null>(null);
+  const [manualMapping, setManualMapping] = useState<Record<string, string>>({});
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   useEffect(() => {
     void fileImportApiService.history().then(setHistory).catch(() => {/* silencieux */});
   }, []);
 
-  const handleFile = useCallback(async (file: File) => {
+  const handleFile = useCallback(async (file: File, customMapping?: Record<string, string>) => {
     setUploadError(null);
     setPreview(null);
     setConfirmResult(null);
     setUploading(true);
+    setMappingMode(false);
     try {
-      const result = await fileImportApiService.upload(file);
+      const result = await fileImportApiService.upload(file, customMapping);
+
+      // Si le mapping est incomplet → activer le mode mapping manuel
+      if (result.mappingIncomplete && result.mappingDetails) {
+        setMappingDetails(result.mappingDetails);
+        setPendingFile(file);
+        // Pré-remplir le mapping manuel avec les champs déjà détectés
+        const initial: Record<string, string> = {};
+        for (const m of result.mappingDetails.mapped) {
+          initial[m.field] = m.columnName;
+        }
+        setManualMapping(initial);
+        setMappingMode(true);
+        return;
+      }
+
       setPreview(result);
     } catch (err) {
       if (axios.isAxiosError(err)) {
@@ -57,6 +81,18 @@ export function FileImportPanel() {
       setUploading(false);
     }
   }, []);
+
+  const handleConfirmMapping = () => {
+    if (!pendingFile) return;
+    void handleFile(pendingFile, manualMapping);
+  };
+
+  const handleCancelMapping = () => {
+    setMappingMode(false);
+    setMappingDetails(null);
+    setPendingFile(null);
+    setManualMapping({});
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -110,7 +146,7 @@ export function FileImportPanel() {
       </div>
 
       {/* Zone de drop */}
-      {!preview && !confirmResult && (
+      {!preview && !confirmResult && !mappingMode && (
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
@@ -149,6 +185,91 @@ export function FileImportPanel() {
       )}
 
 
+      {/* UI Mapping manuel (fallback) */}
+      {mappingMode && mappingDetails && (
+        <div className="mt-4 space-y-4">
+          <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-5">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-amber-800">Certaines colonnes n'ont pas été détectées automatiquement</h3>
+                <p className="text-sm text-amber-700 mt-1">
+                  Veuillez indiquer la correspondance pour les colonnes manquantes.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {/* Champs manquants à mapper */}
+              {mappingDetails.missing.map((m) => (
+                <div key={m.field} className="flex items-center gap-3">
+                  <div className="w-40 flex-shrink-0">
+                    <span className="text-sm font-medium text-gray-800">{m.label}</span>
+                    <span className="ml-1 text-xs text-red-500">*</span>
+                  </div>
+                  <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                  </svg>
+                  <select
+                    value={manualMapping[m.field] ?? ''}
+                    onChange={(e) => setManualMapping((prev) => ({ ...prev, [m.field]: e.target.value }))}
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  >
+                    <option value="">-- Choisir une colonne --</option>
+                    {mappingDetails.allHeaders
+                      .filter((h) => h?.trim())
+                      .map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))
+                    }
+                  </select>
+                </div>
+              ))}
+
+              {/* Champs déjà détectés (lecture seule) */}
+              {mappingDetails.mapped.length > 0 && (
+                <div className="pt-3 border-t border-amber-200">
+                  <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">Colonnes détectées automatiquement</p>
+                  <div className="space-y-1.5">
+                    {mappingDetails.mapped.map((m) => (
+                      <div key={m.field} className="flex items-center gap-3 text-sm">
+                        <span className="w-40 flex-shrink-0 text-gray-600">{m.label}</span>
+                        <svg className="w-3 h-3 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="text-gray-500 text-xs">colonne &laquo;{m.columnName}&raquo;</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Colonnes non identifiées */}
+              {mappingDetails.unmapped.length > 0 && (
+                <div className="pt-3 border-t border-amber-200">
+                  <p className="text-xs text-gray-400">
+                    Colonnes non utilisées : {mappingDetails.unmapped.join(', ')}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <Button onClick={handleConfirmMapping} loading={uploading}>
+                Confirmer le mapping et importer
+              </Button>
+              <Button variant="secondary" onClick={handleCancelMapping}>
+                Annuler
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Erreur upload */}
       {uploadError && (
         <div className="mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3">
@@ -166,29 +287,42 @@ export function FileImportPanel() {
 
       {/* Résultat confirmation */}
       {confirmResult && (
-        <div className="mt-4 rounded-lg bg-green-50 border border-green-200 p-4">
-          <p className="text-sm font-semibold text-green-800 mb-3">Import terminé !</p>
+        <div className={`mt-4 rounded-lg border p-4 ${confirmResult.errors > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+          <p className={`text-sm font-semibold mb-3 ${confirmResult.errors > 0 ? 'text-amber-800' : 'text-green-800'}`}>
+            {confirmResult.errors > 0 ? 'Import terminé avec des erreurs' : 'Import terminé'}
+          </p>
           <div className="grid grid-cols-3 gap-4 text-sm text-center">
             <div>
               <p className="text-2xl font-bold text-green-700">{confirmResult.created}</p>
               <p className="text-green-600 text-xs mt-0.5">Deals créés</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-amber-600">{confirmResult.skipped}</p>
-              <p className="text-amber-600 text-xs mt-0.5">Doublons ignorés</p>
+              <p className={`text-2xl font-bold ${confirmResult.skipped > 0 ? 'text-blue-600' : 'text-gray-400'}`}>{confirmResult.skipped}</p>
+              <p className="text-xs mt-0.5 text-gray-500">Deals mis à jour</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-red-600">{confirmResult.errors}</p>
-              <p className="text-red-600 text-xs mt-0.5">Erreurs</p>
+              <p className={`text-2xl font-bold ${confirmResult.errors > 0 ? 'text-red-600' : 'text-gray-400'}`}>{confirmResult.errors}</p>
+              <p className="text-xs mt-0.5 text-gray-500">Erreurs</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setConfirmResult(null)}
-            className="mt-3 text-xs text-green-700 hover:underline w-full text-center"
-          >
-            Importer un autre fichier
-          </button>
+          <div className="mt-3 flex items-center justify-center gap-4">
+            {confirmResult.batchId && (
+              <button
+                type="button"
+                onClick={() => navigate('/manager/imports')}
+                className="text-xs text-primary-600 hover:text-primary-800 font-medium hover:underline"
+              >
+                Voir le détail
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setConfirmResult(null)}
+              className="text-xs text-gray-500 hover:underline"
+            >
+              Importer un autre fichier
+            </button>
+          </div>
         </div>
       )}
 

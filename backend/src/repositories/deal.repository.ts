@@ -71,6 +71,78 @@ export const dealRepository = {
     });
   },
 
+  /**
+   * Retourne les deals WON attribués à un commercial, en excluant ceux dont la commission
+   * de CE commercial est CANCELLED. Inclut le share du DealAssignment si présent.
+   *
+   * Règle métier : un deal WON alimente les objectifs/concours SAUF si la commission
+   * du commercial a été annulée par le manager (ex: paiement client non reçu).
+   * Pour les deals splittés, seule la part du commercial concerné est retirée.
+   */
+  async findWonForObjectives(userId: string, tenantId: string): Promise<Array<Deal & { userShare: number }>> {
+    // 1. Deals attribués via DealAssignment (split)
+    const assignedDeals = await prisma.dealAssignment.findMany({
+      where: { userId, tenantId },
+      include: {
+        deal: {
+          include: {
+            commissions: {
+              where: { userId, tenantId },
+              select: { status: true },
+            },
+          },
+        },
+      },
+    });
+
+    // 2. Deals attribués via assignedToId (fallback rétrocompat) sans DealAssignment
+    const assignedDealIds = new Set(assignedDeals.map((da) => da.dealId));
+    const legacyDeals = await prisma.deal.findMany({
+      where: {
+        assignedToId: userId,
+        tenantId,
+        status: DealStatus.WON,
+        id: { notIn: [...assignedDealIds] },
+      },
+      include: {
+        commissions: {
+          where: { userId, tenantId },
+          select: { status: true },
+        },
+      },
+    });
+
+    const results: Array<Deal & { userShare: number }> = [];
+
+    // Traitement des deals via DealAssignment
+    for (const da of assignedDeals) {
+      const deal = da.deal;
+      if (deal.status !== DealStatus.WON) continue;
+      // Exclure si TOUTES les commissions de ce user sur ce deal sont CANCELLED
+      const hasNonCancelledCommission = deal.commissions.length === 0 ||
+        deal.commissions.some((c) => c.status !== 'CANCELLED');
+      if (!hasNonCancelledCommission) continue;
+      // Extraire le deal sans les commissions incluses (Prisma)
+      const { commissions: _, ...dealData } = deal;
+      results.push({ ...dealData, userShare: da.share });
+    }
+
+    // Traitement des deals legacy (pas de DealAssignment)
+    for (const deal of legacyDeals) {
+      const hasNonCancelledCommission = deal.commissions.length === 0 ||
+        deal.commissions.some((c) => c.status !== 'CANCELLED');
+      if (!hasNonCancelledCommission) continue;
+      const { commissions: _, ...dealData } = deal;
+      results.push({ ...dealData, userShare: 1.0 });
+    }
+
+    return results.sort((a, b) => {
+      const dateA = a.closedAt ? new Date(a.closedAt).getTime() : 0;
+      const dateB = b.closedAt ? new Date(b.closedAt).getTime() : 0;
+      return dateB - dateA;
+    });
+  },
+
   async findByFileExternalId(fileExternalId: string, tenantId: string): Promise<Deal | null> {
     return prisma.deal.findUnique({
       where: { tenantId_fileExternalId: { tenantId, fileExternalId } },
@@ -127,5 +199,25 @@ export const dealRepository = {
         syncedAt: new Date(),
       },
     });
+  },
+
+  async updateStatus(id: string, tenantId: string, status: DealStatus): Promise<Deal> {
+    return prisma.deal.update({ where: { id, tenantId }, data: { status } });
+  },
+
+  async updateDeal(
+    id: string,
+    tenantId: string,
+    data: {
+      title?: string;
+      clientName?: string | null;
+      amount?: number;
+      dealType?: string | null;
+      notes?: string | null;
+      costAmount?: number | null;
+      marginAmount?: number | null;
+    },
+  ): Promise<Deal> {
+    return prisma.deal.update({ where: { id, tenantId }, data });
   },
 };

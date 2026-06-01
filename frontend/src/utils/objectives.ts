@@ -68,8 +68,10 @@ export function formatObjectivePeriod(obj: Objective): string {
 
 // ─── Calcul de progression ────────────────────────────────────
 
-interface WonDealLike {
+export interface WonDealLike {
   amount: number;
+  marginAmount?: number | null;
+  userShare?: number;
   closedAt: string | null;
   syncedAt: string | null;
 }
@@ -77,27 +79,68 @@ interface WonDealLike {
 /**
  * Calcule la valeur actuelle d'un objectif depuis les deals WON.
  * Filtre par période si possible, sinon retourne le total global.
+ *
+ * Chantier 1 — Règles de calcul :
+ * - Se base uniquement sur les deals WON (les deals avec commission CANCELLED sont déjà
+ *   exclus côté backend via findWonForObjectives)
+ * - Applique userShare (part du DealAssignment) pour les deals splittés
+ * - Pour les objectifs marge (unit === 'marge'), utilise marginAmount ; si null → vente non comptée
+ * - Pour les objectifs CA (unit === '€'), utilise amount × userShare
+ * - Pour les objectifs deals (unit === 'deals'), compte le nombre de deals (1 par deal, même splitté)
  */
 export function computeProgress(obj: Objective, wonDeals: WonDealLike[]): number {
   if (wonDeals.length === 0) return 0;
 
   const range = getObjectiveDateRange(obj);
 
-  if (range) {
-    const [start, end] = range;
-    const filtered = wonDeals.filter((d) => {
-      const dateStr = d.closedAt ?? d.syncedAt;
-      if (!dateStr) return true;
-      return isWithinInterval(new Date(dateStr), { start, end });
-    });
-    if (filtered.length > 0) {
-      if (obj.unit === 'deals') return filtered.length;
-      return filtered.reduce((sum, d) => sum + d.amount, 0);
-    }
+  const isInPeriod = (d: WonDealLike): boolean => {
+    if (!range) return true;
+    const dateStr = d.closedAt ?? d.syncedAt;
+    if (!dateStr) return true;
+    return isWithinInterval(new Date(dateStr), { start: range[0], end: range[1] });
+  };
+
+  const filtered = wonDeals.filter(isInPeriod);
+  if (filtered.length === 0 && range) {
+    // Aucun deal dans la période → retourner 0 plutôt que fallback global
+    return 0;
   }
 
-  if (obj.unit === 'deals') return wonDeals.length;
-  return wonDeals.reduce((sum, d) => sum + d.amount, 0);
+  const dealsToCount = filtered.length > 0 ? filtered : wonDeals;
+
+  if (obj.unit === 'deals') return dealsToCount.length;
+
+  // Objectif marge : utiliser marginAmount, ignorer les deals sans marge
+  if (obj.unit === 'marge') {
+    return dealsToCount.reduce((sum, d) => {
+      if (d.marginAmount === null || d.marginAmount === undefined) return sum;
+      const share = d.userShare ?? 1;
+      return sum + d.marginAmount * share;
+    }, 0);
+  }
+
+  // Objectif CA (défaut) : utiliser amount × userShare
+  return dealsToCount.reduce((sum, d) => {
+    const share = d.userShare ?? 1;
+    return sum + d.amount * share;
+  }, 0);
+}
+
+/**
+ * Compte le nombre de deals dont la marge est inconnue dans la période d'un objectif marge.
+ * Utilisé pour afficher un warning discret côté commercial.
+ */
+export function countDealsWithoutMargin(obj: Objective, wonDeals: WonDealLike[]): number {
+  if (obj.unit !== 'marge') return 0;
+  const range = getObjectiveDateRange(obj);
+  const filtered = range
+    ? wonDeals.filter((d) => {
+        const dateStr = d.closedAt ?? d.syncedAt;
+        if (!dateStr) return true;
+        return isWithinInterval(new Date(dateStr), { start: range[0], end: range[1] });
+      })
+    : wonDeals;
+  return filtered.filter((d) => d.marginAmount === null || d.marginAmount === undefined).length;
 }
 
 // ─── Calcul du bonus ──────────────────────────────────────────
@@ -116,21 +159,24 @@ export function computeBonus(
   // Mode "none"
   if (effectiveBonusMode === 'none') return { amount: 0 };
 
-  // Mode "tiered"
+  // Mode "tiered" — les paliers atteints sont cumulables
   if (effectiveBonusMode === 'tiered' && obj.bonusTiers && obj.bonusTiers.length > 0) {
-    // Trouver le palier le plus élevé atteint
-    const reached = [...obj.bonusTiers]
-      .sort((a, b) => b.threshold - a.threshold)
-      .find((tier) => pctAtteint >= tier.threshold);
+    const reachedTiers = [...obj.bonusTiers]
+      .filter((tier) => pctAtteint >= tier.threshold)
+      .sort((a, b) => a.threshold - b.threshold);
 
-    if (!reached) return { amount: 0 };
+    if (reachedTiers.length === 0) return { amount: 0 };
 
-    const amount =
-      reached.reward.type === 'fixed'
-        ? reached.reward.value
-        : current * (reached.reward.value / 100);
+    let total = 0;
+    for (const tier of reachedTiers) {
+      total += tier.reward.type === 'fixed'
+        ? tier.reward.value
+        : current * (tier.reward.value / 100);
+    }
 
-    return { amount, tierReached: reached };
+    // Le palier le plus élevé atteint (pour l'affichage)
+    const highestReached = reachedTiers[reachedTiers.length - 1];
+    return { amount: total, tierReached: highestReached };
   }
 
   // Mode "simple" (comportement d'origine)

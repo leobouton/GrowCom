@@ -24,8 +24,8 @@ interface OdooCrmLead {
   date_closed: string | false;
   write_date: string | false;  // Date de dernière modif (≈ date de passage WON si date_closed absent)
   active: boolean;
-  planned_cost: number;        // Coût prévu (champ Odoo)
-  margin: number;              // Marge calculée par Odoo
+  planned_cost: number;        // Coût prévu (champ Odoo, absent sur certaines versions)
+  margin: number;              // Marge calculée par Odoo (absent sur certaines versions)
 }
 
 // ─── XML-RPC builder ─────────────────────────────────────────────────────────
@@ -302,6 +302,28 @@ export const odooService = {
     uid: number,
     odooApiKey: string,
   ): Promise<OdooCrmLead[]> {
+    // Champs de base toujours présents sur crm.lead
+    const baseFields = ['id', 'name', 'partner_id', 'expected_revenue', 'probability', 'stage_id', 'user_id', 'date_closed', 'write_date', 'active'];
+    // Champs optionnels : n'existent pas sur toutes les versions d'Odoo (ex: planned_cost absent en Odoo 19.0)
+    const optionalFields = ['planned_cost', 'margin'];
+
+    // Détecter les champs disponibles via fields_get
+    let availableOptional: string[] = [];
+    try {
+      const fieldsResult = await xmlRpcCall(
+        `${odooUrl}/xmlrpc/2/object`,
+        'execute_kw',
+        [odooDatabase, uid, odooApiKey, 'crm.lead', 'fields_get', [optionalFields], { attributes: ['string'] }],
+      );
+      const fieldsMap = fieldsResult as Record<string, unknown>;
+      availableOptional = optionalFields.filter((f) => f in fieldsMap);
+    } catch {
+      // Si fields_get échoue, on continue sans les champs optionnels
+      availableOptional = [];
+    }
+
+    const fields = [...baseFields, ...availableOptional];
+
     const result = await xmlRpcCall(
       `${odooUrl}/xmlrpc/2/object`,
       'execute_kw',
@@ -313,10 +335,7 @@ export const odooService = {
         'search_read',
         // active IN (true, false) : récupère actifs ET archivés (deals perdus dans Odoo)
         [[['active', 'in', [true, false]]]],
-        {
-          fields: ['id', 'name', 'partner_id', 'expected_revenue', 'probability', 'stage_id', 'user_id', 'date_closed', 'write_date', 'active', 'planned_cost', 'margin'],
-          limit: ODOO_DEAL_LIMIT,
-        },
+        { fields, limit: ODOO_DEAL_LIMIT },
       ],
     );
 

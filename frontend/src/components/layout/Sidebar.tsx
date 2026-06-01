@@ -44,6 +44,21 @@ const managerNavItems: NavItem[] = [
     to: '/manager/billing',
     icon: <NavIcon path="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />,
   },
+  {
+    label: 'Contestations',
+    to: '/manager/disputes',
+    icon: <NavIcon path="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />,
+  },
+  {
+    label: 'Rapports de paie',
+    to: '/manager/reports',
+    icon: <NavIcon path="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />,
+  },
+  {
+    label: 'Historique imports',
+    to: '/manager/imports',
+    icon: <NavIcon path="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />,
+  },
 ];
 
 // Nav équipe pour le Resp. de secteur (section gestion d'équipe)
@@ -62,6 +77,11 @@ const teamLeadManagerNavItems: NavItem[] = [
     label: 'Paramétrage',
     to: '/manager/parametrage',
     icon: <NavIcon path="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />,
+  },
+  {
+    label: 'Contestations',
+    to: '/manager/disputes',
+    icon: <NavIcon path="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />,
   },
 ];
 
@@ -165,6 +185,27 @@ export function Sidebar() {
             <div>
               <p className="px-3 mb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Mon équipe</p>
               <NavList items={teamLeadManagerNavItems} />
+              {/* Historique imports : visible uniquement pour BU_MANAGER, pas TEAM_LEAD */}
+              {user?.role === UserRole.BU_MANAGER && (
+                <ul className="space-y-1 mt-1">
+                  <li>
+                    <NavLink
+                      to="/manager/imports"
+                      className={({ isActive }) =>
+                        clsx(
+                          'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                          isActive
+                            ? 'bg-primary-50 text-primary-700'
+                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50',
+                        )
+                      }
+                    >
+                      <NavIcon path="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                      Historique imports
+                    </NavLink>
+                  </li>
+                </ul>
+              )}
             </div>
             {/* Séparateur */}
             <div className="border-t border-gray-100" />
