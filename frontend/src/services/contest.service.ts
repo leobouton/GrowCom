@@ -41,4 +41,8 @@ export const contestApiService = {
     const res = await api.get<{ success: true; data: LeaderboardResponse }>(`/contests/${id}/leaderboard`);
     return res.data.data;
   },
+
+  async delete(id: string): Promise<void> {
+    await api.delete(`/contests/${id}`);
+  },
 };

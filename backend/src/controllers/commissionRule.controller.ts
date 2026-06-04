@@ -159,4 +159,31 @@ export const commissionRuleController = {
       next(err);
     }
   },
+
+  async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const { id } = req.params;
+
+      const rule = await commissionRuleRepository.findById(id);
+      if (!rule) throw new AppError(404, 'RULE_NOT_FOUND', 'Règle introuvable');
+      if (rule.tenantId !== user.tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
+      if (!rule.isArchived) throw new AppError(400, 'RULE_NOT_ARCHIVED', 'Seules les règles archivées peuvent être supprimées');
+
+      // Vérifier s'il y a des commissions liées
+      const { prisma } = await import('../config/prisma');
+      const linkedCommissions = await prisma.commission.count({ where: { ruleId: id } });
+      if (linkedCommissions > 0) {
+        throw new AppError(400, 'RULE_HAS_COMMISSIONS', `Impossible de supprimer : ${linkedCommissions} commission${linkedCommissions > 1 ? 's' : ''} liée${linkedCommissions > 1 ? 's' : ''} à cette règle`);
+      }
+
+      // Supprimer les assignations liées avant la règle
+      await ruleAssignmentRepository.removeForRule(id, user.tenantId!);
+      await commissionRuleRepository.delete(id, user.tenantId!);
+
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  },
 };

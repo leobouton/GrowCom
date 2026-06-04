@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { commissionApiService } from '../../services/commission.service';
 import type { ProjectionsData, ProjectionCommission } from '../../services/commission.service';
 import { Card } from '../../components/ui/Card';
+import { Badge } from '../../components/ui/Badge';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -11,47 +12,30 @@ function formatEur(amount: number) {
 
 type Filter = 'all' | 'awaitingClient' | 'standard';
 
-function CommissionBadges({ commission }: { commission: ProjectionCommission }) {
+function StatusBadge({ commission }: { commission: ProjectionCommission }) {
   const now = new Date();
 
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {/* Badge vert toujours affiché */}
-      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-        </svg>
-        Vente validée
-      </span>
+  if (commission.awaitingClientPayment) {
+    return (
+      <div>
+        <Badge variant="orange">En attente paiement client</Badge>
+        <p className="text-xs text-gray-400 mt-0.5">Sera versée une fois que le client aura réglé</p>
+      </div>
+    );
+  }
 
-      {/* Badge orange si en attente paiement client */}
-      {commission.awaitingClientPayment && (
-        <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          En attente paiement client
-        </span>
-      )}
+  if (commission.scheduledPaymentAt && new Date(commission.scheduledPaymentAt) > now) {
+    return (
+      <div>
+        <Badge variant="yellow">Versement programmé</Badge>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Prévu le {format(new Date(commission.scheduledPaymentAt), 'dd MMM yyyy', { locale: fr })}
+        </p>
+      </div>
+    );
+  }
 
-      {/* Date de versement prévu */}
-      {!commission.awaitingClientPayment && commission.scheduledPaymentAt && new Date(commission.scheduledPaymentAt) > now && (
-        <span className="text-xs text-gray-500">
-          Versement prévu le {format(new Date(commission.scheduledPaymentAt), 'dd/MM/yyyy')}
-        </span>
-      )}
-
-      {/* En cours de validation */}
-      {!commission.awaitingClientPayment && !commission.scheduledPaymentAt && (
-        <span className="text-xs text-gray-400">En cours de validation</span>
-      )}
-
-      {/* Versement en retard */}
-      {!commission.awaitingClientPayment && commission.scheduledPaymentAt && new Date(commission.scheduledPaymentAt) <= now && (
-        <span className="text-xs text-gray-400">En cours de validation</span>
-      )}
-    </div>
-  );
+  return <Badge variant="yellow">En attente de validation</Badge>;
 }
 
 export function ProjectionsPage() {
@@ -104,23 +88,22 @@ export function ProjectionsPage() {
 
   return (
     <div className="space-y-6">
-      {/* En-tête */}
+      {/* En-tete */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Mes projections</h1>
         <p className="text-gray-500 mt-1">
-          Voici toutes vos ventes en attente de versement.
-          Elles comptent déjà dans vos objectifs et concours.
+          Toutes vos ventes en attente de versement. Elles comptent dans vos objectifs et concours.
         </p>
       </div>
 
-      {/* Carte résumé */}
+      {/* Carte resume */}
       <div className="bg-gradient-to-br from-primary-50 to-indigo-50 rounded-2xl border border-primary-200 p-6">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-primary-600 font-medium">Total projections</p>
             <p className="text-3xl font-bold text-gray-900 mt-1">{formatEur(data.totalAmount)}</p>
             <p className="text-sm text-gray-500 mt-0.5">
-              Réparti sur {data.count} commission{data.count > 1 ? 's' : ''}
+              {data.count} commission{data.count > 1 ? 's' : ''} en attente
             </p>
           </div>
           {data.byStatus.awaitingClientPayment.count > 0 && (
@@ -146,7 +129,7 @@ export function ProjectionsPage() {
         {[
           { key: 'all' as Filter, label: 'Tous', count: data.count },
           { key: 'awaitingClient' as Filter, label: 'En attente paiement client', count: data.byStatus.awaitingClientPayment.count },
-          { key: 'standard' as Filter, label: 'Délai en cours', count: data.byStatus.standardPending.count },
+          { key: 'standard' as Filter, label: 'Validation en cours', count: data.byStatus.standardPending.count },
         ].map(({ key, label, count }) => (
           <button
             key={key}
@@ -162,7 +145,7 @@ export function ProjectionsPage() {
         ))}
       </div>
 
-      {/* Liste des commissions */}
+      {/* Tableau */}
       <Card>
         {filteredCommissions.length === 0 ? (
           <div className="text-center py-12 text-gray-400">
@@ -179,33 +162,43 @@ export function ProjectionsPage() {
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Client</th>
-                  <th className="text-left py-3 px-2 font-medium text-gray-500">Date</th>
-                  <th className="text-right py-3 px-2 font-medium text-gray-500">Montant</th>
+                  <th className="text-right py-3 px-2 font-medium text-gray-500">Montant vente</th>
+                  <th className="text-right py-3 px-2 font-medium text-gray-500">Commission</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Détail</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Statut</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Date</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredCommissions.map((commission) => (
                   <tr key={commission.id} className="border-b border-gray-50 last:border-0">
                     <td className="py-3 px-2">
-                      <p className="font-medium text-gray-900 max-w-[200px] truncate">
-                        {commission.dealTitle}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-0.5">{commission.ruleName}</p>
+                      <p className="font-medium text-gray-900 max-w-[180px] truncate">{commission.dealTitle}</p>
                     </td>
-                    <td className="py-3 px-2 text-gray-600 max-w-[150px] truncate">
-                      {commission.clientName ?? <span className="text-gray-300">—</span>}
+                    <td className="py-3 px-2">
+                      {commission.clientName
+                        ? <p className="text-gray-700 text-sm max-w-[150px] truncate">{commission.clientName}</p>
+                        : <span className="text-gray-300 text-xs">—</span>}
                     </td>
-                    <td className="py-3 px-2 text-gray-500 text-xs whitespace-nowrap">
-                      {commission.dealClosedAt
-                        ? format(new Date(commission.dealClosedAt), 'dd MMM yyyy', { locale: fr })
-                        : '—'}
+                    <td className="py-3 px-2 text-right text-gray-600">
+                      {commission.dealAmount != null ? formatEur(commission.dealAmount) : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="py-3 px-2 text-right font-semibold text-gray-900">
                       {formatEur(commission.amount)}
                     </td>
+                    <td className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
+                      {commission.calculationDetail || commission.ruleName}
+                    </td>
                     <td className="py-3 px-2">
-                      <CommissionBadges commission={commission} />
+                      <StatusBadge commission={commission} />
+                    </td>
+                    <td className="py-3 px-2 text-xs whitespace-nowrap">
+                      <p className="text-gray-400">
+                        <span className="text-gray-500 font-medium">Signé </span>
+                        {commission.dealClosedAt
+                          ? format(new Date(commission.dealClosedAt), 'dd MMM yyyy', { locale: fr })
+                          : '—'}
+                      </p>
                     </td>
                   </tr>
                 ))}
@@ -215,43 +208,29 @@ export function ProjectionsPage() {
         )}
       </Card>
 
-      {/* Explication des statuts */}
+      {/* Explication */}
       <div className="bg-gray-50 rounded-xl border border-gray-200 p-5 space-y-3">
         <p className="text-sm font-semibold text-gray-700">Comprendre les statuts</p>
         <div className="space-y-2">
           <div className="flex items-start gap-2">
-            <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700 flex-shrink-0 mt-0.5">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              Vente validée
-            </span>
-            <p className="text-xs text-gray-600">
-              Votre vente est enregistrée, elle compte dans vos objectifs et concours.
+            <Badge variant="yellow">En attente de validation</Badge>
+            <p className="text-xs text-gray-600 mt-0.5">
+              La commission est en cours de traitement par votre manager.
             </p>
           </div>
           <div className="flex items-start gap-2">
-            <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 flex-shrink-0 mt-0.5">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              En attente paiement client
-            </span>
-            <p className="text-xs text-gray-600">
+            <Badge variant="orange">En attente paiement client</Badge>
+            <p className="text-xs text-gray-600 mt-0.5">
               La commission sera versée quand votre manager aura confirmé le paiement du client.
             </p>
           </div>
+          <div className="flex items-start gap-2">
+            <Badge variant="yellow">Versement programmé</Badge>
+            <p className="text-xs text-gray-600 mt-0.5">
+              La commission sera automatiquement validée à la date de versement prévue.
+            </p>
+          </div>
         </div>
-      </div>
-
-      {/* CTA */}
-      <div className="bg-blue-50 rounded-xl border border-blue-200 px-5 py-4 flex items-center gap-3">
-        <svg className="w-5 h-5 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <p className="text-sm text-blue-700">
-          Une commission tarde à être validée ? Contactez votre manager pour qu'il valide le paiement client.
-        </p>
       </div>
     </div>
   );

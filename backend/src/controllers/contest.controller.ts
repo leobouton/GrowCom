@@ -156,6 +156,35 @@ export const contestController = {
     }
   },
 
+  async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const { id } = req.params;
+
+      const contest = await contestRepository.findById(id, user.tenantId!);
+      if (!contest) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Concours introuvable' } });
+        return;
+      }
+
+      if (contest.status === ContestStatus.ACTIVE) {
+        res.status(400).json({ success: false, error: { code: 'CONTEST_ACTIVE', message: 'Impossible de supprimer un concours en cours. Terminez-le ou annulez-le d\'abord.' } });
+        return;
+      }
+
+      // TEAM_LEAD ne peut supprimer que ses propres concours
+      if (user.role === UserRole.TEAM_LEAD && contest.createdBy !== user.userId) {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Vous ne pouvez supprimer que les concours que vous avez créés' } });
+        return;
+      }
+
+      await contestRepository.delete(id, user.tenantId!);
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async leaderboard(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const user = (req as AuthenticatedRequest).user;

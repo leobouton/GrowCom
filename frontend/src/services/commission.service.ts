@@ -96,6 +96,21 @@ export const commissionApiService = {
     const res = await api.get<{ success: true; data: ProjectionsData }>('/commissions/projections');
     return res.data.data;
   },
+
+  async revertToPending(
+    commissionId: string,
+    reason: string,
+  ): Promise<{ commission: CommissionWithDetails; adjustment: unknown | null }> {
+    const res = await api.post<{
+      success: true;
+      data: { commission: CommissionWithDetails; adjustment: unknown | null };
+    }>(`/commissions/${commissionId}/revert`, { reason });
+    return res.data.data;
+  },
+
+  async delete(commissionId: string): Promise<void> {
+    await api.delete(`/commissions/${commissionId}`);
+  },
 };
 
 /** Type de réponse pour l'endpoint /commissions/projections */
@@ -114,6 +129,7 @@ export interface ProjectionCommission {
   amount: number;
   dealTitle: string;
   clientName: string | null;
+  dealAmount: number | null;
   dealClosedAt: string | null;
   awaitingClientPayment: boolean;
   scheduledPaymentAt: string | null;

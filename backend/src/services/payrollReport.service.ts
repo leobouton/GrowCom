@@ -386,21 +386,21 @@ function renderUserSection(
 
 export async function generatePayrollReport(params: {
   tenantId: string;
-  userId?: string;
+  userIds?: string[];
   callerId: string;
   callerRole: UserRole;
   periodStart: Date;
   periodEnd: Date;
 }): Promise<{ buffer: Buffer; filename: string }> {
-  const { tenantId, userId, callerId, callerRole, periodStart, periodEnd } = params;
+  const { tenantId, userIds: requestedUserIds, callerId, callerRole, periodStart, periodEnd } = params;
 
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
   const tenantName = tenant?.name ?? 'GrowCom';
 
-  // BUG 3 FIX : TEAM_LEAD et BU_MANAGER ajoutés — ils peuvent aussi avoir des commissions
+  // Résoudre les utilisateurs : soit une liste explicite, soit tout le périmètre
   let userIds: string[];
-  if (userId) {
-    userIds = [userId];
+  if (requestedUserIds && requestedUserIds.length > 0) {
+    userIds = requestedUserIds;
   } else {
     const teamIds = await resolveTeamScope(callerId, callerRole, tenantId);
     const eligibleUsers = await prisma.user.findMany({
@@ -510,18 +510,18 @@ export async function generatePayrollReport(params: {
 
 export async function generatePayrollPreview(params: {
   tenantId: string;
-  userId?: string;
+  userIds?: string[];
   callerId: string;
   callerRole: UserRole;
   periodStart: Date;
   periodEnd: Date;
 }): Promise<PayrollReportPreview> {
-  const { tenantId, userId, callerId, callerRole, periodStart, periodEnd } = params;
+  const { tenantId, userIds: requestedUserIds, callerId, callerRole, periodStart, periodEnd } = params;
 
-  // BUG 3 FIX : meme correction que pour generatePayrollReport
+  // Résoudre les utilisateurs : soit une liste explicite, soit tout le périmètre
   let userIds: string[];
-  if (userId) {
-    userIds = [userId];
+  if (requestedUserIds && requestedUserIds.length > 0) {
+    userIds = requestedUserIds;
   } else {
     const teamIds = await resolveTeamScope(callerId, callerRole, tenantId);
     const eligibleUsers = await prisma.user.findMany({

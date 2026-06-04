@@ -35,5 +35,10 @@ router.patch(
   checkRole(UserRole.MANAGER, UserRole.BU_MANAGER),
   commissionRuleController.unarchive,
 );
+router.delete(
+  '/:id',
+  checkRole(UserRole.MANAGER, UserRole.BU_MANAGER),
+  commissionRuleController.delete,
+);
 
 export default router;

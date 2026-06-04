@@ -105,6 +105,10 @@ export function startScheduler(): void {
     syncAllTenants().catch((err) =>
       logger.error('[Scheduler] Erreur lors de la sync initiale', { error: err }),
     );
+    // Générer les occurrences manquantes au démarrage
+    generateOccurrencesForAllTenants().catch((err) =>
+      logger.error('[Scheduler] Erreur lors de la génération initiale des occurrences', { error: err }),
+    );
   }, 10_000);
 
   // Sync toutes les heures, à la minute 0
@@ -121,8 +125,9 @@ export function startScheduler(): void {
     );
   });
 
-  // Génération des occurrences récurrentes — le 1er de chaque mois à 6h00
-  cron.schedule('0 6 1 * *', () => {
+  // Génération des occurrences récurrentes — tous les jours à 6h00
+  // (idempotent : ne crée que les occurrences manquantes pour la période en cours)
+  cron.schedule('0 6 * * *', () => {
     generateOccurrencesForAllTenants().catch((err) =>
       logger.error('[Scheduler] Erreur lors de la génération des occurrences récurrentes', { error: err }),
     );
@@ -138,7 +143,7 @@ export function startScheduler(): void {
   const cronJobs = [
     'Odoo sync: toutes les heures (0 * * * *)',
     'Commissions différées: tous les jours à 8h (0 8 * * *)',
-    'Occurrences récurrentes: 1er du mois à 6h (0 6 1 * *)',
+    'Occurrences récurrentes: tous les jours à 6h (0 6 * * *)',
     'Snapshot objectifs: tous les jours à 7h (0 7 * * *)',
   ];
   logger.info('[Scheduler] Cron jobs initialized:', { jobs: cronJobs });

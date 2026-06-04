@@ -3,9 +3,9 @@ import { commissionRepository } from '../repositories/commission.repository';
 import { dealRepository } from '../repositories/deal.repository';
 import { auditLogRepository } from '../repositories/auditLog.repository';
 import { AppError } from '../middlewares/errorHandler';
-import { UserRole } from '../../../shared/types';
+import { UserRole, CommissionRuleConfig } from '../../../shared/types';
 import { DisputeStatus } from '@prisma/client';
-import { resolveTeamScope } from './commission.service';
+import { resolveTeamScope, calculateCommissionAmount } from './commission.service';
 
 export const commissionDisputeService = {
   /**
@@ -73,6 +73,7 @@ export const commissionDisputeService = {
       costAmount?: number | null;
       marginAmount?: number | null;
     },
+    commissionOverride?: number | null,
   ): Promise<DisputeWithDetails> {
     const dispute = await commissionDisputeRepository.findById(disputeId);
     if (!dispute) throw new AppError(404, 'DISPUTE_NOT_FOUND', 'Contestation introuvable');
@@ -93,9 +94,35 @@ export const commissionDisputeService = {
       }
     }
 
-    // Si accepté avec modifications du deal, appliquer les changements
-    if (action === 'accept' && dealUpdates && commission) {
-      await dealRepository.updateDeal(commission.dealId, tenantId, dealUpdates);
+    if (action === 'accept' && commission) {
+      const dealAmountChanged = dealUpdates?.amount !== undefined && dealUpdates.amount !== commission.deal.amount;
+
+      // 1. Mettre à jour le deal si des modifications sont fournies
+      if (dealUpdates) {
+        await dealRepository.updateDeal(commission.dealId, tenantId, dealUpdates);
+      }
+
+      // 2. Gérer le montant de la commission
+      if (commissionOverride !== undefined && commissionOverride !== null) {
+        // Override direct du montant de commission par le manager
+        await commissionRepository.updateAmountAndDetail(
+          commission.id,
+          tenantId,
+          commissionOverride,
+          `Montant ajusté manuellement suite à contestation (ancien : ${commission.amount.toFixed(2)}€)`,
+        );
+      } else if (dealAmountChanged) {
+        // Le montant du deal a changé → recalcul automatique de la commission
+        const config = commission.rule.config as CommissionRuleConfig;
+        const newDealAmount = dealUpdates!.amount!;
+        const { amount: newCommissionAmount, explanation } = calculateCommissionAmount(newDealAmount, config);
+        await commissionRepository.updateAmountAndDetail(
+          commission.id,
+          tenantId,
+          newCommissionAmount,
+          `${explanation} (recalculé suite à contestation, deal modifié de ${commission.deal.amount.toFixed(2)}€ à ${newDealAmount.toFixed(2)}€)`,
+        );
+      }
     }
 
     const newStatus: DisputeStatus = action === 'accept' ? 'RESOLVED_ACCEPTED' : 'RESOLVED_REJECTED';
@@ -119,6 +146,7 @@ export const commissionDisputeService = {
         response: response.trim(),
         commissionId: dispute.commissionId,
         ...(dealUpdates ? { dealUpdates } : {}),
+        ...(commissionOverride !== undefined && commissionOverride !== null ? { commissionOverride } : {}),
       },
     });
 

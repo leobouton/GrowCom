@@ -17,12 +17,12 @@ export function getObjectiveDateRange(obj: Objective): [Date, Date] | null {
   const y = obj.year ?? new Date().getFullYear();
 
   if (obj.periodType === 'monthly') {
-    const month = (obj.month ?? 1) - 1;
+    const month = (obj.month ?? new Date().getMonth() + 1) - 1;
     const d = new Date(y, month, 1);
     return [startOfMonth(d), endOfMonth(d)];
   }
   if (obj.periodType === 'quarterly') {
-    const q = obj.quarter ?? 1;
+    const q = obj.quarter ?? Math.ceil((new Date().getMonth() + 1) / 3);
     const monthStart = (q - 1) * 3;
     const d = new Date(y, monthStart, 1);
     return [startOfQuarter(d), endOfQuarter(d)];
@@ -32,6 +32,17 @@ export function getObjectiveDateRange(obj: Objective): [Date, Date] | null {
   }
   if (obj.periodType === 'custom' && obj.startDate && obj.endDate) {
     return [parseISO(obj.startDate), parseISO(obj.endDate)];
+  }
+  // Garde-fou : si periodType n'est pas reconnu mais qu'on a des infos de période,
+  // tenter de deviner. Évite que null → tous les deals comptés
+  if (obj.month && y) {
+    const d = new Date(y, obj.month - 1, 1);
+    return [startOfMonth(d), endOfMonth(d)];
+  }
+  if (obj.quarter && y) {
+    const monthStart = (obj.quarter - 1) * 3;
+    const d = new Date(y, monthStart, 1);
+    return [startOfQuarter(d), endOfQuarter(d)];
   }
   return null;
 }
@@ -96,7 +107,9 @@ export function computeProgress(obj: Objective, wonDeals: WonDealLike[]): number
   const isInPeriod = (d: WonDealLike): boolean => {
     if (!range) return true;
     const dateStr = d.closedAt ?? d.syncedAt;
-    if (!dateStr) return true;
+    // Un deal sans date ne doit PAS être compté dans chaque période —
+    // on l'exclut pour éviter de gonfler tous les mois
+    if (!dateStr) return false;
     return isWithinInterval(new Date(dateStr), { start: range[0], end: range[1] });
   };
 
@@ -136,7 +149,7 @@ export function countDealsWithoutMargin(obj: Objective, wonDeals: WonDealLike[])
   const filtered = range
     ? wonDeals.filter((d) => {
         const dateStr = d.closedAt ?? d.syncedAt;
-        if (!dateStr) return true;
+        if (!dateStr) return false;
         return isWithinInterval(new Date(dateStr), { start: range[0], end: range[1] });
       })
     : wonDeals;

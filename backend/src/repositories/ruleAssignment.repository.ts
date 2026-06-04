@@ -115,4 +115,8 @@ export const ruleAssignmentRepository = {
       data: { isActive: false },
     });
   },
+
+  async removeForRule(ruleId: string, tenantId: string): Promise<void> {
+    await prisma.ruleAssignment.deleteMany({ where: { ruleId, tenantId } });
+  },
 };

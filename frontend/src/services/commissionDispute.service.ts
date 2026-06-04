@@ -23,10 +23,16 @@ export const commissionDisputeService = {
       costAmount?: number | null;
       marginAmount?: number | null;
     },
+    commissionOverride?: number | null,
   ): Promise<CommissionDispute> {
     const res = await api.post<{ success: true; data: CommissionDispute }>(
       `/disputes/${disputeId}/resolve`,
-      { action, response, ...(dealUpdates ? { dealUpdates } : {}) },
+      {
+        action,
+        response,
+        ...(dealUpdates ? { dealUpdates } : {}),
+        ...(commissionOverride !== undefined && commissionOverride !== null ? { commissionOverride } : {}),
+      },
     );
     return res.data.data;
   },

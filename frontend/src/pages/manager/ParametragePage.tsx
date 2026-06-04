@@ -121,11 +121,68 @@ function formatObjectivePeriod(obj: Objective): string {
   }
 }
 
+/**
+ * Filtre les objectifs pour ne garder que ceux à afficher :
+ * - Masque les templates récurrents si des occurrences existent
+ * - Ne garde que l'occurrence la plus récente par template (pas Jan+Fév+Mar+…)
+ * - Garde les objectifs non-récurrents tels quels
+ */
+function filterVisibleObjectives(objectives: Objective[]): Objective[] {
+  const occurrencesByParent = new Map<string, Objective[]>();
+  for (const o of objectives) {
+    if (o.parentObjectiveId) {
+      const list = occurrencesByParent.get(o.parentObjectiveId) ?? [];
+      list.push(o);
+      occurrencesByParent.set(o.parentObjectiveId, list);
+    }
+  }
+
+  const result: Objective[] = [];
+  const handledParentIds = new Set<string>();
+
+  for (const o of objectives) {
+    const isTemplate = o.recurrence && o.recurrence !== 'none' && !o.parentObjectiveId;
+
+    if (isTemplate) {
+      const occurrences = occurrencesByParent.get(o.id);
+      if (occurrences && occurrences.length > 0) {
+        // Template masqué → on prend la meilleure occurrence
+        if (!handledParentIds.has(o.id)) {
+          handledParentIds.add(o.id);
+          // Priorité : mois courant > futur le plus proche > passé le plus récent
+          const now = new Date();
+          const withRange = occurrences.map((occ) => {
+            const y = occ.year ?? now.getFullYear();
+            const m = occ.month ? occ.month - 1 : 0;
+            return { occ, start: new Date(y, m, 1) };
+          });
+          const current = withRange.find((w) => {
+            const end = new Date(w.start.getFullYear(), w.start.getMonth() + 1, 0, 23, 59, 59);
+            return now >= w.start && now <= end;
+          });
+          result.push(current?.occ ?? withRange.sort((a, b) => b.start.getTime() - a.start.getTime())[0].occ);
+        }
+      } else {
+        // Template sans occurrence → on l'affiche tel quel
+        result.push(o);
+      }
+    } else if (o.parentObjectiveId) {
+      // Occurrence → déjà gérée via le template, on skip
+    } else {
+      // Objectif non-récurrent → on l'affiche
+      result.push(o);
+    }
+  }
+
+  return result;
+}
+
 function collectTemplateObjectives(members: PublicUser[]): Objective[] {
   const seen = new Set<string>();
   const result: Objective[] = [];
   for (const m of members) {
-    const objs = Array.isArray(m.objectives) ? (m.objectives as Objective[]) : [];
+    const allObjs = Array.isArray(m.objectives) ? (m.objectives as Objective[]) : [];
+    const objs = filterVisibleObjectives(allObjs);
     for (const obj of objs) {
       const key = `${obj.label}|${obj.periodType}|${obj.year ?? ''}|${obj.quarter ?? ''}|${obj.month ?? ''}`;
       if (!seen.has(key) && obj.label) {
@@ -296,6 +353,17 @@ function CommissionsTab() {
     }
   };
 
+  const handleDeleteRule = async (ruleId: string) => {
+    if (!window.confirm('Supprimer definitivement cette regle ? Cette action est irreversible.')) return;
+    setArchivingId(ruleId);
+    try {
+      await commissionRuleApiService.delete(ruleId);
+      await loadRules();
+    } finally {
+      setArchivingId(null);
+    }
+  };
+
   const filteredRules = rules.filter((r) =>
     filterTab === 'active' ? !r.isArchived : r.isArchived,
   );
@@ -388,7 +456,14 @@ function CommissionsTab() {
                 <RuleConfigDisplay config={rule.config as unknown as CommissionRuleConfig} />
                 <div className="flex gap-2 pt-1">
                   {rule.isArchived ? (
-                    <Button variant="ghost" size="sm" onClick={() => void handleUnarchive(rule.id)} loading={archivingId === rule.id}>Restaurer</Button>
+                    <div className="flex gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => void handleUnarchive(rule.id)} loading={archivingId === rule.id}>Restaurer</Button>
+                      <Button variant="ghost" size="sm" onClick={() => void handleDeleteRule(rule.id)} loading={archivingId === rule.id} className="text-red-500 hover:text-red-600 hover:bg-red-50" title="Supprimer definitivement">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </Button>
+                    </div>
                   ) : (
                     <>
                       <Button variant="ghost" size="sm" onClick={() => openEdit(rule)}>Modifier</Button>
@@ -499,7 +574,8 @@ function ObjectifsTab() {
         ) : (
           <div className="space-y-3">
             {commerciaux.map((m) => {
-              const objectives = Array.isArray(m.objectives) ? (m.objectives as Objective[]) : [];
+              const allObjectives = Array.isArray(m.objectives) ? (m.objectives as Objective[]) : [];
+              const objectives = filterVisibleObjectives(allObjectives);
               return (
                 <div key={m.id} className="flex items-start justify-between gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
                   <div className="flex items-center gap-3 flex-shrink-0">
@@ -519,6 +595,7 @@ function ObjectifsTab() {
                         {objectives.map((obj) => (
                           <span key={obj.id} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
                             {obj.label || 'Objectif'} · {obj.target.toLocaleString('fr-FR')} {unitSymbol(obj.unit)} · {formatObjectivePeriod(obj)}
+                            {obj.recurrence && obj.recurrence !== 'none' && <span className="ml-1 text-blue-500">🔁</span>}
                             {obj.bonus?.enabled && <span className="ml-1 text-green-600 font-bold">+{obj.bonus.value}{obj.bonus.type === 'percentage' ? '%' : '€'}</span>}
                           </span>
                         ))}
@@ -625,7 +702,7 @@ function ObjectifsTab() {
                             <p className="text-sm font-medium text-gray-900">{m.firstName} {m.lastName}</p>
                             <p className="text-xs text-gray-400 truncate">{m.email}</p>
                           </div>
-                          <span className="text-xs text-gray-400">{(Array.isArray(m.objectives) ? m.objectives : []).length} obj.</span>
+                          <span className="text-xs text-gray-400">{filterVisibleObjectives(Array.isArray(m.objectives) ? (m.objectives as Objective[]) : []).length} obj.</span>
                         </label>
                       ))}
                     </div>
@@ -654,13 +731,15 @@ function ConcoursTab({ isTeamLead = false }: { isTeamLead?: boolean }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // Membres de l'équipe (pour le wizard)
+  // Membres de l'équipe et groupes (pour le wizard)
   const [members, setMembers] = useState<PublicUser[]>([]);
+  const [groups, setGroups] = useState<Array<{ id: string; name: string; color: string; members: PublicUser[] }>>([]);
 
   // Classement
   const [leaderboardContest, setLeaderboardContest] = useState<Contest | null>(null);
   const [leaderboard, setLeaderboard] = useState<ContestLeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
 
   const loadContests = async () => {
     try {
@@ -676,10 +755,15 @@ function ConcoursTab({ isTeamLead = false }: { isTeamLead?: boolean }) {
   const openCreateModal = async () => {
     setShowCreateModal(true);
     try {
-      const teamRes = await api.get<{ success: true; data: PublicUser[] }>('/auth/team');
+      const [teamRes, groupsRes] = await Promise.all([
+        api.get<{ success: true; data: PublicUser[] }>('/auth/team'),
+        api.get<{ success: true; data: Array<{ id: string; name: string; color: string; members: PublicUser[] }> }>('/groups').catch(() => ({ data: { data: [] } })),
+      ]);
       setMembers(teamRes.data.data.filter((m) => m.role !== 'MANAGER'));
+      setGroups(groupsRes.data.data);
     } catch {
       setMembers([]);
+      setGroups([]);
     }
   };
 
@@ -702,6 +786,17 @@ function ConcoursTab({ isTeamLead = false }: { isTeamLead?: boolean }) {
     setActionLoading(id);
     try {
       await contestApiService.cancel(id);
+      await loadContests();
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeleteContest = async (id: string) => {
+    if (!window.confirm('Supprimer definitivement ce concours ? Cette action est irreversible.')) return;
+    setActionLoading(id);
+    try {
+      await contestApiService.delete(id);
       await loadContests();
     } finally {
       setActionLoading(null);
@@ -781,6 +876,7 @@ function ConcoursTab({ isTeamLead = false }: { isTeamLead?: boolean }) {
                   onLeaderboard={() => void openLeaderboard(contest)}
                   onEnd={() => void handleEnd(contest.id)}
                   onCancel={() => void handleCancel(contest.id)}
+                  onDelete={() => void handleDeleteContest(contest.id)}
                 />
               ))}
             </div>
@@ -792,6 +888,7 @@ function ConcoursTab({ isTeamLead = false }: { isTeamLead?: boolean }) {
       <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Créer un concours" size="lg">
         <ContestWizard
           teamMembers={members}
+          groups={groups}
           isTeamLead={isTeamLead}
           onSuccess={() => void handleWizardSuccess()}
           onCancel={() => setShowCreateModal(false)}
@@ -799,7 +896,7 @@ function ConcoursTab({ isTeamLead = false }: { isTeamLead?: boolean }) {
       </Modal>
 
       {/* Modal classement */}
-      <Modal isOpen={!!leaderboardContest} onClose={() => setLeaderboardContest(null)} title={`Classement — ${leaderboardContest?.name ?? ''}`} size="md">
+      <Modal isOpen={!!leaderboardContest} onClose={() => { setLeaderboardContest(null); setExpandedUserId(null); }} title={`Classement — ${leaderboardContest?.name ?? ''}`} size="lg">
         {leaderboardContest && (
           <div className="space-y-4">
             {leaderboardContest.anonymousLeaderboard && (
@@ -829,23 +926,68 @@ function ConcoursTab({ isTeamLead = false }: { isTeamLead?: boolean }) {
             ) : (
               <div className="space-y-2">
                 {leaderboard.map((entry) => (
-                  <div key={entry.user.id} className={`flex items-center gap-3 p-3 rounded-xl ${entry.rank === 1 ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50'}`}>
-                    <span className={`font-bold text-lg w-8 text-center flex-shrink-0 ${getMedalColor(entry.rank)}`}>
-                      {entry.rank <= 3 ? ['🥇', '🥈', '🥉'][entry.rank - 1] : entry.rank}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900">{entry.user.firstName} {entry.user.lastName}</p>
-                      <p className="text-xs text-gray-400">{entry.user.email}</p>
+                  <div key={entry.user.id}>
+                    <div
+                      className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors ${entry.rank === 1 ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50 hover:bg-gray-100'}`}
+                      onClick={() => setExpandedUserId(expandedUserId === entry.user.id ? null : entry.user.id)}
+                    >
+                      <span className={`font-bold text-lg w-8 text-center flex-shrink-0 ${getMedalColor(entry.rank)}`}>
+                        {entry.rank <= 3 ? ['🥇', '🥈', '🥉'][entry.rank - 1] : entry.rank}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900">{entry.user.firstName} {entry.user.lastName}</p>
+                        <p className="text-xs text-gray-400">{entry.user.email}</p>
+                      </div>
+                      <span className="font-bold text-gray-800 text-sm flex-shrink-0">
+                        {formatContestValue(leaderboardContest.metric, entry.value)}
+                      </span>
+                      <svg className={`w-4 h-4 text-gray-400 transition-transform ${expandedUserId === entry.user.id ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
                     </div>
-                    <span className="font-bold text-gray-800 text-sm flex-shrink-0">
-                      {formatContestValue(leaderboardContest.metric, entry.value)}
-                    </span>
+
+                    {/* Détails des deals */}
+                    {expandedUserId === entry.user.id && entry.details && entry.details.length > 0 && (
+                      <div className="ml-11 mt-1 mb-2 space-y-1">
+                        <div className="text-xs font-semibold text-gray-500 px-3 py-1 grid grid-cols-12 gap-1">
+                          <span className="col-span-3">Deal</span>
+                          <span className="col-span-2">Client</span>
+                          <span className="col-span-2 text-right">Montant</span>
+                          <span className="col-span-2 text-right">Valeur utilisée</span>
+                          <span className="col-span-1 text-right">Part</span>
+                          <span className="col-span-2 text-right">Contribution</span>
+                        </div>
+                        {entry.details.map((d) => (
+                          <div key={d.dealId} className="text-xs text-gray-700 px-3 py-1.5 bg-white rounded border border-gray-100 grid grid-cols-12 gap-1 items-center">
+                            <span className="col-span-3 truncate font-medium" title={d.dealTitle}>{d.dealTitle}</span>
+                            <span className="col-span-2 truncate text-gray-500" title={d.clientName ?? '-'}>{d.clientName ?? '-'}</span>
+                            <span className="col-span-2 text-right">{formatEur(d.amount)}</span>
+                            <span className="col-span-2 text-right">
+                              {formatEur(d.valueUsed)}
+                              <span className="text-gray-400 ml-0.5" title={d.source}>({d.source === 'marginAmount' ? 'marge' : d.source === 'amount - costAmount' ? 'calc' : 'CA'})</span>
+                            </span>
+                            <span className="col-span-1 text-right">{Math.round(d.share * 100)}%</span>
+                            <span className="col-span-2 text-right font-semibold text-green-700">{formatEur(d.contribution)}</span>
+                          </div>
+                        ))}
+                        <div className="text-xs text-gray-500 px-3 py-1 border-t border-gray-200 flex justify-between">
+                          <span>{entry.details.length} deal{entry.details.length > 1 ? 's' : ''} pris en compte</span>
+                          <span className="font-semibold">Total : {formatEur(entry.details.reduce((s, d) => s + d.contribution, 0))}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {expandedUserId === entry.user.id && (!entry.details || entry.details.length === 0) && (
+                      <div className="ml-11 mt-1 mb-2 px-3 py-2 text-xs text-gray-400 bg-white rounded border border-gray-100">
+                        Aucun deal comptabilisé pour cette période
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
 
-            <Button variant="secondary" onClick={() => setLeaderboardContest(null)} className="w-full">Fermer</Button>
+            <Button variant="secondary" onClick={() => { setLeaderboardContest(null); setExpandedUserId(null); }} className="w-full">Fermer</Button>
           </div>
         )}
       </Modal>
@@ -863,9 +1005,10 @@ interface ContestCardProps {
   onLeaderboard: () => void;
   onEnd: () => void;
   onCancel: () => void;
+  onDelete?: () => void;
 }
 
-function ContestCard({ contest, actionLoading, onLeaderboard, onEnd, onCancel }: ContestCardProps) {
+function ContestCard({ contest, actionLoading, onLeaderboard, onEnd, onCancel, onDelete }: ContestCardProps) {
   const isActive = contest.status === ContestStatus.ACTIVE;
   const loading = actionLoading === contest.id;
 
@@ -896,7 +1039,7 @@ function ContestCard({ contest, actionLoading, onLeaderboard, onEnd, onCancel }:
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <Button variant="secondary" size="sm" onClick={onLeaderboard}>Classement</Button>
-          {isActive && (
+          {isActive ? (
             <>
               <Button
                 variant="secondary"
@@ -917,7 +1060,20 @@ function ContestCard({ contest, actionLoading, onLeaderboard, onEnd, onCancel }:
                 Annuler
               </Button>
             </>
-          )}
+          ) : onDelete ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={loading}
+              onClick={onDelete}
+              className="text-red-500 hover:text-red-600 hover:bg-red-50"
+              title="Supprimer definitivement"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </Button>
+          ) : null}
         </div>
       </div>
     </Card>

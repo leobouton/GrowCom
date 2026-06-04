@@ -381,10 +381,24 @@ export interface AnonymousLeaderboardResult {
   leaderScore: number; // Score du 1er sans nom
 }
 
+export interface ContestDealDetail {
+  dealId: string;
+  dealTitle: string;
+  clientName: string | null;
+  amount: number;
+  marginAmount: number | null;
+  costAmount: number | null;
+  valueUsed: number;
+  share: number;
+  contribution: number;
+  source: string;
+}
+
 export interface ContestLeaderboardEntry {
   rank: number;
   user: Pick<User, 'id' | 'firstName' | 'lastName' | 'email'>;
   value: number;
+  details?: ContestDealDetail[];
 }
 
 // --- Audit Log ---
@@ -455,10 +469,13 @@ export interface ManagerDashboardStats {
   totalDeferredCommissions: number;
   commercialsSummary: Array<{
     user: Pick<User, 'id' | 'firstName' | 'lastName' | 'email'>;
+    totalRevenue: number;
+    dealCount: number;
     totalCommissions: number;
     pendingCount: number;
   }>;
   deferredCommissions: CommissionWithDetails[];
+  recentlyProcessedCommissions: CommissionWithDetails[];
   openDisputeCount: number;
   totalAdjustmentsThisPeriod: number;
 }
@@ -574,6 +591,7 @@ export interface ImportPreview {
   errorRows: number;
   duplicateRows: number;            // external_id déjà existant
   unmatchedCommercials: number;     // commercial non trouvé (ni par email, ni par nom)
+  openRows: number;                 // deals en statut OPEN (pistes, opportunités) — pas de commission
   errors: ImportRowError[];
   unmatchedIdentifiers: string[];   // emails ou noms non reconnus
   sample: ImportPreviewRow[];       // Aperçu des 5 premières lignes valides
@@ -593,6 +611,7 @@ export interface ImportPreviewRow {
   commercialName: string | null;      // nom résolu depuis GrowCom, null si non reconnu
   clientName: string | null;
   dealType: string | null;
+  inferredStatus: DealStatus;         // statut déduit depuis le stage CRM (WON, OPEN, LOST)
   isDuplicate: boolean;
   isUnmatched: boolean;
 }

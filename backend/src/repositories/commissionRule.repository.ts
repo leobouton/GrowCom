@@ -24,6 +24,8 @@ export const commissionRuleRepository = {
       where: {
         tenantId,
         ...(filter?.isArchived !== undefined ? { isArchived: filter.isArchived } : {}),
+        // Exclure les règles système (placeholder TEAM_LEAD)
+        name: { not: { startsWith: '__SYSTEM_' } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -84,5 +86,11 @@ export const commissionRuleRepository = {
       where: { id, tenantId },
       data: { isArchived: false, isActive: true },
     });
+  },
+
+  async delete(id: string, tenantId: string): Promise<void> {
+    const rule = await prisma.commissionRule.findFirst({ where: { id, tenantId } });
+    if (!rule) throw new Error('Regle introuvable');
+    await prisma.commissionRule.delete({ where: { id } });
   },
 };

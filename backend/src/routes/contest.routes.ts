@@ -15,5 +15,6 @@ router.get('/:id/leaderboard', contestController.leaderboard);
 router.post('/', checkRole(UserRole.MANAGER, UserRole.TEAM_LEAD, UserRole.BU_MANAGER), contestController.create);
 router.patch('/:id/end', checkRole(UserRole.MANAGER, UserRole.TEAM_LEAD, UserRole.BU_MANAGER), contestController.end);
 router.patch('/:id/cancel', checkRole(UserRole.MANAGER, UserRole.TEAM_LEAD, UserRole.BU_MANAGER), contestController.cancel);
+router.delete('/:id', checkRole(UserRole.MANAGER, UserRole.TEAM_LEAD, UserRole.BU_MANAGER), contestController.delete);
 
 export default router;

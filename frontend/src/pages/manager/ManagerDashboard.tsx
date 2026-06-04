@@ -100,6 +100,225 @@ function CancelCommissionModal({
   );
 }
 
+// ─── Modal de révocation (remettre en attente) ──────────────────────────────
+function RevertCommissionModal({
+  commission,
+  onClose,
+  onReverted,
+}: {
+  commission: CommissionWithDetails;
+  onClose: () => void;
+  onReverted: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    if (reason.trim().length < 5) {
+      setError('Le motif doit contenir au moins 5 caractères.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await commissionApiService.revertToPending(commission.id, reason.trim());
+      onReverted();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setError(e?.response?.data?.message ?? 'Une erreur est survenue.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
+        <h3 className="text-base font-semibold text-gray-900 mb-1">Révoquer la validation</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Deal : <span className="font-medium text-gray-800">{commission.deal.title}</span> —{' '}
+          <span className="font-medium text-gray-800">
+            {commission.user.firstName} {commission.user.lastName}
+          </span>
+        </p>
+
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-800 mb-4">
+          La commission sera remise en attente de validation.
+          {commission.status === 'PAID' && (
+            <span className="block mt-1 font-medium text-amber-700">
+              Cette commission est payée — un ajustement négatif (clawback) sera créé automatiquement.
+            </span>
+          )}
+        </div>
+
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Motif de la révocation <span className="text-red-500">*</span>
+        </label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={3}
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
+          placeholder="Ex : Validation prématurée, montant à corriger, erreur de saisie..."
+        />
+
+        {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+
+        <div className="flex gap-3 justify-end mt-5">
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={loading}>
+            Annuler
+          </Button>
+          <Button
+            size="sm"
+            loading={loading}
+            onClick={() => void handleSubmit()}
+          >
+            Remettre en attente
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Modal de recherche de commissions traitées ─────────────────────────────
+function SearchProcessedModal({
+  commissions,
+  onClose,
+  onRevert,
+  onCancel,
+}: {
+  commissions: CommissionWithDetails[];
+  onClose: () => void;
+  onRevert: (c: CommissionWithDetails) => void;
+  onCancel: (c: CommissionWithDetails) => void;
+}) {
+  const [search, setSearch] = useState('');
+
+  const query = search.trim().toLowerCase();
+  const filtered = query
+    ? commissions.filter((c) => {
+        const haystack = [
+          c.user.firstName,
+          c.user.lastName,
+          c.deal.title,
+          c.deal.clientName,
+          c.rule.name,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+    : commissions;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="px-6 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-semibold text-gray-900">Corriger une commission</h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="relative">
+            <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher par commercial, deal, client..."
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+              autoFocus
+            />
+          </div>
+        </div>
+
+        {/* Résultats */}
+        <div className="flex-1 overflow-y-auto px-6 py-3">
+          {filtered.length === 0 ? (
+            <div className="text-center py-10 text-gray-400">
+              <p className="text-sm font-medium">
+                {query ? 'Aucun résultat' : 'Aucune commission traitée sur cette période'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map((c) => (
+                <div
+                  key={c.id}
+                  className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50/50 transition-colors"
+                >
+                  {/* Infos */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {c.deal.title}
+                      </p>
+                      <CommissionStatusBadge status={c.status} />
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      {c.user.firstName} {c.user.lastName}
+                      {c.deal.clientName && <span> — {c.deal.clientName}</span>}
+                      <span className="mx-1.5">·</span>
+                      <span className="font-medium text-gray-700">{formatEur(c.amount)}</span>
+                      <span className="mx-1.5">·</span>
+                      {c.paidAt
+                        ? format(new Date(c.paidAt), 'dd MMM yyyy', { locale: fr })
+                        : c.validatedAt
+                          ? format(new Date(c.validatedAt), 'dd MMM yyyy', { locale: fr })
+                          : '—'}
+                    </p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => onRevert(c)}
+                      title="Remettre en attente"
+                    >
+                      <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 010 10H9m4-10l-4-4m4 4l-4 4" />
+                      </svg>
+                      Révoquer
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={() => onCancel(c)}
+                      title="Annuler définitivement"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-gray-100 flex-shrink-0">
+          <p className="text-xs text-gray-400">
+            {filtered.length} commission{filtered.length > 1 ? 's' : ''} sur la période
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface Stats {
   totalPendingCommissions: number;
   totalValidatedCommissions: number;
@@ -107,11 +326,14 @@ interface Stats {
   totalDeferredCommissions: number;
   commercialsSummary: Array<{
     user: { id: string; firstName: string; lastName: string; email: string };
+    totalRevenue: number;
+    dealCount: number;
     totalCommissions: number;
     pendingCount: number;
   }>;
   pendingCommissions: CommissionWithDetails[];
   deferredCommissions: CommissionWithDetails[];
+  recentlyProcessedCommissions: CommissionWithDetails[];
 }
 
 type PeriodType = 'month' | 'year';
@@ -153,6 +375,12 @@ export function ManagerDashboard() {
 
   // Modal annulation commission
   const [cancelModal, setCancelModal] = useState<CommissionWithDetails | null>(null);
+
+  // Modal révocation (remettre en attente)
+  const [revertModal, setRevertModal] = useState<CommissionWithDetails | null>(null);
+
+  // Modal recherche de commissions traitées
+  const [showSearchProcessed, setShowSearchProcessed] = useState(false);
 
   const [periodType, setPeriodType] = useState<PeriodType>('month');
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
@@ -380,8 +608,9 @@ export function ManagerDashboard() {
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500 w-10">#</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Commercial</th>
+                  <th className="text-right py-3 px-2 font-medium text-gray-500">CA</th>
+                  <th className="text-right py-3 px-2 font-medium text-gray-500">Deals</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Commissions</th>
-                  <th className="text-right py-3 px-2 font-medium text-gray-500">En attente</th>
                 </tr>
               </thead>
               <tbody>
@@ -409,11 +638,14 @@ export function ManagerDashboard() {
                         </div>
                       </td>
                       <td className="py-3 px-2 text-right font-semibold text-gray-900">
-                        {formatEur(item.totalCommissions)}
+                        {formatEur(item.totalRevenue)}
+                      </td>
+                      <td className="py-3 px-2 text-right text-gray-600">
+                        {item.dealCount > 0 ? item.dealCount : <span className="text-gray-400">—</span>}
                       </td>
                       <td className="py-3 px-2 text-right">
-                        {item.pendingCount > 0 ? (
-                          <span className="text-yellow-600 font-medium">{item.pendingCount} en attente</span>
+                        {item.totalCommissions > 0 ? (
+                          <span className="text-gray-700">{formatEur(item.totalCommissions)}</span>
                         ) : (
                           <span className="text-gray-400">—</span>
                         )}
@@ -450,7 +682,8 @@ export function ManagerDashboard() {
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Client</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Commission</th>
-                  <th className="text-left py-3 px-2 font-medium text-gray-500">Paiement prévu</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Date de vente</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Paiement prevu</th>
                 </tr>
               </thead>
               <tbody>
@@ -467,6 +700,11 @@ export function ManagerDashboard() {
                     </td>
                     <td className="py-3 px-2 text-right font-semibold text-gray-900">
                       {formatEur(commission.amount)}
+                    </td>
+                    <td className="py-3 px-2 text-xs text-gray-500 whitespace-nowrap">
+                      {commission.deal.closedAt
+                        ? format(new Date(commission.deal.closedAt), 'dd MMM yyyy', { locale: fr })
+                        : format(new Date(commission.calculatedAt), 'dd MMM yyyy', { locale: fr })}
                     </td>
                     <td className="py-3 px-2">
                       <span className="inline-flex items-center gap-1.5 text-orange-700 font-medium">
@@ -499,14 +737,27 @@ export function ManagerDashboard() {
 
       {/* Commissions en attente de validation */}
       <Card>
-        <h2 className="text-base font-semibold text-gray-900 mb-4">
-          Commissions en attente de validation
-          {stats?.pendingCommissions?.length ? (
-            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-              {stats.pendingCommissions.length}
-            </span>
-          ) : null}
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+            Commissions en attente de validation
+            {stats?.pendingCommissions?.length ? (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                {stats.pendingCommissions.length}
+              </span>
+            ) : null}
+          </h2>
+          {(stats?.recentlyProcessedCommissions?.length ?? 0) > 0 && (
+            <button
+              onClick={() => setShowSearchProcessed(true)}
+              className="flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-lg border border-amber-200 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 010 10H9m4-10l-4-4m4 4l-4 4" />
+              </svg>
+              Corriger une commission
+            </button>
+          )}
+        </div>
 
         {!stats?.pendingCommissions?.length ? (
           <div className="text-center py-10 text-gray-400">
@@ -525,6 +776,8 @@ export function ManagerDashboard() {
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Client</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Montant</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Date de vente</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Validation</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Statut</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Actions</th>
                 </tr>
@@ -543,6 +796,20 @@ export function ManagerDashboard() {
                     </td>
                     <td className="py-3 px-2 text-right font-semibold text-gray-900">
                       {formatEur(commission.amount)}
+                    </td>
+                    <td className="py-3 px-2 text-xs text-gray-500 whitespace-nowrap">
+                      {commission.deal.closedAt
+                        ? format(new Date(commission.deal.closedAt), 'dd MMM yyyy', { locale: fr })
+                        : format(new Date(commission.calculatedAt), 'dd MMM yyyy', { locale: fr })}
+                    </td>
+                    <td className="py-3 px-2 text-xs whitespace-nowrap">
+                      {commission.validatedAt ? (
+                        <span className="text-green-600">{format(new Date(commission.validatedAt), 'dd MMM yyyy', { locale: fr })}</span>
+                      ) : commission.clientPaidAt ? (
+                        <span className="text-blue-600">{format(new Date(commission.clientPaidAt), 'dd MMM yyyy', { locale: fr })}</span>
+                      ) : (
+                        <span className="text-gray-400">En attente</span>
+                      )}
                     </td>
                     <td className="py-3 px-2">
                       {commission.awaitingClientPayment
@@ -609,6 +876,23 @@ export function ManagerDashboard() {
           </div>
         )}
       </Card>
+
+      {/* Modal recherche de commissions traitées */}
+      {showSearchProcessed && stats?.recentlyProcessedCommissions && (
+        <SearchProcessedModal
+          commissions={stats.recentlyProcessedCommissions}
+          onClose={() => setShowSearchProcessed(false)}
+          onRevert={(c) => {
+            setShowSearchProcessed(false);
+            setRevertModal(c);
+          }}
+          onCancel={(c) => {
+            setShowSearchProcessed(false);
+            setCancelModal(c);
+          }}
+        />
+      )}
+
       {/* Modal annulation commission */}
       {cancelModal && (
         <CancelCommissionModal
@@ -616,6 +900,18 @@ export function ManagerDashboard() {
           onClose={() => setCancelModal(null)}
           onCancelled={() => {
             setCancelModal(null);
+            void loadStats();
+          }}
+        />
+      )}
+
+      {/* Modal révocation commission */}
+      {revertModal && (
+        <RevertCommissionModal
+          commission={revertModal}
+          onClose={() => setRevertModal(null)}
+          onReverted={() => {
+            setRevertModal(null);
             void loadStats();
           }}
         />

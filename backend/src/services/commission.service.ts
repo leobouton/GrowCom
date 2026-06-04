@@ -100,18 +100,23 @@ export async function resolveTeamScope(
   const memberFilter = {
     where: {
       isActive: true,
-      role: { in: [PrismaUserRole.COMMERCIAL, PrismaUserRole.RECRUITER] },
+      role: { in: [PrismaUserRole.COMMERCIAL, PrismaUserRole.RECRUITER, PrismaUserRole.TEAM_LEAD] },
     },
     select: { id: true },
   };
 
   if (callerRole === UserRole.TEAM_LEAD) {
-    // Responsable de secteur : voit et valide uniquement son équipe (commerciaux/recruteurs)
+    // Responsable de secteur : voit et valide son équipe + ses propres ventes
     const group = await prisma.group.findFirst({
       where: { leadId: callerId, tenantId },
       include: { members: memberFilter },
     });
-    return group?.members.map((m) => m.id) ?? [];
+    const memberIds = group?.members.map((m) => m.id) ?? [];
+    // Inclure le TEAM_LEAD lui-même pour qu'il voie ses propres commissions/ventes
+    if (!memberIds.includes(callerId)) {
+      memberIds.push(callerId);
+    }
+    return memberIds;
   }
 
   if (callerRole === UserRole.BU_MANAGER) {
@@ -122,24 +127,17 @@ export async function resolveTeamScope(
     });
     if (groups.length === 0) return [];
     const ids = new Set<string>();
-    for (const g of groups) for (const m of g.members) ids.add(m.id);
+    for (const g of groups) {
+      // Inclure le TEAM_LEAD (leadId) du groupe, pas seulement les membres
+      if (g.leadId) ids.add(g.leadId);
+      for (const m of g.members) ids.add(m.id);
+    }
     return [...ids];
   }
 
   if (callerRole === UserRole.MANAGER) {
-    // Manager général : voit uniquement son équipe s'il en a une (lead ou manager d'un groupe)
-    const groups = await prisma.group.findMany({
-      where: {
-        tenantId,
-        OR: [{ leadId: callerId }, { managerId: callerId }],
-      },
-      include: { members: memberFilter },
-    });
-    // S'il n'a aucune équipe → accès total (filet de sécurité pour le super-manager)
-    if (groups.length === 0) return null;
-    const ids = new Set<string>();
-    for (const g of groups) for (const m of g.members) ids.add(m.id);
-    return [...ids];
+    // Manager général : accès total à tous les commerciaux du tenant
+    return null;
   }
 
   // SUPER_ADMIN : accès total à tout le tenant
@@ -163,12 +161,83 @@ async function assertInScope(
   }
 }
 
+/**
+ * Règle métier : TOUTES les ventes des responsables de secteur (TEAM_LEAD) doivent
+ * être validées par le manager général (MANAGER) ou un SUPER_ADMIN.
+ * Un TEAM_LEAD ou BU_MANAGER ne peut pas valider les commissions d'un autre TEAM_LEAD.
+ */
+async function assertTeamLeadValidationRestriction(
+  commissionUserId: string,
+  callerRole: UserRole,
+  tenantId: string,
+): Promise<void> {
+  if (callerRole === UserRole.MANAGER || callerRole === UserRole.SUPER_ADMIN) return;
+
+  // Vérifie si le commercial de cette commission est un TEAM_LEAD
+  const targetUser = await userRepository.findById(commissionUserId);
+  if (!targetUser || targetUser.tenantId !== tenantId) return;
+
+  if (targetUser.role === PrismaUserRole.TEAM_LEAD) {
+    throw new AppError(
+      403,
+      'TEAM_LEAD_VALIDATION_RESTRICTED',
+      'Les ventes des responsables de secteur doivent être validées par le manager général',
+    );
+  }
+}
+
+/**
+ * Retourne l'ID d'une règle système "placeholder" (0 €, archivée, invisible dans l'UI)
+ * utilisée pour créer des commissions à 0 € sur les deals des TEAM_LEAD sans règle assignée.
+ * Permet au deal de passer par le flux de validation manager.
+ */
+const TEAM_LEAD_PLACEHOLDER_RULE_NAME = '__SYSTEM_TEAM_LEAD_PLACEHOLDER__';
+
+async function getOrCreatePlaceholderRuleId(tenantId: string, createdBy: string): Promise<string> {
+  const existing = await prisma.commissionRule.findFirst({
+    where: { tenantId, name: TEAM_LEAD_PLACEHOLDER_RULE_NAME },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  const rule = await prisma.commissionRule.create({
+    data: {
+      tenantId,
+      name: TEAM_LEAD_PLACEHOLDER_RULE_NAME,
+      description: 'Règle système : validation obligatoire des ventes responsable de secteur',
+      type: 'FIXED',
+      config: {
+        type: 'FIXED',
+        fixedAmount: 0,
+        description: 'Pas de règle de commission — validation manager requise',
+        examples: [],
+      },
+      scope: 'GLOBAL',
+      isActive: false,
+      isArchived: true,
+      createdBy,
+    },
+  });
+  return rule.id;
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 // Rôles considérés comme "commerciaux" pour les stats/résumés
-const COMMERCIAL_ROLES = [PrismaUserRole.COMMERCIAL, PrismaUserRole.RECRUITER];
+// TEAM_LEAD inclus car dans certaines structures les responsables de secteur réalisent encore des ventes
+const COMMERCIAL_ROLES = [PrismaUserRole.COMMERCIAL, PrismaUserRole.RECRUITER, PrismaUserRole.TEAM_LEAD];
 
 export const commissionService = {
+  async findById(id: string, tenantId: string) {
+    const commission = await commissionRepository.findById(id);
+    if (!commission || commission.tenantId !== tenantId) return null;
+    return commission;
+  },
+
+  async delete(id: string, tenantId: string) {
+    await commissionRepository.delete(id, tenantId);
+  },
+
   /** Vérifie publiquement que targetUserId est dans le périmètre du demandeur. */
   async assertUserInScope(
     targetUserId: string,
@@ -202,6 +271,9 @@ export const commissionService = {
     // Vérification de périmètre : TEAM_LEAD ne peut valider que son équipe
     await assertInScope(commission.userId, callerId, callerRole, tenantId);
 
+    // Règle métier : les ventes des responsables de secteur doivent être validées par le manager général
+    await assertTeamLeadValidationRestriction(commission.userId, callerRole, tenantId);
+
     // Règle métier : validée = payée immédiatement (pas d'étape intermédiaire)
     return commissionRepository.updateStatus(commissionId, PrismaCommissionStatus.PAID, tenantId);
   },
@@ -216,6 +288,9 @@ export const commissionService = {
 
     // Vérification de périmètre : TEAM_LEAD ne peut payer que son équipe
     await assertInScope(commission.userId, callerId, callerRole, tenantId);
+
+    // Règle métier : les ventes des responsables de secteur doivent être validées par le manager général
+    await assertTeamLeadValidationRestriction(commission.userId, callerRole, tenantId);
 
     return commissionRepository.updateStatus(commissionId, PrismaCommissionStatus.PAID, tenantId);
   },
@@ -246,16 +321,58 @@ export const commissionService = {
     ]);
     // Note : les commissions CANCELLED sont exclues de tous ces aggregats (filtre par statut exact)
 
-    // Récupérer les commerciaux dans le périmètre (jamais les managers dans ce résumé)
-    const commercials = teamIds !== null
-      ? await userRepository.findByIds(teamIds, tenantId)
-      : await userRepository.findByTenantIdAndRoles(tenantId, COMMERCIAL_ROLES);
+    // Classement "Meilleurs vendeurs" :
+    // - MANAGER / SUPER_ADMIN → tous les commerciaux de l'entreprise
+    // - TEAM_LEAD / BU_MANAGER → uniquement les commerciaux de leur périmètre
+    const rankingShowsAll = callerRole === UserRole.MANAGER || callerRole === UserRole.SUPER_ADMIN;
+    const commercials = rankingShowsAll
+      ? await userRepository.findByTenantIdAndRoles(tenantId, COMMERCIAL_ROLES)
+      : teamIds !== null
+        ? await userRepository.findByIds(teamIds, tenantId)
+        : await userRepository.findByTenantIdAndRoles(tenantId, COMMERCIAL_ROLES);
 
-    // Récupérer les commissions du mois sélectionné (filtrées par validatedAt)
     const userIds = commercials.map((u) => u.id);
-    const allCommissions = await commissionRepository.findByUserIdsInPeriod(userIds, tenantId, effectiveStart, effectiveEnd);
 
-    // Grouper en mémoire par userId
+    // Récupérer les deals WON dans la période pour le classement par CA
+    const wonDealsInPeriod = userIds.length > 0
+      ? await prisma.deal.findMany({
+          where: {
+            tenantId,
+            status: PrismaDealStatus.WON,
+            closedAt: { gte: effectiveStart, lte: effectiveEnd },
+            OR: [
+              { assignedToId: { in: userIds } },
+              { assignments: { some: { userId: { in: userIds } } } },
+            ],
+          },
+          include: {
+            assignments: {
+              where: { userId: { in: userIds } },
+              select: { userId: true, share: true },
+            },
+          },
+        })
+      : [];
+
+    // Calculer le CA par user (en tenant compte des splits via DealAssignment)
+    const revenueByUser = new Map<string, number>();
+    const dealCountByUser = new Map<string, number>();
+    for (const deal of wonDealsInPeriod) {
+      if (deal.assignments.length > 0) {
+        // Deal splitté : chaque participant reçoit sa part
+        for (const da of deal.assignments) {
+          revenueByUser.set(da.userId, (revenueByUser.get(da.userId) ?? 0) + deal.amount * da.share);
+          dealCountByUser.set(da.userId, (dealCountByUser.get(da.userId) ?? 0) + 1);
+        }
+      } else if (deal.assignedToId && userIds.includes(deal.assignedToId)) {
+        // Deal non splitté : 100% pour le commercial assigné
+        revenueByUser.set(deal.assignedToId, (revenueByUser.get(deal.assignedToId) ?? 0) + deal.amount);
+        dealCountByUser.set(deal.assignedToId, (dealCountByUser.get(deal.assignedToId) ?? 0) + 1);
+      }
+    }
+
+    // Récupérer les commissions pour les infos en attente
+    const allCommissions = await commissionRepository.findByUserIdsInPeriod(userIds, tenantId, effectiveStart, effectiveEnd);
     const commissionsByUser = new Map<string, typeof allCommissions>();
     for (const c of allCommissions) {
       const arr = commissionsByUser.get(c.userId) ?? [];
@@ -265,19 +382,20 @@ export const commissionService = {
 
     const commercialsSummary = commercials.map((user) => {
       const userCommissions = commissionsByUser.get(user.id) ?? [];
-      // Exclure les commissions CANCELLED des totaux (mais elles restent dans la liste détaillée)
       const activeCommissions = userCommissions.filter((c) => c.status !== CommissionStatus.CANCELLED);
       const totalCommissions = activeCommissions.reduce((sum, c) => sum + c.amount, 0);
       const pendingCount = activeCommissions.filter((c) => c.status === CommissionStatus.PENDING).length;
 
       return {
         user: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
+        totalRevenue: revenueByUser.get(user.id) ?? 0,
+        dealCount: dealCountByUser.get(user.id) ?? 0,
         totalCommissions,
         pendingCount,
       };
     });
 
-    commercialsSummary.sort((a, b) => b.totalCommissions - a.totalCommissions);
+    commercialsSummary.sort((a, b) => b.totalRevenue - a.totalRevenue);
 
     // Commissions en attente dans le périmètre
     const allPending = teamIds !== null
@@ -294,6 +412,26 @@ export const commissionService = {
     );
     const totalDeferredCommissions = deferredCommissions.reduce((sum, c) => sum + c.amount, 0);
 
+    // Commissions récemment traitées (validées/payées) dans la période — pour permettre la révocation
+    const recentlyProcessedWhere = {
+      ...statsWhere,
+      status: { in: [PrismaCommissionStatus.VALIDATED, PrismaCommissionStatus.PAID] },
+      OR: [
+        { validatedAt: { gte: effectiveStart, lte: effectiveEnd } },
+        { paidAt: { gte: effectiveStart, lte: effectiveEnd } },
+      ],
+    };
+    const recentlyProcessedCommissions = await prisma.commission.findMany({
+      where: recentlyProcessedWhere,
+      include: {
+        deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
+        rule: { select: { name: true, config: true, paymentDelayDays: true } },
+        user: { select: { firstName: true, lastName: true, email: true } },
+      },
+      orderBy: { validatedAt: 'desc' },
+      take: 50,
+    });
+
     const [openDisputeCount, totalAdjustmentsThisPeriod] = await Promise.all([
       commissionDisputeRepository.countOpen(tenantId),
       commissionAdjustmentRepository.sumByTenantAndPeriod(tenantId, effectiveStart, effectiveEnd),
@@ -307,6 +445,7 @@ export const commissionService = {
       commercialsSummary,
       pendingCommissions,
       deferredCommissions,
+      recentlyProcessedCommissions,
       openDisputeCount,
       totalAdjustmentsThisPeriod,
     };
@@ -421,6 +560,7 @@ export const commissionService = {
       wonDeals: wonDealsForObjectives.map((d) => ({
         id: d.id,
         title: d.title,
+        clientName: d.clientName ?? null,
         amount: d.amount,
         marginAmount: d.marginAmount ?? null,
         userShare: d.userShare,
@@ -444,10 +584,80 @@ export const commissionService = {
 
     await assertInScope(commission.userId, callerId, callerRole, tenantId);
 
+    // Règle métier : les ventes des responsables de secteur doivent être validées par le manager général
+    await assertTeamLeadValidationRestriction(commission.userId, callerRole, tenantId);
+
     // Récupère le délai de la règle pour savoir si on planifie ou on valide directement
     const paymentDelayDays = commission.rule?.paymentDelayDays ?? null;
 
     return commissionRepository.markClientPaid(commissionId, callerId, paymentDelayDays);
+  },
+
+  /**
+   * Révoque la validation d'une commission : la remet en PENDING.
+   * Si la commission était PAID, crée un CommissionAdjustment négatif (clawback).
+   * Motif obligatoire pour traçabilité.
+   */
+  async revertToPending(
+    commissionId: string,
+    tenantId: string,
+    callerId: string,
+    callerRole: UserRole,
+    reason: string,
+  ) {
+    const commission = await commissionRepository.findById(commissionId);
+    if (!commission) throw new AppError(404, 'COMMISSION_NOT_FOUND', 'Commission introuvable');
+    if (commission.tenantId !== tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
+
+    if (commission.status !== CommissionStatus.VALIDATED && commission.status !== CommissionStatus.PAID) {
+      throw new AppError(400, 'INVALID_STATUS', 'Seules les commissions validées ou payées peuvent être révoquées');
+    }
+    if (!reason.trim()) {
+      throw new AppError(400, 'REASON_REQUIRED', 'Le motif de révocation est requis');
+    }
+
+    await assertInScope(commission.userId, callerId, callerRole, tenantId);
+
+    const wasPaid = commission.status === CommissionStatus.PAID;
+
+    // Remettre en PENDING (effacer les dates de validation/paiement)
+    const reverted = await prisma.commission.update({
+      where: { id: commissionId, tenantId },
+      data: {
+        status: PrismaCommissionStatus.PENDING,
+        validatedAt: null,
+        paidAt: null,
+      },
+    });
+
+    // Clawback si la commission était payée
+    let adjustment = null;
+    if (wasPaid) {
+      adjustment = await commissionAdjustmentRepository.create({
+        tenantId,
+        userId: commission.userId,
+        originalCommissionId: commissionId,
+        amount: -commission.amount,
+        reason: `Clawback suite à révocation : ${reason.trim()}`,
+        createdBy: callerId,
+      });
+    }
+
+    await auditLogRepository.create({
+      tenantId,
+      userId: callerId,
+      action: 'COMMISSION_REVERTED',
+      entity: 'Commission',
+      entityId: commissionId,
+      metadata: {
+        previousStatus: wasPaid ? 'PAID' : 'VALIDATED',
+        reason: reason.trim(),
+        wasPaid,
+        clawbackId: adjustment?.id ?? null,
+      },
+    });
+
+    return { commission: reverted, adjustment };
   },
 
   /**
@@ -615,6 +825,7 @@ export const commissionService = {
         amount: c.amount,
         dealTitle: c.deal.title,
         clientName: c.deal.clientName,
+        dealAmount: c.deal.amount,
         dealClosedAt: c.deal.closedAt?.toISOString() ?? null,
         awaitingClientPayment: c.awaitingClientPayment,
         scheduledPaymentAt: c.scheduledPaymentAt?.toISOString() ?? null,
@@ -663,7 +874,21 @@ export const commissionService = {
         tenantId,
       );
 
-      if (activeAssignments.length === 0) continue;
+      if (activeAssignments.length === 0) {
+        // Pas de règle de commission → normalement on ignore.
+        // Mais pour les TEAM_LEAD, on crée une commission à 0 € afin que la vente
+        // passe obligatoirement par la validation du manager général.
+        const targetUser = await userRepository.findById(target.userId);
+        if (targetUser?.role === PrismaUserRole.TEAM_LEAD) {
+          const placeholderRuleId = await getOrCreatePlaceholderRuleId(tenantId, target.userId);
+          const result = await commissionRepository.upsertForDeal(
+            tenantId, target.userId, dealId, placeholderRuleId,
+            0, 'Pas de règle de commission — validation manager requise', null, false,
+          );
+          allResults.push(result);
+        }
+        continue;
+      }
 
       for (const assignment of activeAssignments) {
         const config = assignment.rule.config as unknown as CommissionRuleConfig;
@@ -673,17 +898,15 @@ export const commissionService = {
         let basisLabel: string;
 
         if (config.calculationBasis === 'MARGIN') {
-          if (deal.marginAmount === null || deal.marginAmount === undefined) {
-            // Règle marge mais marginAmount inconnu → commission à 0€ visible manager
-            const calculationDetail = `${assignment.rule.name} : Règle marge non applicable — marge inconnue sur ce deal`;
-            const result = await commissionRepository.upsertForDeal(
-              tenantId, target.userId, dealId, assignment.ruleId,
-              0, calculationDetail, null, false,
-            );
-            allResults.push(result);
-            continue;
+          if (deal.marginAmount !== null && deal.marginAmount !== undefined) {
+            fullBasisAmount = deal.marginAmount;
+          } else if (deal.costAmount !== null && deal.costAmount !== undefined) {
+            // Fallback : marge = CA - coût
+            fullBasisAmount = deal.amount - deal.costAmount;
+          } else {
+            // Ni marge ni coût renseignés → utilise le CA
+            fullBasisAmount = deal.amount;
           }
-          fullBasisAmount = deal.marginAmount;
           basisLabel = 'marge';
         } else {
           // REVENUE ou non défini — comportement historique

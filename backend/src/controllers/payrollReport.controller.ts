@@ -8,13 +8,18 @@ const reportParamsSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2099),
   month: z.coerce.number().int().min(1).max(12),
   userId: z.string().optional(),
+  userIds: z.string().optional(), // liste d'IDs séparés par des virgules
 });
 
 export const payrollReportController = {
   async generatePdf(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const { year, month, userId } = reportParamsSchema.parse(req.query);
+      const { year, month, userId, userIds: userIdsParam } = reportParamsSchema.parse(req.query);
+      // Supporter userId unique OU userIds multiples (séparés par virgule)
+      const resolvedUserIds = userIdsParam
+        ? userIdsParam.split(',').map((id) => id.trim()).filter(Boolean)
+        : userId ? [userId] : undefined;
 
       const periodStart = new Date(year, month - 1, 1);
       const periodEnd = new Date(year, month, 0, 23, 59, 59);
@@ -25,7 +30,7 @@ export const payrollReportController = {
         callerRole: user.role as UserRole,
         periodStart,
         periodEnd,
-        userId,
+        userIds: resolvedUserIds,
       });
 
       res.setHeader('Content-Type', 'application/pdf');
@@ -40,7 +45,10 @@ export const payrollReportController = {
   async preview(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const { year, month, userId } = reportParamsSchema.parse(req.query);
+      const { year, month, userId, userIds: userIdsParam } = reportParamsSchema.parse(req.query);
+      const resolvedUserIds = userIdsParam
+        ? userIdsParam.split(',').map((id) => id.trim()).filter(Boolean)
+        : userId ? [userId] : undefined;
 
       const periodStart = new Date(year, month - 1, 1);
       const periodEnd = new Date(year, month, 0, 23, 59, 59);
@@ -51,7 +59,7 @@ export const payrollReportController = {
         callerRole: user.role as UserRole,
         periodStart,
         periodEnd,
-        userId,
+        userIds: resolvedUserIds,
       });
 
       res.json({ success: true, data: preview });

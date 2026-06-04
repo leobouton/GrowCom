@@ -54,4 +54,8 @@ export const commissionRuleApiService = {
     );
     return res.data.data;
   },
+
+  async delete(ruleId: string): Promise<void> {
+    await api.delete(`/commission-rules/${ruleId}`);
+  },
 };

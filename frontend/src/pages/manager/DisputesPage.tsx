@@ -40,11 +40,16 @@ function ResolveDisputeModal({
 
   // Champs du deal modifiables (seulement en mode acceptation)
   const deal = dispute.commission?.deal;
+  const originalCommissionAmount = dispute.commission?.amount ?? 0;
   const [dealTitle, setDealTitle] = useState(deal?.title ?? '');
   const [dealClient, setDealClient] = useState(deal?.clientName ?? '');
   const [dealAmount, setDealAmount] = useState(deal?.amount ?? 0);
   const [dealType, setDealType] = useState(deal?.dealType ?? '');
   const [dealNotes, setDealNotes] = useState(deal?.notes ?? '');
+
+  // Override direct de la commission
+  const [commissionAmount, setCommissionAmount] = useState(originalCommissionAmount);
+  const [commissionManualOverride, setCommissionManualOverride] = useState(false);
 
   const hasDealChanges = deal && (
     dealTitle !== deal.title ||
@@ -53,6 +58,9 @@ function ResolveDisputeModal({
     dealType !== (deal.dealType ?? '') ||
     dealNotes !== (deal.notes ?? '')
   );
+
+  const hasCommissionOverride = commissionManualOverride && commissionAmount !== originalCommissionAmount;
+  const dealAmountChanged = deal && dealAmount !== deal.amount;
 
   const handleSubmit = async () => {
     if (!response.trim()) {
@@ -73,11 +81,15 @@ function ResolveDisputeModal({
         if (dealNotes !== (deal.notes ?? '')) dealUpdates.notes = dealNotes || null;
       }
 
+      // Override commission (seulement si coché et modifié)
+      const commOverride = (action === 'accept' && hasCommissionOverride) ? commissionAmount : undefined;
+
       await commissionDisputeService.resolve(
         dispute.id,
         action,
         response.trim(),
         dealUpdates as Parameters<typeof commissionDisputeService.resolve>[3],
+        commOverride,
       );
       onResolved();
     } catch (err: unknown) {
@@ -176,10 +188,10 @@ function ResolveDisputeModal({
             </button>
           </div>
 
-          {/* Modification du deal (seulement si accepte) */}
+          {/* Modification du deal + commission (seulement si accepte) */}
           {action === 'accept' && deal && (
-            <div className="border border-green-200 bg-green-50 rounded-lg p-4 mb-4">
-              <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-3">
+            <div className="border border-green-200 bg-green-50 rounded-lg p-4 mb-4 space-y-4">
+              <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">
                 Modifier la vente (optionnel)
               </p>
               <div className="grid grid-cols-2 gap-3">
@@ -202,13 +214,18 @@ function ResolveDisputeModal({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Montant</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Montant de la vente</label>
                   <input
                     type="number"
                     value={dealAmount}
                     onChange={(e) => setDealAmount(Number(e.target.value))}
                     className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
                   />
+                  {dealAmountChanged && !commissionManualOverride && (
+                    <p className="text-xs text-green-600 mt-1">
+                      La commission sera recalculee automatiquement
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Type de deal</label>
@@ -229,9 +246,60 @@ function ResolveDisputeModal({
                   />
                 </div>
               </div>
-              {hasDealChanges && (
-                <p className="text-xs text-green-600 mt-2 font-medium">
-                  Des modifications seront appliquees a la vente
+
+              {/* Section commission */}
+              <div className="border-t border-green-200 pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">
+                    Commission actuelle : {formatEur(originalCommissionAmount)}
+                  </p>
+                  <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={commissionManualOverride}
+                      onChange={(e) => {
+                        setCommissionManualOverride(e.target.checked);
+                        if (!e.target.checked) setCommissionAmount(originalCommissionAmount);
+                      }}
+                      className="rounded border-gray-300 text-green-600 focus:ring-green-400"
+                    />
+                    Modifier la commission manuellement
+                  </label>
+                </div>
+                {commissionManualOverride && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Nouveau montant de commission</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={commissionAmount}
+                      onChange={(e) => setCommissionAmount(Number(e.target.value))}
+                      className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                    />
+                    {hasCommissionOverride && (
+                      <p className="text-xs text-green-600 mt-1 font-medium">
+                        Commission modifiee de {formatEur(originalCommissionAmount)} a {formatEur(commissionAmount)}
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-400 mt-1">
+                      Si vous modifiez aussi le montant de la vente, l'override manuel prend le dessus sur le recalcul automatique.
+                    </p>
+                  </div>
+                )}
+                {!commissionManualOverride && dealAmountChanged && (
+                  <p className="text-xs text-green-600 font-medium">
+                    Le montant de la vente ayant change, la commission sera recalculee selon la regle en vigueur. Les objectifs et concours seront aussi mis a jour.
+                  </p>
+                )}
+              </div>
+
+              {(hasDealChanges || hasCommissionOverride) && (
+                <p className="text-xs text-green-600 font-medium">
+                  {hasDealChanges && hasCommissionOverride
+                    ? 'La vente et la commission seront modifiees'
+                    : hasDealChanges
+                    ? 'Des modifications seront appliquees a la vente'
+                    : 'La commission sera modifiee manuellement'}
                 </p>
               )}
             </div>

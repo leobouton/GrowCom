@@ -14,6 +14,10 @@ const cancelCommissionSchema = z.object({
   cancelDeal: z.boolean().optional(),
 });
 
+const revertSchema = z.object({
+  reason: z.string().min(5).max(500),
+});
+
 export const commissionController = {
   async getManagerStats(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -137,6 +141,58 @@ export const commissionController = {
         { cancelDeal },
       );
       res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async revertToPending(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const { id } = req.params;
+      const { reason } = revertSchema.parse(req.body);
+      const result = await commissionService.revertToPending(
+        id,
+        user.tenantId!,
+        user.userId,
+        user.role as UserRole,
+        reason,
+      );
+
+      await auditLogRepository.create({
+        tenantId: user.tenantId!,
+        userId: user.userId,
+        action: 'COMMISSION_REVERTED',
+        entity: 'Commission',
+        entityId: id,
+        metadata: { commissionId: id, reason },
+      });
+
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const { id } = req.params;
+
+      const commission = await commissionService.findById(id, user.tenantId!);
+      if (!commission) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Commission introuvable' } });
+        return;
+      }
+
+      const terminatedStatuses = ['PAID', 'CANCELLED'];
+      if (!terminatedStatuses.includes(commission.status)) {
+        res.status(400).json({ success: false, error: { code: 'COMMISSION_ACTIVE', message: 'Seules les commissions payées ou annulées peuvent être supprimées' } });
+        return;
+      }
+
+      await commissionService.delete(id, user.tenantId!);
+      res.json({ success: true });
     } catch (err) {
       next(err);
     }

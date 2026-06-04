@@ -10,6 +10,8 @@ import { format } from 'date-fns';
 
 type WizardStep = 1 | 2 | 3 | 4;
 
+type ParticipantMode = 'all' | 'selection';
+
 interface ContestWizardState {
   step: WizardStep;
   name: string;
@@ -17,15 +19,22 @@ interface ContestWizardState {
   description: string;
   metric: ContestMetric | null;
   anonymousLeaderboard: boolean;
-  scope: RuleScope;
-  teamName: string;
+  participantMode: ParticipantMode;
   participantIds: string[];
   periodStart: string;
   periodEnd: string;
 }
 
+export interface ContestGroup {
+  id: string;
+  name: string;
+  color: string;
+  members: PublicUser[];
+}
+
 interface ContestWizardProps {
   teamMembers: PublicUser[];
+  groups?: ContestGroup[];
   isTeamLead?: boolean;
   onSuccess: (contest: Contest) => void;
   onCancel: () => void;
@@ -35,19 +44,13 @@ interface ContestWizardProps {
 
 function metricLabel(metric: ContestMetric): string {
   if (metric === ContestMetric.REVENUE) return 'CA (chiffre d\'affaires)';
-  if (metric === ContestMetric.MARGIN) return 'Marge réalisée';
-  return 'Deals signés';
-}
-
-function scopeLabel(scope: RuleScope, teamName: string, count: number): string {
-  if (scope === RuleScope.GLOBAL) return 'Toute l\'équipe';
-  if (scope === RuleScope.TEAM) return `Équipe : ${teamName || '—'}`;
-  return `${count} participant${count > 1 ? 's' : ''} sélectionné${count > 1 ? 's' : ''}`;
+  if (metric === ContestMetric.MARGIN) return 'Marge realisee';
+  return 'Deals signes';
 }
 
 // ─── Composant ────────────────────────────────────────────────────────────
 
-export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCancel }: ContestWizardProps) {
+export function ContestWizard({ teamMembers, groups = [], isTeamLead = false, onSuccess, onCancel }: ContestWizardProps) {
   const [state, setState] = useState<ContestWizardState>({
     step: 1,
     name: '',
@@ -55,14 +58,14 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
     description: '',
     metric: null,
     anonymousLeaderboard: false,
-    scope: isTeamLead ? RuleScope.INDIVIDUAL : RuleScope.GLOBAL,
-    teamName: '',
+    participantMode: isTeamLead ? 'selection' : 'all',
     participantIds: [],
     periodStart: '',
     periodEnd: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const update = (patch: Partial<ContestWizardState>) =>
     setState((prev) => ({ ...prev, ...patch }));
@@ -76,7 +79,7 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
   const canGoToStep4 = (() => {
     if (!state.periodStart || !state.periodEnd) return false;
     if (new Date(state.periodEnd) <= new Date(state.periodStart)) return false;
-    if (state.scope === RuleScope.INDIVIDUAL && state.participantIds.length === 0) return false;
+    if (state.participantMode === 'selection' && state.participantIds.length === 0) return false;
     return true;
   })();
 
@@ -98,6 +101,29 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
     }
   };
 
+  const toggleGroup = (group: ContestGroup) => {
+    const groupMemberIds = group.members.map((m) => m.id);
+    const allSelected = groupMemberIds.every((id) => state.participantIds.includes(id));
+    if (allSelected) {
+      // Deselect all members of this group
+      update({ participantIds: state.participantIds.filter((id) => !groupMemberIds.includes(id)) });
+    } else {
+      // Select all members of this group (add those not yet selected)
+      const newIds = new Set([...state.participantIds, ...groupMemberIds]);
+      update({ participantIds: [...newIds] });
+    }
+  };
+
+  const isGroupFullySelected = (group: ContestGroup) =>
+    group.members.length > 0 && group.members.every((m) => state.participantIds.includes(m.id));
+
+  // ── Filtre recherche ──
+  const filteredMembers = search.trim()
+    ? teamMembers.filter((m) =>
+        `${m.firstName} ${m.lastName}`.toLowerCase().includes(search.toLowerCase()),
+      )
+    : teamMembers;
+
   // ── Soumission ──
 
   const handleSubmit = async () => {
@@ -105,16 +131,17 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
     setSubmitting(true);
     setError(null);
     try {
+      const isAll = state.participantMode === 'all';
       const contest = await contestApiService.create({
         name: state.name,
         description: state.description,
         prize: state.prize,
         metric: state.metric,
-        scope: state.scope,
-        teamName: state.scope === RuleScope.TEAM ? (state.teamName || null) : null,
-        participantIds: state.scope === RuleScope.INDIVIDUAL ? state.participantIds : [],
-        periodStart: new Date(state.periodStart).toISOString(),
-        periodEnd: new Date(state.periodEnd).toISOString(),
+        scope: isAll ? RuleScope.GLOBAL : RuleScope.INDIVIDUAL,
+        teamName: null,
+        participantIds: isAll ? [] : state.participantIds,
+        periodStart: `${state.periodStart}T00:00:00.000Z`,
+        periodEnd: `${state.periodEnd}T23:59:59.999Z`,
         anonymousLeaderboard: state.anonymousLeaderboard,
       });
       onSuccess(contest);
@@ -132,6 +159,12 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
     }
   };
 
+  // ── Recapitulatif participants ──
+  const participantSummary = (() => {
+    if (state.participantMode === 'all') return `Toute l'equipe (${teamMembers.length} personnes)`;
+    return `${state.participantIds.length} participant${state.participantIds.length > 1 ? 's' : ''} selectionne${state.participantIds.length > 1 ? 's' : ''}`;
+  })();
+
   return (
     <div className="space-y-5">
       {/* Stepper */}
@@ -140,7 +173,7 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
           [1, 'Quoi'],
           [2, 'Comment'],
           [3, 'Qui & quand'],
-          [4, 'Récapitulatif'],
+          [4, 'Recap'],
         ] as [WizardStep, string][]).map(([s, label], i) => (
           <div key={s} className="flex items-center gap-1 flex-1">
             <button
@@ -166,7 +199,7 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
         ))}
       </div>
 
-      {/* ── Étape 1 : Quoi ── */}
+      {/* ── Etape 1 : Quoi ── */}
       {state.step === 1 && (
         <div className="space-y-4">
           <div className="border-b border-gray-200 pb-3">
@@ -185,7 +218,7 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Lot / Récompense</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Lot / Recompense</label>
             <input
               type="text"
               placeholder="ex : iPhone 17, Bon cadeau 500\u20AC..."
@@ -199,7 +232,7 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
             <label className="block text-xs font-medium text-gray-600 mb-1">Description (optionnel)</label>
             <textarea
               rows={2}
-              placeholder="Détails supplémentaires sur le concours..."
+              placeholder="Details supplementaires sur le concours..."
               value={state.description}
               onChange={(e) => update({ description: e.target.value })}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white resize-none"
@@ -213,20 +246,20 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
         </div>
       )}
 
-      {/* ── Étape 2 : Comment ── */}
+      {/* ── Etape 2 : Comment ── */}
       {state.step === 2 && (
         <div className="space-y-4">
           <div className="border-b border-gray-200 pb-3">
-            <h3 className="text-sm font-semibold text-gray-800">Comment départager les participants ?</h3>
+            <h3 className="text-sm font-semibold text-gray-800">Comment departager les participants ?</h3>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-2">Métrique de classement</label>
+            <label className="block text-xs font-medium text-gray-600 mb-2">Metrique de classement</label>
             <div className="grid grid-cols-3 gap-3">
               {([
-                { value: ContestMetric.REVENUE, label: 'CA réalisé', desc: 'Montant total des deals' },
-                { value: ContestMetric.MARGIN, label: 'Marge réalisée', desc: 'Marge totale des deals' },
-                { value: ContestMetric.DEAL_COUNT, label: 'Deals signés', desc: 'Nombre de deals gagnés' },
+                { value: ContestMetric.REVENUE, label: 'CA realise', desc: 'Montant total des deals' },
+                { value: ContestMetric.MARGIN, label: 'Marge realisee', desc: 'Marge totale des deals' },
+                { value: ContestMetric.DEAL_COUNT, label: 'Deals signes', desc: 'Nombre de deals gagnes' },
               ]).map((opt) => (
                 <button
                   key={opt.value}
@@ -268,86 +301,135 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
         </div>
       )}
 
-      {/* ── Étape 3 : Qui et quand ── */}
+      {/* ── Etape 3 : Qui et quand ── */}
       {state.step === 3 && (
         <div className="space-y-4">
           <div className="border-b border-gray-200 pb-3">
-            <h3 className="text-sm font-semibold text-gray-800">Participants et durée</h3>
+            <h3 className="text-sm font-semibold text-gray-800">Participants et duree</h3>
           </div>
 
-          {/* Scope */}
+          {/* Mode de selection */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-2">Participants</label>
+            <label className="block text-xs font-medium text-gray-600 mb-2">Qui participe ?</label>
             {isTeamLead ? (
-              <p className="text-xs text-gray-400 mb-2 italic">Vous pouvez sélectionner uniquement les membres de votre équipe.</p>
+              <p className="text-xs text-gray-400 mb-2 italic">Selectionnez les membres de votre equipe qui participent.</p>
             ) : (
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  { scope: RuleScope.GLOBAL, label: 'Toute l\'équipe', desc: 'Tous les commerciaux' },
-                  { scope: RuleScope.TEAM, label: 'Une équipe', desc: 'Un groupe spécifique' },
-                  { scope: RuleScope.INDIVIDUAL, label: 'Sélection manuelle', desc: 'Choisir les participants' },
-                ]).map((opt) => (
-                  <button
-                    key={opt.scope}
-                    type="button"
-                    onClick={() => update({ scope: opt.scope, participantIds: [] })}
-                    className={`p-3 border-2 rounded-xl text-left transition-colors ${
-                      state.scope === opt.scope ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <p className="text-xs font-semibold text-gray-800">{opt.label}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{opt.desc}</p>
-                  </button>
-                ))}
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <button
+                  type="button"
+                  onClick={() => update({ participantMode: 'all', participantIds: [] })}
+                  className={`p-3 border-2 rounded-xl text-left transition-colors ${
+                    state.participantMode === 'all' ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-gray-800">Toute l'equipe</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Tous les commerciaux actifs ({teamMembers.length})</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => update({ participantMode: 'selection', participantIds: [] })}
+                  className={`p-3 border-2 rounded-xl text-left transition-colors ${
+                    state.participantMode === 'selection' ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-gray-800">Selection personnalisee</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Choisir par equipe ou individuellement</p>
+                </button>
               </div>
             )}
 
-            {/* Nom d'équipe pour scope TEAM */}
-            {!isTeamLead && state.scope === RuleScope.TEAM && (
-              <div className="mt-3">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Nom de l'équipe</label>
-                <input
-                  type="text"
-                  placeholder="ex : Équipe Paris"
-                  value={state.teamName}
-                  onChange={(e) => update({ teamName: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
-                />
-              </div>
-            )}
-
-            {/* Sélection individuelle */}
-            {(isTeamLead || state.scope === RuleScope.INDIVIDUAL) && (
-              <div className="mt-3">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-gray-700">Sélectionner les participants</label>
-                  <button type="button" onClick={toggleAll} className="text-xs text-primary-600 hover:underline">
-                    {state.participantIds.length === teamMembers.length ? 'Tout désélectionner' : 'Tout sélectionner'}
-                  </button>
-                </div>
-                {teamMembers.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic">Aucun commercial dans votre équipe</p>
-                ) : (
-                  <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100 max-h-48 overflow-y-auto">
-                    {teamMembers.map((m) => (
-                      <label key={m.id} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${state.participantIds.includes(m.id) ? 'bg-primary-50' : 'hover:bg-gray-50'}`}>
-                        <input
-                          type="checkbox"
-                          checked={state.participantIds.includes(m.id)}
-                          onChange={() => toggleParticipant(m.id)}
-                          className="w-4 h-4 rounded text-primary-600 border-gray-300 focus:ring-primary-400"
-                        />
-                        <div className="w-6 h-6 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-                          <span className="text-primary-700 font-semibold text-xs">{m.firstName[0]}{m.lastName[0]}</span>
-                        </div>
-                        <p className="text-sm text-gray-800">{m.firstName} {m.lastName}</p>
-                      </label>
-                    ))}
+            {/* Selection personnalisee */}
+            {(isTeamLead || state.participantMode === 'selection') && (
+              <div className="space-y-3">
+                {/* Selection rapide par equipe */}
+                {groups.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 mb-1.5">Selection rapide par equipe</p>
+                    <div className="flex flex-wrap gap-2">
+                      {groups.map((g) => {
+                        const selected = isGroupFullySelected(g);
+                        return (
+                          <button
+                            key={g.id}
+                            type="button"
+                            onClick={() => toggleGroup(g)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                              selected
+                                ? 'bg-primary-100 border-primary-300 text-primary-700'
+                                : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                            }`}
+                          >
+                            <span
+                              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: g.color || '#9CA3AF' }}
+                            />
+                            {g.name}
+                            <span className="text-gray-400">({g.members.length})</span>
+                            {selected && <span className="text-primary-600">{'\u2713'}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
+
+                {/* Barre de recherche + tout selectionner */}
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      placeholder="Rechercher..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+                    />
+                    <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                  <button type="button" onClick={toggleAll} className="text-xs text-primary-600 hover:underline whitespace-nowrap">
+                    {state.participantIds.length === teamMembers.length ? 'Tout deselectionner' : 'Tout selectionner'}
+                  </button>
+                </div>
+
+                {/* Liste des membres */}
+                {teamMembers.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic">Aucun commercial dans votre equipe</p>
+                ) : (
+                  <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                    {filteredMembers.map((m) => {
+                      const memberGroup = groups.find((g) => g.members.some((gm) => gm.id === m.id));
+                      return (
+                        <label key={m.id} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${state.participantIds.includes(m.id) ? 'bg-primary-50' : 'hover:bg-gray-50'}`}>
+                          <input
+                            type="checkbox"
+                            checked={state.participantIds.includes(m.id)}
+                            onChange={() => toggleParticipant(m.id)}
+                            className="w-4 h-4 rounded text-primary-600 border-gray-300 focus:ring-primary-400"
+                          />
+                          <div className="w-6 h-6 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+                            <span className="text-primary-700 font-semibold text-xs">{m.firstName[0]}{m.lastName[0]}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-800 truncate">{m.firstName} {m.lastName}</p>
+                          </div>
+                          {memberGroup && (
+                            <span
+                              className="text-xs px-2 py-0.5 rounded-full"
+                              style={{ backgroundColor: `${memberGroup.color}20`, color: memberGroup.color }}
+                            >
+                              {memberGroup.name}
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {state.participantIds.length > 0 && (
-                  <p className="text-xs text-primary-600 mt-1.5 font-medium">
-                    {state.participantIds.length} participant{state.participantIds.length > 1 ? 's' : ''} sélectionné{state.participantIds.length > 1 ? 's' : ''}
+                  <p className="text-xs text-primary-600 font-medium">
+                    {state.participantIds.length} participant{state.participantIds.length > 1 ? 's' : ''} selectionne{state.participantIds.length > 1 ? 's' : ''}
                   </p>
                 )}
               </div>
@@ -357,7 +439,7 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
           {/* Dates */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Date de début</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Date de debut</label>
               <input
                 type="date"
                 value={state.periodStart}
@@ -377,7 +459,7 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
             </div>
           </div>
           {state.periodStart && state.periodEnd && new Date(state.periodEnd) <= new Date(state.periodStart) && (
-            <p className="text-xs text-red-500">La date de fin doit être postérieure à la date de début</p>
+            <p className="text-xs text-red-500">La date de fin doit etre posterieure a la date de debut</p>
           )}
 
           <div className="flex justify-between gap-3 pt-2">
@@ -387,11 +469,11 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
         </div>
       )}
 
-      {/* ── Étape 4 : Récapitulatif ── */}
+      {/* ── Etape 4 : Recapitulatif ── */}
       {state.step === 4 && (
         <div className="space-y-4">
           <div className="border-b border-gray-200 pb-3">
-            <h3 className="text-sm font-semibold text-gray-800">Récapitulatif</h3>
+            <h3 className="text-sm font-semibold text-gray-800">Recapitulatif</h3>
           </div>
 
           <div className="bg-gray-50 rounded-xl border border-gray-200 p-5 space-y-4">
@@ -415,7 +497,7 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
               <div className="flex items-start gap-3">
                 <span className="text-base mt-0.5">{'\uD83D\uDCCA'}</span>
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Métrique</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Metrique</p>
                   <p className="text-sm text-gray-800 font-medium">{metricLabel(state.metric)}</p>
                 </div>
               </div>
@@ -425,20 +507,30 @@ export function ContestWizard({ teamMembers, isTeamLead = false, onSuccess, onCa
               <span className="text-base mt-0.5">{'\uD83D\uDC65'}</span>
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Participants</p>
-                <p className="text-sm text-gray-800 font-medium">
-                  {scopeLabel(state.scope, state.teamName, state.participantIds.length)}
-                </p>
+                <p className="text-sm text-gray-800 font-medium">{participantSummary}</p>
+                {state.participantMode === 'selection' && state.participantIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {state.participantIds.map((id) => {
+                      const member = teamMembers.find((m) => m.id === id);
+                      return member ? (
+                        <span key={id} className="inline-flex items-center gap-1 text-xs bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full">
+                          {member.firstName} {member.lastName}
+                        </span>
+                      ) : null;
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="flex items-start gap-3">
               <span className="text-base mt-0.5">{'\uD83D\uDCC5'}</span>
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Période</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Periode</p>
                 <p className="text-sm text-gray-800 font-medium">
                   {state.periodStart && state.periodEnd
                     ? `${format(new Date(state.periodStart), 'dd/MM/yyyy')} \u2192 ${format(new Date(state.periodEnd), 'dd/MM/yyyy')}`
-                    : '—'}
+                    : '\u2014'}
                 </p>
               </div>
             </div>

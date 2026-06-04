@@ -1,5 +1,4 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { fileImportApiService } from '../services/fileImport.service';
 import { Card } from './ui/Card';
@@ -25,7 +24,6 @@ function ImportStatusBadge({ status }: { status: string }) {
 
 export function FileImportPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const navigate = useNavigate();
   const [dragging, setDragging]     = useState(false);
   const [uploading, setUploading]   = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -306,15 +304,6 @@ export function FileImportPanel() {
             </div>
           </div>
           <div className="mt-3 flex items-center justify-center gap-4">
-            {confirmResult.batchId && (
-              <button
-                type="button"
-                onClick={() => navigate('/manager/imports')}
-                className="text-xs text-primary-600 hover:text-primary-800 font-medium hover:underline"
-              >
-                Voir le détail
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setConfirmResult(null)}
@@ -377,6 +366,20 @@ export function FileImportPanel() {
             </div>
           )}
 
+          {/* Pistes / Opportunités détectées (deals OPEN) */}
+          {preview.openRows > 0 && (
+            <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
+              <p className="text-sm font-medium text-blue-800 mb-1">
+                {preview.openRows} piste{preview.openRows > 1 ? 's' : ''} / opportunité{preview.openRows > 1 ? 's' : ''} détectée{preview.openRows > 1 ? 's' : ''}
+              </p>
+              <p className="text-xs text-blue-700">
+                Ces lignes seront importées en tant que projets en cours (non facturés).
+                Elles apparaîtront dans «&nbsp;Mes projections&nbsp;» du commercial, mais ne déclencheront
+                pas de commission et ne s'afficheront pas sur le dashboard manager.
+              </p>
+            </div>
+          )}
+
           {/* Erreurs de validation */}
           {preview.errors.length > 0 && (
             <div className="rounded-lg bg-red-50 border border-red-200 p-4">
@@ -408,6 +411,7 @@ export function FileImportPanel() {
                       <th className="px-3 py-2 text-right font-medium">Montant</th>
                       <th className="px-3 py-2 text-left font-medium">Commercial</th>
                       <th className="px-3 py-2 text-left font-medium">Date clôture</th>
+                      <th className="px-3 py-2 text-left font-medium">Statut</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -429,6 +433,15 @@ export function FileImportPanel() {
                         </td>
                         <td className="px-3 py-2 text-gray-500">
                           {new Date(row.closedAt).toLocaleDateString('fr-FR')}
+                        </td>
+                        <td className="px-3 py-2">
+                          {row.inferredStatus === 'WON' ? (
+                            <span className="inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Gagné</span>
+                          ) : row.inferredStatus === 'LOST' ? (
+                            <span className="inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">Perdu</span>
+                          ) : (
+                            <span className="inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">En cours</span>
+                          )}
                         </td>
                       </tr>
                     ))}

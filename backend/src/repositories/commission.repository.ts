@@ -134,11 +134,17 @@ export const commissionRepository = {
     endDate: Date,
   ): Promise<CommissionWithRelations[]> {
     if (userIds.length === 0) return [];
+    // Inclure les commissions validées dans la période OU les commissions PENDING
+    // créées (calculatedAt) dans la période (pour qu'elles apparaissent dans le classement
+    // même avant validation manager)
     return prisma.commission.findMany({
       where: {
         userId: { in: userIds },
         tenantId,
-        validatedAt: { gte: startDate, lte: endDate },
+        OR: [
+          { validatedAt: { gte: startDate, lte: endDate } },
+          { validatedAt: null, calculatedAt: { gte: startDate, lte: endDate } },
+        ],
       },
       include: {
         deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
@@ -225,6 +231,18 @@ export const commissionRepository = {
     });
   },
 
+  async updateAmountAndDetail(
+    id: string,
+    tenantId: string,
+    amount: number,
+    calculationDetail: string,
+  ): Promise<Commission> {
+    return prisma.commission.update({
+      where: { id, tenantId },
+      data: { amount, calculationDetail, calculatedAt: new Date() },
+    });
+  },
+
   async markClientPaid(
     id: string,
     managerId: string,
@@ -258,5 +276,12 @@ export const commissionRepository = {
         validatedAt: now,
       },
     });
+  },
+
+  async delete(id: string, tenantId: string): Promise<void> {
+    // Verification du tenant avant suppression (id est le seul champ unique)
+    const commission = await prisma.commission.findFirst({ where: { id, tenantId } });
+    if (!commission) throw new Error('Commission introuvable');
+    await prisma.commission.delete({ where: { id } });
   },
 };

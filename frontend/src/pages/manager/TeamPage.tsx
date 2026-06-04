@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -11,12 +11,14 @@ import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
 import { OrgChart } from '../../components/team/OrgChart';
-import type { PublicUser, Objective, ObjectivePeriodType, RuleAssignment, Contest } from '@shared/types';
-import { ObjectiveEditor, MONTHS } from '../../components/objectives';
+import type { PublicUser, Objective, RuleAssignment, Contest, CommissionDispute, DisputeStatus } from '@shared/types';
+import { MONTHS } from '../../components/objectives';
+import { ObjectiveWizard } from '../../components/ObjectiveWizard';
 import { UserRole, AssigneeType, ContestStatus, ContestMetric, RuleScope } from '@shared/types';
 import { ruleAssignmentApiService } from '../../services/ruleAssignment.service';
 import { commissionRuleApiService, type CommissionRuleWithCount } from '../../services/commissionRule.service';
 import { contestApiService } from '../../services/contest.service';
+import { commissionDisputeService } from '../../services/commissionDispute.service';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -43,19 +45,6 @@ const currentYear = new Date().getFullYear();
 
 function generateId() {
   return Math.random().toString(36).slice(2, 10);
-}
-
-function makeDefaultObjective(): Objective {
-  return {
-    id: generateId(),
-    label: '',
-    target: 0,
-    unit: '€',
-    periodType: 'quarterly',
-    quarter: Math.ceil((new Date().getMonth() + 1) / 3),
-    year: currentYear,
-    bonus: { enabled: false, type: 'percentage', value: 10 },
-  };
 }
 
 function formatObjectivePeriod(obj: Objective): string {
@@ -92,6 +81,214 @@ function collectTemplateObjectives(members: PublicUser[], excludeMemberId?: stri
     }
   }
   return result;
+}
+
+function formatEur(amount: number) {
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
+}
+
+// ─── Modal de résolution de contestation ─────────────────────────────────────
+function ResolveDisputeModal({
+  dispute,
+  onClose,
+  onResolved,
+}: {
+  dispute: CommissionDispute;
+  onClose: () => void;
+  onResolved: () => void;
+}) {
+  const [action, setAction] = useState<'accept' | 'reject'>('reject');
+  const [response, setResponse] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const deal = dispute.commission?.deal;
+  const originalCommissionAmount = dispute.commission?.amount ?? 0;
+  const [dealTitle, setDealTitle] = useState(deal?.title ?? '');
+  const [dealClient, setDealClient] = useState(deal?.clientName ?? '');
+  const [dealAmount, setDealAmount] = useState(deal?.amount ?? 0);
+  const [dealType, setDealType] = useState(deal?.dealType ?? '');
+  const [dealNotes, setDealNotes] = useState(deal?.notes ?? '');
+  const [commissionAmount, setCommissionAmount] = useState(originalCommissionAmount);
+  const [commissionManualOverride, setCommissionManualOverride] = useState(false);
+
+  const hasDealChanges = deal && (
+    dealTitle !== deal.title ||
+    dealClient !== (deal.clientName ?? '') ||
+    dealAmount !== deal.amount ||
+    dealType !== (deal.dealType ?? '') ||
+    dealNotes !== (deal.notes ?? '')
+  );
+
+  const hasCommissionOverride = commissionManualOverride && commissionAmount !== originalCommissionAmount;
+  const dealAmountChanged = deal && dealAmount !== deal.amount;
+
+  const handleSubmit = async () => {
+    if (!response.trim()) {
+      setError('Une réponse est requise.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      let dealUpdates: Record<string, unknown> | undefined;
+      if (action === 'accept' && hasDealChanges && deal) {
+        dealUpdates = {};
+        if (dealTitle !== deal.title) dealUpdates.title = dealTitle;
+        if (dealClient !== (deal.clientName ?? '')) dealUpdates.clientName = dealClient || null;
+        if (dealAmount !== deal.amount) dealUpdates.amount = dealAmount;
+        if (dealType !== (deal.dealType ?? '')) dealUpdates.dealType = dealType || null;
+        if (dealNotes !== (deal.notes ?? '')) dealUpdates.notes = dealNotes || null;
+      }
+      const commOverride = (action === 'accept' && hasCommissionOverride) ? commissionAmount : undefined;
+      await commissionDisputeService.resolve(
+        dispute.id,
+        action,
+        response.trim(),
+        dealUpdates as Parameters<typeof commissionDisputeService.resolve>[3],
+        commOverride,
+      );
+      onResolved();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setError(e?.response?.data?.message ?? 'Une erreur est survenue.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <h3 className="text-base font-semibold text-gray-900 mb-4">Résoudre la contestation</h3>
+
+          {dispute.raiser && (
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-xs font-bold text-primary-700">
+                {dispute.raiser.firstName[0]}{dispute.raiser.lastName[0]}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">{dispute.raiser.firstName} {dispute.raiser.lastName}</p>
+                <p className="text-xs text-gray-400">{dispute.raiser.email}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-gray-50 rounded-lg px-4 py-3 mb-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Motif de la contestation</p>
+            <p className="text-sm text-gray-700 italic">"{dispute.reason}"</p>
+          </div>
+
+          {deal && (
+            <div className="bg-blue-50 rounded-lg px-4 py-3 mb-4">
+              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2">Vente concernée</p>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div><span className="text-gray-500">Nom : </span><span className="font-medium text-gray-900">{deal.title}</span></div>
+                <div><span className="text-gray-500">Client : </span><span className="font-medium text-gray-900">{deal.clientName ?? '—'}</span></div>
+                <div><span className="text-gray-500">Montant : </span><span className="font-medium text-gray-900">{formatEur(deal.amount)}</span></div>
+                <div><span className="text-gray-500">Type : </span><span className="font-medium text-gray-900">{deal.dealType ?? '—'}</span></div>
+                {deal.closedAt && (
+                  <div><span className="text-gray-500">Clôturée le : </span><span className="font-medium text-gray-900">{format(new Date(deal.closedAt), 'dd MMM yyyy', { locale: fr })}</span></div>
+                )}
+                {dispute.commission && (
+                  <div><span className="text-gray-500">Commission : </span><span className="font-medium text-gray-900">{formatEur(dispute.commission.amount)}</span></div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 mb-4">
+            <button
+              onClick={() => setAction('accept')}
+              className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${
+                action === 'accept' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+              }`}
+            >Accepter</button>
+            <button
+              onClick={() => setAction('reject')}
+              className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${
+                action === 'reject' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+              }`}
+            >Rejeter</button>
+          </div>
+
+          {action === 'accept' && deal && (
+            <div className="border border-green-200 bg-green-50 rounded-lg p-4 mb-4 space-y-4">
+              <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Modifier la vente (optionnel)</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Nom de la vente</label>
+                  <input type="text" value={dealTitle} onChange={(e) => setDealTitle(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Client</label>
+                  <input type="text" value={dealClient} onChange={(e) => setDealClient(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Montant de la vente</label>
+                  <input type="number" value={dealAmount} onChange={(e) => setDealAmount(Number(e.target.value))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                  {dealAmountChanged && !commissionManualOverride && (
+                    <p className="text-xs text-green-600 mt-1">La commission sera recalculée automatiquement</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Type de deal</label>
+                  <input type="text" value={dealType} onChange={(e) => setDealType(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+                  <input type="text" value={dealNotes} onChange={(e) => setDealNotes(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                </div>
+              </div>
+              <div className="border-t border-green-200 pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Commission actuelle : {formatEur(originalCommissionAmount)}</p>
+                  <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                    <input type="checkbox" checked={commissionManualOverride}
+                      onChange={(e) => { setCommissionManualOverride(e.target.checked); if (!e.target.checked) setCommissionAmount(originalCommissionAmount); }}
+                      className="rounded border-gray-300 text-green-600 focus:ring-green-400" />
+                    Modifier la commission manuellement
+                  </label>
+                </div>
+                {commissionManualOverride && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Nouveau montant de commission</label>
+                    <input type="number" step="0.01" value={commissionAmount} onChange={(e) => setCommissionAmount(Number(e.target.value))}
+                      className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                    {hasCommissionOverride && (
+                      <p className="text-xs text-green-600 mt-1 font-medium">Commission modifiée de {formatEur(originalCommissionAmount)} à {formatEur(commissionAmount)}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Réponse au commercial <span className="text-red-500">*</span>
+          </label>
+          <textarea value={response} onChange={(e) => setResponse(e.target.value)} rows={3}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+            placeholder="Expliquez votre décision au commercial..." />
+
+          {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+
+          <div className="flex gap-3 justify-end mt-5">
+            <Button variant="secondary" size="sm" onClick={onClose} disabled={loading}>Annuler</Button>
+            <Button size="sm" variant={action === 'accept' ? 'primary' : 'danger'} loading={loading} onClick={() => void handleSubmit()}>
+              {action === 'accept' ? 'Accepter' : 'Rejeter'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ============================================================
@@ -136,6 +333,10 @@ export function TeamPage() {
   // Picker de réutilisation d'objectifs
   const [showEditPicker, setShowEditPicker] = useState(false);
 
+  // Wizard modal pour créer/éditer un objectif
+  const [wizardObjective, setWizardObjective] = useState<Objective | null>(null);
+  const [showObjectiveWizard, setShowObjectiveWizard] = useState(false);
+
   // Concours du membre en édition
   const [memberContests, setMemberContests] = useState<Contest[]>([]);
   const [loadingContests, setLoadingContests] = useState(false);
@@ -152,6 +353,13 @@ export function TeamPage() {
 
   // Modale "Voir tout"
   const [showAllModal, setShowAllModal] = useState(false);
+
+  // ── Contestations intégrées ──
+  const [disputes, setDisputes] = useState<CommissionDispute[]>([]);
+  const [disputesLoading, setDisputesLoading] = useState(true);
+  const [disputeFilter, setDisputeFilter] = useState<DisputeStatus | 'ALL'>('OPEN');
+  const [resolveModal, setResolveModal] = useState<CommissionDispute | null>(null);
+  const [expandedDisputeIds, setExpandedDisputeIds] = useState<Set<string>>(new Set());
 
   // Drawer synthétique (vue membre)
   const [memberToView, setMemberToView] = useState<PublicUser | null>(null);
@@ -177,6 +385,23 @@ export function TeamPage() {
   };
 
   useEffect(() => { void loadTeam(); }, []);
+
+  // ── Chargement des contestations ──
+  const loadDisputes = async () => {
+    setDisputesLoading(true);
+    try {
+      const data = await commissionDisputeService.listByTenant(
+        disputeFilter === 'ALL' ? undefined : disputeFilter,
+      );
+      setDisputes(data);
+    } finally {
+      setDisputesLoading(false);
+    }
+  };
+
+  useEffect(() => { void loadDisputes(); }, [disputeFilter]);
+
+  const openDisputeCount = disputes.filter((d) => d.status === 'OPEN').length;
 
   // ── Édition infos personnelles (nom/salaire uniquement) ────
   const openEditModal = (member: PublicUser) => {
@@ -384,21 +609,29 @@ export function TeamPage() {
     }
   };
 
-  const addObjective = () => setEditObjectives((p) => [...p, makeDefaultObjective()]);
+  // Ouvrir le wizard pour créer un nouvel objectif
+  const addObjective = () => {
+    setWizardObjective(null);
+    setShowObjectiveWizard(true);
+  };
 
-  const updateObjective = <K extends keyof Objective>(id: string, field: K, value: Objective[K]) => {
-    setEditObjectives((prev) => prev.map((obj) => {
-      if (obj.id !== id) return obj;
-      const updated = { ...obj, [field]: value };
-      if (field === 'periodType') {
-        delete updated.month; delete updated.quarter; delete updated.startDate; delete updated.endDate;
-        const pt = value as ObjectivePeriodType;
-        if (pt === 'monthly')   { updated.month = new Date().getMonth() + 1; updated.year = currentYear; }
-        if (pt === 'quarterly') { updated.quarter = Math.ceil((new Date().getMonth() + 1) / 3); updated.year = currentYear; }
-        if (pt === 'annual')    { updated.year = currentYear; }
+  // Ouvrir le wizard pour éditer un objectif existant
+  const editObjective = (obj: Objective) => {
+    setWizardObjective(obj);
+    setShowObjectiveWizard(true);
+  };
+
+  // Callback du wizard : créer ou mettre à jour l'objectif
+  const handleWizardSubmit = (objective: Objective) => {
+    setEditObjectives((prev) => {
+      const existing = prev.find((o) => o.id === objective.id);
+      if (existing) {
+        return prev.map((o) => o.id === objective.id ? objective : o);
       }
-      return updated;
-    }));
+      return [...prev, { ...objective, id: generateId() }];
+    });
+    setShowObjectiveWizard(false);
+    setWizardObjective(null);
   };
 
   const removeObjective = (id: string) => setEditObjectives((p) => p.filter((o) => o.id !== id));
@@ -587,6 +820,201 @@ export function TeamPage() {
           .map((m) => ({ ...m, groupId: null as string | null }));
         return <Card><OrgChart groups={groups} unassigned={unassigned} onRefresh={() => void loadTeam()} onMemberClick={openDrawer} /></Card>;
       })()}
+
+      {/* ================================================================
+          Section Contestations
+      ================================================================ */}
+      <Card>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-gray-900">Contestations</h2>
+              {disputeFilter === 'OPEN' && openDisputeCount > 0 && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+                  {openDisputeCount} en attente
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-gray-500 mt-0.5">Gérez les contestations de vos commerciaux</p>
+          </div>
+        </div>
+
+        {/* Filtres */}
+        <div className="px-6 pt-4 flex gap-2">
+          {(['ALL', 'OPEN', 'RESOLVED_ACCEPTED', 'RESOLVED_REJECTED'] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setDisputeFilter(s)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                disputeFilter === s
+                  ? 'bg-primary-600 text-white border-primary-600'
+                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {s === 'ALL' ? 'Toutes' : s === 'OPEN' ? 'En attente' : s === 'RESOLVED_ACCEPTED' ? 'Acceptée' : 'Rejetée'}
+            </button>
+          ))}
+        </div>
+
+        {/* Contenu */}
+        <div className="px-6 py-4">
+          {disputesLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600" />
+            </div>
+          ) : disputes.length === 0 ? (
+            <div className="text-center py-10 text-gray-400">
+              <svg className="w-10 h-10 mx-auto mb-2 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p className="font-medium text-sm">Aucune contestation</p>
+              <p className="text-xs mt-1">
+                {disputeFilter === 'OPEN' ? 'Tout est traité !' : 'Aucune contestation pour ce filtre.'}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="text-left py-3 px-2 font-medium text-gray-500">Commercial</th>
+                    <th className="text-left py-3 px-2 font-medium text-gray-500">Motif</th>
+                    <th className="text-left py-3 px-2 font-medium text-gray-500">Statut</th>
+                    <th className="text-left py-3 px-2 font-medium text-gray-500">Date</th>
+                    {disputeFilter !== 'OPEN' && (
+                      <th className="text-left py-3 px-2 font-medium text-gray-500">Réponse manager</th>
+                    )}
+                    <th className="text-right py-3 px-2 font-medium text-gray-500">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {disputes.map((dispute) => {
+                    const deal = dispute.commission?.deal;
+                    const raiserName = dispute.raiser
+                      ? `${dispute.raiser.firstName} ${dispute.raiser.lastName}`
+                      : dispute.raisedBy;
+                    const isExpanded = expandedDisputeIds.has(dispute.id);
+                    const showResp = disputeFilter !== 'OPEN';
+                    return (
+                      <React.Fragment key={dispute.id}>
+                        <tr
+                          className="border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50/50 transition-colors"
+                          onClick={() => setExpandedDisputeIds((prev) => {
+                            const next = new Set(prev);
+                            next.has(dispute.id) ? next.delete(dispute.id) : next.add(dispute.id);
+                            return next;
+                          })}
+                        >
+                          <td className="py-3 px-2">
+                            <div className="flex items-center gap-2">
+                              <svg
+                                className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                              <span className="font-medium text-gray-900">{raiserName}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-2 text-gray-600 max-w-xs">
+                            <p className="truncate max-w-[220px]" title={dispute.reason}>{dispute.reason}</p>
+                          </td>
+                          <td className="py-3 px-2">
+                            <Badge variant={dispute.status === 'OPEN' ? 'yellow' : dispute.status === 'RESOLVED_ACCEPTED' ? 'green' : 'red'}>
+                              {dispute.status === 'OPEN' ? 'En attente' : dispute.status === 'RESOLVED_ACCEPTED' ? 'Acceptée' : 'Rejetée'}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap">
+                            {format(new Date(dispute.createdAt), 'dd MMM yyyy', { locale: fr })}
+                          </td>
+                          {showResp && (
+                            <td className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
+                              {dispute.managerResponse
+                                ? <span title={dispute.managerResponse} className="truncate block max-w-[180px]">{dispute.managerResponse}</span>
+                                : <span className="text-gray-300">&mdash;</span>}
+                            </td>
+                          )}
+                          <td className="py-3 px-2 text-right">
+                            {dispute.status === 'OPEN' && (
+                              <Button size="sm" onClick={(e) => { e.stopPropagation(); setResolveModal(dispute); }}>
+                                Traiter
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                        {isExpanded && deal && (
+                          <tr className="bg-gray-50/70">
+                            <td colSpan={showResp ? 6 : 5} className="px-6 py-3">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                                <div>
+                                  <span className="text-gray-400 block">Vente</span>
+                                  <span className="font-medium text-gray-800">{deal.title}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-400 block">Client</span>
+                                  <span className="font-medium text-gray-800">{deal.clientName ?? '—'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-400 block">Montant</span>
+                                  <span className="font-medium text-gray-800">{formatEur(deal.amount)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-400 block">Commission</span>
+                                  <span className="font-medium text-gray-800">
+                                    {dispute.commission ? formatEur(dispute.commission.amount) : '—'}
+                                  </span>
+                                </div>
+                                {deal.dealType && (
+                                  <div>
+                                    <span className="text-gray-400 block">Type</span>
+                                    <span className="font-medium text-gray-800">{deal.dealType}</span>
+                                  </div>
+                                )}
+                                {deal.closedAt && (
+                                  <div>
+                                    <span className="text-gray-400 block">Date de clôture</span>
+                                    <span className="font-medium text-gray-800">
+                                      {format(new Date(deal.closedAt), 'dd MMM yyyy', { locale: fr })}
+                                    </span>
+                                  </div>
+                                )}
+                                {dispute.commission?.rule && (
+                                  <div>
+                                    <span className="text-gray-400 block">Règle</span>
+                                    <span className="font-medium text-gray-800">{dispute.commission.rule.name}</span>
+                                  </div>
+                                )}
+                              </div>
+                              {dispute.managerResponse && dispute.status !== 'OPEN' && (
+                                <div className="mt-3 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
+                                  <p className="text-xs font-semibold text-yellow-700 mb-0.5">Réponse du manager</p>
+                                  <p className="text-xs text-yellow-800">{dispute.managerResponse}</p>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Modale de résolution de contestation */}
+      {resolveModal && (
+        <ResolveDisputeModal
+          dispute={resolveModal}
+          onClose={() => setResolveModal(null)}
+          onResolved={() => {
+            setResolveModal(null);
+            void loadDisputes();
+          }}
+        />
+      )}
 
       {/* ================================================================
           Popup : Vue synthétique d'un membre
@@ -786,25 +1214,111 @@ export function TeamPage() {
                         {editObjectives.length === 0 && !showEditPicker ? (
                           <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center">
                             <p className="text-sm text-gray-400">Aucun objectif défini</p>
+                            <p className="text-xs text-gray-300 mt-1">Cliquez sur « + Nouveau » pour créer un objectif</p>
                           </div>
                         ) : (
-                          <div className="space-y-3">
-                            {editObjectives.map((obj, i) => (
-                              <ObjectiveEditor key={obj.id} obj={obj} index={i} onChange={updateObjective} onRemove={removeObjective} />
-                            ))}
+                          <div className="space-y-2">
+                            {editObjectives.map((obj) => {
+                              const isRecurrent = !!obj.parentObjectiveId;
+                              const isTemplate = obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId;
+                              const effectiveBonusMode = obj.bonusMode ?? (obj.bonus?.enabled ? 'simple' : 'none');
+                              const hasTiers = effectiveBonusMode === 'tiered' && obj.bonusTiers && obj.bonusTiers.length > 0;
+
+                              return (
+                                <div
+                                  key={obj.id}
+                                  className="group relative border border-gray-200 rounded-xl p-3.5 hover:border-indigo-300 hover:bg-indigo-50/30 transition-all cursor-pointer"
+                                  onClick={() => editObjective(obj)}
+                                >
+                                  {/* Bouton supprimer */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); removeObjective(obj.id); }}
+                                    className="absolute top-2.5 right-2.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                                    title="Supprimer cet objectif"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                  </button>
+
+                                  {/* Ligne 1 : Nom + badges */}
+                                  <div className="flex items-center gap-2 mb-1.5">
+                                    <p className="text-sm font-semibold text-gray-900 truncate">{obj.label || 'Objectif sans nom'}</p>
+                                    {isRecurrent && (
+                                      <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 font-medium flex-shrink-0">🔁 Récurrent</span>
+                                    )}
+                                    {isTemplate && (
+                                      <span className="text-xs px-1.5 py-0.5 rounded bg-purple-50 text-purple-500 font-medium flex-shrink-0">Template</span>
+                                    )}
+                                  </div>
+
+                                  {/* Ligne 2 : Détails */}
+                                  <div className="flex items-center gap-3 text-xs text-gray-500">
+                                    {/* Période */}
+                                    <span className="inline-flex items-center gap-1">
+                                      <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                      </svg>
+                                      {formatObjectivePeriod(obj)}
+                                    </span>
+
+                                    <span className="text-gray-300">·</span>
+
+                                    {/* Cible */}
+                                    <span className="font-semibold text-gray-700">
+                                      {obj.target.toLocaleString('fr-FR')} {obj.unit}
+                                    </span>
+
+                                    {/* Prime */}
+                                    {effectiveBonusMode !== 'none' && (
+                                      <>
+                                        <span className="text-gray-300">·</span>
+                                        <span className="text-green-600 font-medium">
+                                          {hasTiers
+                                            ? `${obj.bonusTiers!.length} palier${obj.bonusTiers!.length > 1 ? 's' : ''}`
+                                            : obj.bonus?.type === 'percentage'
+                                              ? `+${obj.bonus.value}% si dépassé`
+                                              : `+${obj.bonus?.value?.toLocaleString('fr-FR')}€`
+                                          }
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+
+                                  {/* Indicateur cliquable */}
+                                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-indigo-400 transition-colors opacity-0 group-hover:opacity-100">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
-                        {editError && <p className="text-sm text-red-600">{editError}</p>}
+                        {editError && <p className="text-sm text-red-600 mt-2">{editError}</p>}
                         <button
                           onClick={() => void onSaveObjectives()}
                           disabled={editLoading}
-                          className="w-full py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50"
+                          className="w-full py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 mt-2"
                         >
                           {editLoading ? 'Enregistrement...' : 'Enregistrer les objectifs'}
                         </button>
                       </div>
                     )}
                   </div>
+
+                  {/* Modale Wizard pour créer/éditer un objectif */}
+                  <Modal
+                    isOpen={showObjectiveWizard}
+                    onClose={() => { setShowObjectiveWizard(false); setWizardObjective(null); }}
+                    title={wizardObjective ? `Modifier « ${wizardObjective.label || 'Objectif'} »` : 'Nouvel objectif'}
+                    size="lg"
+                  >
+                    <ObjectiveWizard
+                      initialObjective={wizardObjective ?? undefined}
+                      onSubmit={handleWizardSubmit}
+                      onCancel={() => { setShowObjectiveWizard(false); setWizardObjective(null); }}
+                      submitLabel={wizardObjective ? "Enregistrer les modifications" : "Ajouter l'objectif"}
+                    />
+                  </Modal>
                 </div>
 
                 {/* ── Section Concours ── */}

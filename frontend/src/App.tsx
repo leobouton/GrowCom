@@ -21,10 +21,7 @@ import { ParametragePage } from './pages/manager/ParametragePage';
 import { TeamPage } from './pages/manager/TeamPage';
 import { OdooPage } from './pages/manager/OdooPage';
 import { BillingPage } from './pages/manager/BillingPage';
-import { DisputesPage } from './pages/manager/DisputesPage';
 import { ReportsPage } from './pages/manager/ReportsPage';
-import { ImportHistoryPage } from './pages/manager/ImportHistoryPage';
-
 // Commercial pages
 import { CommercialDashboard } from './pages/commercial/CommercialDashboard';
 import { ProjectionsPage } from './pages/commercial/ProjectionsPage';
@@ -90,9 +87,8 @@ export function App() {
           <Route path="team" element={<TeamPage />} />
           <Route path="odoo" element={<OdooPage />} />
           <Route path="billing" element={<BillingPage />} />
-          <Route path="disputes" element={<DisputesPage />} />
+          <Route path="disputes" element={<Navigate to="/manager/team" replace />} />
           <Route path="reports" element={<ReportsPage />} />
-          <Route path="imports" element={<ImportHistoryPage />} />
         </Route>
 
         {/* Espace Commercial (accessible aussi aux TEAM_LEAD pour leurs propres ventes) */}

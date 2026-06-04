@@ -11,7 +11,7 @@ import { ContestMetric } from '@shared/types';
 import type { LeaderboardResponse } from '../../services/contest.service';
 import { format } from 'date-fns';
 import {
-  isObjectiveCurrent, isObjectiveFuture,
+  isObjectiveCurrent, isObjectiveFuture, getObjectiveDateRange,
   formatObjectivePeriod, computeProgress, computeBonus, countDealsWithoutMargin,
 } from '../../utils/objectives';
 import { fr } from 'date-fns/locale';
@@ -92,6 +92,7 @@ interface DeferredCommission extends CommissionWithDetails {
 interface WonDealSummary {
   id: string;
   title: string;
+  clientName: string | null;
   amount: number;
   marginAmount: number | null;
   userShare: number;
@@ -145,7 +146,7 @@ function formatContestValue(metric: ContestMetric, value: number): string {
 // ============================================================
 function ObjectiveProgressCard({ obj, wonDeals, pendingCommissionCount }: { obj: Objective; wonDeals: WonDealSummary[]; pendingCommissionCount?: number }) {
   const current = computeProgress(obj, wonDeals);
-  const pct = Math.min(100, obj.target > 0 ? (current / obj.target) * 100 : 0);
+  const pct = obj.target > 0 ? (current / obj.target) * 100 : 0;
   const isCurrent = isObjectiveCurrent(obj);
   const isFuture = isObjectiveFuture(obj);
   const isDone = pct >= 100;
@@ -169,6 +170,8 @@ function ObjectiveProgressCard({ obj, wonDeals, pendingCommissionCount }: { obj:
   const sortedTiers = isTiered && obj.bonusTiers
     ? [...obj.bonusTiers].sort((a, b) => a.threshold - b.threshold)
     : [];
+  // Échelle de la barre : s'étend jusqu'au palier max ou 100%, selon le plus grand
+  const barScale = Math.max(100, ...sortedTiers.map((t) => t.threshold), pct);
   const nextTier = sortedTiers.find((t) => pct < t.threshold);
 
   return (
@@ -183,7 +186,7 @@ function ObjectiveProgressCard({ obj, wonDeals, pendingCommissionCount }: { obj:
                 className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 font-medium cursor-help"
                 title={`Cet objectif se renouvelle automatiquement chaque ${obj.periodType === 'monthly' ? 'mois' : obj.periodType === 'quarterly' ? 'trimestre' : 'année'}`}
               >
-                🔁 Récurrent
+                🔁 {formatObjectivePeriod(obj)}
               </span>
             )}
           </div>
@@ -207,22 +210,30 @@ function ObjectiveProgressCard({ obj, wonDeals, pendingCommissionCount }: { obj:
           <span className="text-lg font-bold text-gray-900">{formatValue(current)}</span>
           <span className="text-xs text-gray-400">sur {formatValue(obj.target)}</span>
         </div>
-        {/* Barre avec jalons pour mode tiered */}
+        {/* Barre avec jalons — l'échelle s'adapte aux paliers au-delà de 100% */}
         <div className="relative w-full">
           <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
-            <div className={`h-2.5 rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
+            <div className={`h-2.5 rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${Math.min(pct / barScale * 100, 100)}%` }} />
           </div>
+          {/* Marqueur 100% si la barre va au-delà */}
+          {barScale > 100 && (
+            <div
+              className="absolute top-0 w-0.5 h-2.5 bg-green-400 opacity-80"
+              style={{ left: `${(100 / barScale) * 100}%` }}
+              title="Objectif 100%"
+            />
+          )}
           {isTiered && sortedTiers.map((tier) => (
             <div
               key={tier.threshold}
               className="absolute top-0 w-0.5 h-2.5 bg-gray-400 opacity-60"
-              style={{ left: `${Math.min(tier.threshold, 100)}%` }}
+              style={{ left: `${(tier.threshold / barScale) * 100}%` }}
               title={`Palier à ${tier.threshold}%`}
             />
           ))}
         </div>
         <div className="flex justify-between mt-1">
-          <span className="text-xs text-gray-400">{pct.toFixed(0)} % atteint</span>
+          <span className={`text-xs font-medium ${pct > 100 ? 'text-green-600' : 'text-gray-400'}`}>{pct.toFixed(0)} % atteint</span>
           {!isDone && isCurrent && obj.target > 0 && (
             <span className="text-xs text-gray-400">{formatValue(Math.max(0, obj.target - current))} restant</span>
           )}
@@ -340,6 +351,10 @@ export function CommercialDashboard() {
   const [contestsError, setContestsError] = useState<string | null>(null);
   const [leaderboards, setLeaderboards] = useState<Record<string, LeaderboardResponse>>({});
   const [disputeModal, setDisputeModal] = useState<CommissionWithDetails | null>(null);
+  // Sélecteur de mois pour le détail des commissions
+  const now = new Date();
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth()); // 0-indexed
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
 
   const load = async () => {
     setLoading(true);
@@ -417,9 +432,50 @@ export function CommercialDashboard() {
   const occurrenceParentIds = new Set(
     objectives.filter((o) => !!o.parentObjectiveId).map((o) => o.parentObjectiveId!),
   );
-  const visibleObjectives = objectives.filter(
-    (o) => !(o.recurrence && o.recurrence !== 'none' && !o.parentObjectiveId && occurrenceParentIds.has(o.id)),
-  );
+
+  // Pour chaque template récurrent, ne garder que l'occurrence la plus pertinente
+  // (période en cours, sinon la plus récente). Évite d'afficher Jan, Fév, Mar, Avr…
+  const bestOccurrenceIds = new Set<string>();
+  for (const templateId of occurrenceParentIds) {
+    const occurrences = objectives.filter((o) => o.parentObjectiveId === templateId);
+    // Priorité 1 : occurrence de la période en cours
+    const current = occurrences.find((o) => isObjectiveCurrent(o));
+    if (current) {
+      bestOccurrenceIds.add(current.id);
+    } else {
+      // Priorité 2 : occurrence future la plus proche
+      const future = occurrences
+        .filter((o) => isObjectiveFuture(o))
+        .sort((a, b) => {
+          const ra = getObjectiveDateRange(a);
+          const rb = getObjectiveDateRange(b);
+          return (ra?.[0].getTime() ?? 0) - (rb?.[0].getTime() ?? 0);
+        })[0];
+      if (future) {
+        bestOccurrenceIds.add(future.id);
+      } else if (occurrences.length > 0) {
+        // Priorité 3 : occurrence la plus récente (passée)
+        const sorted = [...occurrences].sort((a, b) => {
+          const ra = getObjectiveDateRange(a);
+          const rb = getObjectiveDateRange(b);
+          return (rb?.[0].getTime() ?? 0) - (ra?.[0].getTime() ?? 0);
+        });
+        bestOccurrenceIds.add(sorted[0].id);
+      }
+    }
+  }
+
+  const visibleObjectives = objectives.filter((o) => {
+    // Masquer les templates qui ont des occurrences
+    if (o.recurrence && o.recurrence !== 'none' && !o.parentObjectiveId && occurrenceParentIds.has(o.id)) {
+      return false;
+    }
+    // Pour les occurrences, ne garder que la meilleure par template
+    if (o.parentObjectiveId && occurrenceParentIds.has(o.parentObjectiveId)) {
+      return bestOccurrenceIds.has(o.id);
+    }
+    return true;
+  });
 
   // Trier : en cours d'abord, puis à venir, puis passés
   const sortedObjectives = [...visibleObjectives].sort((a, b) => {
@@ -604,152 +660,304 @@ export function CommercialDashboard() {
         </Card>
       )}
 
-      {/* Historique des commissions */}
+      {/* Détail des ventes — filtre par mois */}
       <Card>
-        <h2 className="text-base font-semibold text-gray-900 mb-4">Détail de mes commissions</h2>
-
-        {!allCommissions.length && !paidBonuses.length ? (
-          <div className="text-center py-10 text-gray-400">
-            <svg className="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-            <p className="font-medium">Aucune commission pour l'instant</p>
-            <p className="text-sm mt-1">Vos commissions apparaîtront ici une fois que vos deals seront synchronisés</p>
+        {/* En-tête avec sélecteur de mois */}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-gray-900">Détail de mes ventes</h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (selectedMonth === 0) { setSelectedMonth(11); setSelectedYear(selectedYear - 1); }
+                else { setSelectedMonth(selectedMonth - 1); }
+              }}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+              title="Mois précédent"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <span className="text-sm font-medium text-gray-700 min-w-[130px] text-center capitalize">
+              {format(new Date(selectedYear, selectedMonth, 1), 'MMMM yyyy', { locale: fr })}
+            </span>
+            <button
+              onClick={() => {
+                if (selectedMonth === 11) { setSelectedMonth(0); setSelectedYear(selectedYear + 1); }
+                else { setSelectedMonth(selectedMonth + 1); }
+              }}
+              disabled={selectedYear === now.getFullYear() && selectedMonth === now.getMonth()}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Mois suivant"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+            </button>
+            {(selectedMonth !== now.getMonth() || selectedYear !== now.getFullYear()) && (
+              <button
+                onClick={() => { setSelectedMonth(now.getMonth()); setSelectedYear(now.getFullYear()); }}
+                className="ml-1 text-xs text-primary-600 hover:text-primary-700 font-medium"
+              >
+                Aujourd'hui
+              </button>
+            )}
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
-                  <th className="text-left py-3 px-2 font-medium text-gray-500">Client</th>
-                  <th className="text-right py-3 px-2 font-medium text-gray-500">Montant deal</th>
-                  <th className="text-right py-3 px-2 font-medium text-gray-500">Commission</th>
-                  <th className="text-left py-3 px-2 font-medium text-gray-500">Détail calcul</th>
-                  <th className="text-left py-3 px-2 font-medium text-gray-500">Statut</th>
-                  <th className="text-left py-3 px-2 font-medium text-gray-500">Date</th>
-                  <th className="text-right py-3 px-2 font-medium text-gray-500">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {/* Primes d'objectifs validées automatiquement */}
-                {paidBonuses.map((adj) => (
-                  <tr key={`adj-${adj.id}`} className="border-b border-gray-50 last:border-0 bg-emerald-50/30">
-                    <td className="py-3 px-2" colSpan={2}>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">🎯</span>
-                        <p className="font-medium text-gray-900 max-w-[300px] truncate">{adj.reason}</p>
-                      </div>
-                    </td>
-                    <td className="py-3 px-2 text-right text-gray-400 text-xs">—</td>
-                    <td className="py-3 px-2 text-right font-semibold text-emerald-700">
-                      +{formatEur(adj.amount)}
-                    </td>
-                    <td className="py-3 px-2 text-gray-500 text-xs">Prime d'objectif</td>
-                    <td className="py-3 px-2">
-                      <Badge variant="green">Validée</Badge>
-                    </td>
-                    <td className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap">
-                      {format(new Date(adj.paidAt ?? adj.createdAt), 'dd MMM yyyy', { locale: fr })}
-                    </td>
-                    <td className="py-3 px-2" />
-                  </tr>
-                ))}
+        </div>
 
-                {/* Commissions classiques (deals) */}
-                {allCommissions.map((commission) => {
-                  const isCancelled = commission.status === 'CANCELLED';
-                  const hasOpenDispute = commission.dispute?.status === 'OPEN';
-                  const hasResolvedDispute = commission.dispute && commission.dispute.status !== 'OPEN';
-                  const isAccepted = commission.dispute?.status === 'RESOLVED_ACCEPTED';
-                  const isRejected = commission.dispute?.status === 'RESOLVED_REJECTED';
-                  return (
-                  <tr key={commission.id} className={`border-b border-gray-50 last:border-0 ${isCancelled ? 'opacity-60' : ''}`}>
-                    <td className="py-3 px-2">
-                      <p className="font-medium text-gray-900 max-w-[180px] truncate">{commission.deal.title}</p>
-                      {/* Post-it contestation resolue */}
-                      {hasResolvedDispute && commission.dispute?.managerResponse && (
-                        <div className={`mt-1.5 rounded-lg px-2.5 py-1.5 text-xs border ${
-                          isAccepted
-                            ? 'bg-green-50 border-green-200 text-green-700'
-                            : 'bg-amber-50 border-amber-200 text-amber-700'
-                        }`}>
-                          <div className="flex items-center gap-1 mb-0.5">
-                            <span className="text-xs">{isAccepted ? '\u2705' : '\u270B'}</span>
-                            <span className="font-semibold">
-                              {isAccepted ? 'Contestation acceptee' : 'Contestation rejetee'}
-                            </span>
-                          </div>
-                          <p className="text-xs leading-relaxed">{commission.dispute.managerResponse}</p>
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 px-2">
-                      {commission.deal.clientName
-                        ? <p className="text-gray-700 text-sm max-w-[150px] truncate">{commission.deal.clientName}</p>
-                        : <span className="text-gray-300 text-xs">—</span>}
-                    </td>
-                    <td className="py-3 px-2 text-right text-gray-600">{formatEur(commission.deal.amount)}</td>
-                    <td className={`py-3 px-2 text-right font-semibold ${isCancelled ? 'line-through text-gray-400' : 'text-gray-900'}`}>
-                      {formatEur(commission.amount)}
-                    </td>
-                    <td className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
-                      {commission.calculationDetail ?? commission.rule.name}
-                    </td>
-                    <td className="py-3 px-2">
-                      {isCancelled
-                        ? <Badge variant="red">Annulee</Badge>
-                        : commission.awaitingClientPayment
-                        ? (
-                          <div>
-                            <Badge variant="orange">En attente paiement client</Badge>
-                            <p className="text-xs text-gray-400 mt-0.5">Sera versee une fois que le client aura regle la prestation</p>
-                          </div>
-                        )
-                        : <CommissionStatusBadge status={commission.status} scheduledPaymentAt={(commission as DeferredCommission).scheduledPaymentAt} />
-                      }
-                      {hasOpenDispute && (
-                        <div className="mt-1">
-                          <Badge variant="yellow">Contestation en cours</Badge>
-                        </div>
-                      )}
-                      {isRejected && (
-                        <div className="mt-1">
-                          <Badge variant="red">Contestation rejetee</Badge>
-                        </div>
-                      )}
-                      {isAccepted && (
-                        <div className="mt-1">
-                          <Badge variant="green">Contestation acceptee</Badge>
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap">
-                      {format(
-                        new Date(commission.deal.closedAt ?? commission.validatedAt ?? commission.calculatedAt),
-                        'dd MMM yyyy',
-                        { locale: fr }
-                      )}
-                    </td>
-                    <td className="py-3 px-2 text-right">
-                      {!isCancelled && !hasOpenDispute && !hasResolvedDispute && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setDisputeModal(commission)}
-                          title="Contester cette commission"
-                        >
-                          Contester
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {/* Filtrer les ventes et primes du mois sélectionné */}
+        {(() => {
+          const monthStart = new Date(selectedYear, selectedMonth, 1);
+          const monthEnd = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59);
+
+          const isInMonth = (dateStr: string | null | undefined) => {
+            if (!dateStr) return false;
+            const d = new Date(dateStr);
+            return d >= monthStart && d <= monthEnd;
+          };
+          const isCurrentMonth = selectedMonth === now.getMonth() && selectedYear === now.getFullYear();
+
+          // Commissions filtrées par mois
+          const monthCommissions = allCommissions.filter((c) => {
+            if (c.awaitingClientPayment && c.status === 'PENDING') return isCurrentMonth;
+            if (c.clientPaidAt && (c.status === 'PAID' || c.status === 'VALIDATED')) {
+              return isInMonth(c.paidAt ?? c.validatedAt);
+            }
+            return isInMonth(c.deal.closedAt ?? c.validatedAt ?? c.calculatedAt);
+          });
+
+          // Ventes du mois sans aucune commission (pas de règle assignée)
+          const dealIdsWithCommission = new Set(allCommissions.map((c) => c.dealId));
+          const monthDealsWithoutCommission = wonDeals
+            .filter((d) => !dealIdsWithCommission.has(d.id))
+            .filter((d) => isInMonth(d.closedAt));
+
+          const monthBonuses = paidBonuses.filter((a) => isInMonth(a.paidAt ?? a.createdAt));
+
+          // Totaux du mois
+          const totalSalesCount = monthCommissions.length + monthDealsWithoutCommission.length;
+          const activeMonth = monthCommissions.filter((c) => c.status !== 'CANCELLED');
+          const monthPaidTotal = activeMonth
+            .filter((c) => c.status === 'PAID' || c.status === 'VALIDATED')
+            .reduce((sum, c) => sum + c.amount, 0);
+          const monthPendingTotal = activeMonth
+            .filter((c) => c.status === 'PENDING')
+            .reduce((sum, c) => sum + c.amount, 0);
+          const monthBonusTotal = monthBonuses.reduce((sum, a) => sum + a.amount, 0);
+
+          const hasRows = totalSalesCount > 0 || monthBonuses.length > 0;
+
+          return (
+            <>
+              {/* Résumé du mois */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+                <div className="bg-gray-50 rounded-lg px-3 py-2.5 text-center">
+                  <p className="text-xs text-gray-500 mb-0.5">Ventes du mois</p>
+                  <p className="text-lg font-bold text-gray-900">{totalSalesCount}</p>
+                </div>
+                <div className="bg-green-50 rounded-lg px-3 py-2.5 text-center">
+                  <p className="text-xs text-green-600 mb-0.5">Commissions versées</p>
+                  <p className="text-lg font-bold text-green-700">{formatEur(monthPaidTotal)}</p>
+                </div>
+                <div className="bg-yellow-50 rounded-lg px-3 py-2.5 text-center">
+                  <p className="text-xs text-yellow-600 mb-0.5">En attente</p>
+                  <p className="text-lg font-bold text-yellow-700">{formatEur(monthPendingTotal)}</p>
+                </div>
+                <div className="bg-emerald-50 rounded-lg px-3 py-2.5 text-center">
+                  <p className="text-xs text-emerald-600 mb-0.5">Primes</p>
+                  <p className="text-lg font-bold text-emerald-700">{formatEur(monthBonusTotal)}</p>
+                </div>
+              </div>
+
+              {!hasRows ? (
+                <div className="text-center py-10 text-gray-400">
+                  <svg className="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  <p className="font-medium">Aucune vente ce mois</p>
+                  <p className="text-sm mt-1">
+                    {isCurrentMonth
+                      ? 'Vos ventes apparaîtront ici une fois que vos deals seront synchronisés'
+                      : 'Aucune vente enregistrée sur cette période'}
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
+                        <th className="text-left py-3 px-2 font-medium text-gray-500">Client</th>
+                        <th className="text-right py-3 px-2 font-medium text-gray-500">Montant vente</th>
+                        <th className="text-right py-3 px-2 font-medium text-gray-500">Commission</th>
+                        <th className="text-left py-3 px-2 font-medium text-gray-500">Détail</th>
+                        <th className="text-left py-3 px-2 font-medium text-gray-500">Statut</th>
+                        <th className="text-left py-3 px-2 font-medium text-gray-500">Date</th>
+                        <th className="text-right py-3 px-2 font-medium text-gray-500">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* Primes d'objectifs du mois */}
+                      {monthBonuses.map((adj) => (
+                        <tr key={`adj-${adj.id}`} className="border-b border-gray-50 last:border-0 bg-emerald-50/30">
+                          <td className="py-3 px-2" colSpan={2}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm">🎯</span>
+                              <p className="font-medium text-gray-900 max-w-[300px] truncate">{adj.reason}</p>
+                            </div>
+                          </td>
+                          <td className="py-3 px-2 text-right text-gray-400 text-xs">—</td>
+                          <td className="py-3 px-2 text-right font-semibold text-emerald-700">
+                            +{formatEur(adj.amount)}
+                          </td>
+                          <td className="py-3 px-2 text-gray-500 text-xs">Prime d'objectif</td>
+                          <td className="py-3 px-2">
+                            <Badge variant="green">Validée</Badge>
+                          </td>
+                          <td className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap">
+                            {format(new Date(adj.paidAt ?? adj.createdAt), 'dd MMM yyyy', { locale: fr })}
+                          </td>
+                          <td className="py-3 px-2" />
+                        </tr>
+                      ))}
+
+                      {/* Ventes avec commission */}
+                      {monthCommissions.map((commission) => {
+                        const isCancelled = commission.status === 'CANCELLED';
+                        const hasOpenDispute = commission.dispute?.status === 'OPEN';
+                        const hasResolvedDispute = commission.dispute && commission.dispute.status !== 'OPEN';
+                        const isAccepted = commission.dispute?.status === 'RESOLVED_ACCEPTED';
+                        const isRejected = commission.dispute?.status === 'RESOLVED_REJECTED';
+                        return (
+                        <tr key={commission.id} className={`border-b border-gray-50 last:border-0 ${isCancelled ? 'opacity-60' : ''}`}>
+                          <td className="py-3 px-2">
+                            <p className="font-medium text-gray-900 max-w-[180px] truncate">{commission.deal.title}</p>
+                            {hasResolvedDispute && commission.dispute?.managerResponse && (
+                              <div className={`mt-1.5 rounded-lg px-2.5 py-1.5 text-xs border ${
+                                isAccepted
+                                  ? 'bg-green-50 border-green-200 text-green-700'
+                                  : 'bg-amber-50 border-amber-200 text-amber-700'
+                              }`}>
+                                <div className="flex items-center gap-1 mb-0.5">
+                                  <span className="text-xs">{isAccepted ? '\u2705' : '\u270B'}</span>
+                                  <span className="font-semibold">
+                                    {isAccepted ? 'Contestation acceptée' : 'Contestation rejetée'}
+                                  </span>
+                                </div>
+                                <p className="text-xs leading-relaxed">{commission.dispute.managerResponse}</p>
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-2">
+                            {commission.deal.clientName
+                              ? <p className="text-gray-700 text-sm max-w-[150px] truncate">{commission.deal.clientName}</p>
+                              : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+                          <td className="py-3 px-2 text-right text-gray-600">{formatEur(commission.deal.amount)}</td>
+                          <td className={`py-3 px-2 text-right font-semibold ${isCancelled ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                            {formatEur(commission.amount)}
+                          </td>
+                          <td className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
+                            {commission.calculationDetail ?? commission.rule.name}
+                          </td>
+                          <td className="py-3 px-2">
+                            {isCancelled
+                              ? <Badge variant="red">Annulée</Badge>
+                              : commission.awaitingClientPayment
+                              ? (
+                                <div>
+                                  <Badge variant="orange">En attente paiement client</Badge>
+                                  <p className="text-xs text-gray-400 mt-0.5">Sera versée une fois que le client aura réglé la prestation</p>
+                                </div>
+                              )
+                              : <CommissionStatusBadge status={commission.status} scheduledPaymentAt={(commission as DeferredCommission).scheduledPaymentAt} />
+                            }
+                            {hasOpenDispute && (
+                              <div className="mt-1">
+                                <Badge variant="yellow">Contestation en cours</Badge>
+                              </div>
+                            )}
+                            {isRejected && (
+                              <div className="mt-1">
+                                <Badge variant="red">Contestation rejetée</Badge>
+                              </div>
+                            )}
+                            {isAccepted && (
+                              <div className="mt-1">
+                                <Badge variant="green">Contestation acceptée</Badge>
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-2 text-xs whitespace-nowrap">
+                            <p className="text-gray-400">
+                              <span className="text-gray-500 font-medium">Signé </span>
+                              {format(
+                                new Date(commission.deal.closedAt ?? commission.calculatedAt),
+                                'dd MMM yyyy',
+                                { locale: fr }
+                              )}
+                            </p>
+                            {commission.clientPaidAt && (commission.status === 'PAID' || commission.status === 'VALIDATED') && (commission.paidAt ?? commission.validatedAt) && (
+                              <p className="text-green-600 mt-0.5">
+                                <span className="font-medium">Validé </span>
+                                {format(
+                                  new Date((commission.paidAt ?? commission.validatedAt)!),
+                                  'dd MMM yyyy',
+                                  { locale: fr }
+                                )}
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-3 px-2 text-right">
+                            {!isCancelled && !hasOpenDispute && !hasResolvedDispute && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setDisputeModal(commission)}
+                                title="Contester cette commission"
+                              >
+                                Contester
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                        );
+                      })}
+
+                      {/* Ventes sans règle de commission */}
+                      {monthDealsWithoutCommission.map((deal) => (
+                        <tr key={`deal-${deal.id}`} className="border-b border-gray-50 last:border-0">
+                          <td className="py-3 px-2">
+                            <p className="font-medium text-gray-900 max-w-[180px] truncate">{deal.title}</p>
+                            {deal.userShare < 1 && (
+                              <p className="text-xs text-gray-400">Part : {(deal.userShare * 100).toFixed(0)}%</p>
+                            )}
+                          </td>
+                          <td className="py-3 px-2">
+                            {deal.clientName
+                              ? <p className="text-gray-700 text-sm max-w-[150px] truncate">{deal.clientName}</p>
+                              : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+                          <td className="py-3 px-2 text-right text-gray-600">{formatEur(deal.amount * deal.userShare)}</td>
+                          <td className="py-3 px-2 text-right font-semibold text-gray-300">{formatEur(0)}</td>
+                          <td className="py-3 px-2 text-gray-400 text-xs italic">Pas de règle de commission</td>
+                          <td className="py-3 px-2">
+                            <Badge variant="gray">Vente enregistrée</Badge>
+                          </td>
+                          <td className="py-3 px-2 text-xs whitespace-nowrap">
+                            <p className="text-gray-400">
+                              <span className="text-gray-500 font-medium">Signé </span>
+                              {deal.closedAt
+                                ? format(new Date(deal.closedAt), 'dd MMM yyyy', { locale: fr })
+                                : '—'}
+                            </p>
+                          </td>
+                          <td className="py-3 px-2" />
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          );
+        })()}
       </Card>
       </div>
 
@@ -806,7 +1014,6 @@ export function CommercialDashboard() {
               const board = Array.isArray(raw) ? raw : [];
               const anonData = isAnonymous ? (raw as AnonymousLeaderboardResult & { anonymous: true }) : null;
               const myEntry = !isAnonymous && user ? board.find((e) => e.user.id === user.id) : null;
-              const top3 = !isAnonymous ? board.slice(0, 3) : [];
               return (
                 <div key={contest.id} className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-5">
                   <div className="flex items-start justify-between gap-3 mb-4">
@@ -882,7 +1089,12 @@ export function CommercialDashboard() {
                         </span>
                         <div>
                           <p className="text-sm font-semibold text-gray-800">Ma position</p>
-                          <p className="text-xs text-gray-500">{myEntry.rank === 1 ? 'En tête !' : `${myEntry.rank}ème sur ${board.length}`}</p>
+                          <p className="text-xs text-gray-500">
+                            {myEntry.rank === 1
+                              ? 'En tête !'
+                              : `${myEntry.rank}${myEntry.rank === 1 ? 'er' : 'e'} sur ${board.length}`
+                            }
+                          </p>
                         </div>
                       </div>
                       <span className="text-lg font-bold text-gray-900">
@@ -891,33 +1103,39 @@ export function CommercialDashboard() {
                     </div>
                   )}
 
-                  {!isAnonymous && top3.length > 0 && (
+                  {!isAnonymous && board.length > 0 && (
                     <div className="space-y-1.5">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Classement</p>
-                      {top3.map((entry) => {
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                        Classement ({board.length} participant{board.length > 1 ? 's' : ''})
+                      </p>
+                      {board.map((entry) => {
                         const isMe = user && entry.user.id === user.id;
+                        const rankIcon = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : null;
                         return (
-                          <div key={entry.user.id} className={`flex items-center gap-3 px-3 py-2 rounded-lg ${isMe ? 'bg-primary-50 border border-primary-200' : 'bg-white/70'}`}>
-                            <span className="w-6 text-center font-bold text-sm">
-                              {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : '🥉'}
+                          <div key={entry.user.id} className={`flex items-center gap-3 px-3 py-2 rounded-lg ${
+                            isMe
+                              ? 'bg-primary-50 border border-primary-200'
+                              : entry.rank <= 3
+                                ? 'bg-white/70'
+                                : 'bg-white/40'
+                          }`}>
+                            <span className="w-7 text-center font-bold text-sm flex-shrink-0">
+                              {rankIcon ?? <span className="text-gray-400">#{entry.rank}</span>}
                             </span>
-                            <p className={`flex-1 text-sm ${isMe ? 'font-bold text-primary-700' : 'text-gray-700'}`}>
-                              {entry.user.firstName} {entry.user.lastName}{isMe && ' (moi)'}
+                            <p className={`flex-1 text-sm truncate ${isMe ? 'font-bold text-primary-700' : 'text-gray-700'}`}>
+                              {entry.user.firstName} {entry.user.lastName}{isMe ? ' (moi)' : ''}
                             </p>
-                            <span className="text-sm font-semibold text-gray-800">
-                              {formatContestValue(contest.metric, entry.value)}
+                            <span className={`text-sm font-semibold flex-shrink-0 ${entry.value > 0 ? 'text-gray-800' : 'text-gray-400'}`}>
+                              {entry.value > 0 ? formatContestValue(contest.metric, entry.value) : '—'}
                             </span>
                           </div>
                         );
                       })}
-                      {board.length > 3 && (
-                        <p className="text-xs text-gray-400 text-center pt-1">{board.length - 3} autre{board.length - 3 > 1 ? 's' : ''} participant{board.length - 3 > 1 ? 's' : ''}</p>
-                      )}
                     </div>
                   )}
 
                   {!isAnonymous && board.length === 0 && (
-                    <p className="text-sm text-amber-700 text-center py-2">Aucune donnée encore — le classement apparaîtra au fil des deals gagnés</p>
+                    <p className="text-sm text-amber-700 text-center py-2">Aucun participant pour le moment</p>
                   )}
 
                   {/* Chantier 4.2 + 4.3 — Lien projections + tooltip */}

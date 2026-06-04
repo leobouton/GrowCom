@@ -101,7 +101,7 @@ export async function generateOccurrences(userId: string, tenantId: string): Pro
 }
 
 /** Construit une occurrence à partir d'un template. */
-function buildOccurrence(
+export function buildOccurrence(
   template: Objective,
   periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'year'>>,
 ): Objective {
@@ -115,6 +115,10 @@ function buildOccurrence(
     month: periodOverride.month,
     quarter: periodOverride.quarter,
     year: periodOverride.year ?? new Date().getFullYear(),
+    // Nettoyer les champs custom hérités du template pour éviter que
+    // getObjectiveDateRange tombe dans la branche 'custom' par erreur
+    startDate: undefined,
+    endDate: undefined,
   };
 }
 

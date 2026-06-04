@@ -191,6 +191,12 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- Ajouter MARGIN à ContestMetric (idempotent)
+DO $$ BEGIN
+    ALTER TYPE "ContestMetric" ADD VALUE 'MARGIN';
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 DO $$ BEGIN
     CREATE TYPE "ContestStatus" AS ENUM ('ACTIVE', 'ENDED', 'CANCELLED');
 EXCEPTION WHEN duplicate_object THEN NULL;

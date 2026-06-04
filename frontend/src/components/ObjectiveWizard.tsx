@@ -323,7 +323,10 @@ export function ObjectiveWizard({ initialObjective, onSubmit, onCancel, loading,
       )}
 
       {/* ── Étape 2 : Cible ── */}
-      {step === 2 && (
+      {step === 2 && (() => {
+        const unitLabel = UNIT_OPTIONS.find((u) => u.value === obj.unit)?.label ?? '€';
+        const ciblePlaceholder = obj.unit === 'deals' ? 'ex : 10' : obj.unit === '%' ? 'ex : 80' : 'ex : 50 000';
+        return (
         <div className="space-y-4">
           <div className="border-b border-gray-200 pb-3">
             <h3 className="text-sm font-semibold text-gray-800">Quel objectif fixer ?</h3>
@@ -338,26 +341,6 @@ export function ObjectiveWizard({ initialObjective, onSubmit, onCancel, loading,
               onChange={(e) => update('label', e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
             />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Cible</label>
-              <input
-                type="number"
-                min="0"
-                placeholder="50 000"
-                value={obj.target || ''}
-                onChange={(e) => update('target', parseFloat(e.target.value) || 0)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Unité</label>
-              <select value={obj.unit} onChange={(e) => update('unit', e.target.value)} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white">
-                {UNIT_OPTIONS.map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
-              </select>
-            </div>
           </div>
 
           <div>
@@ -375,12 +358,28 @@ export function ObjectiveWizard({ initialObjective, onSubmit, onCancel, loading,
             </div>
           </div>
 
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Cible à atteindre</label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                placeholder={ciblePlaceholder}
+                value={obj.target || ''}
+                onChange={(e) => update('target', parseFloat(e.target.value) || 0)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 pr-16 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-400">{unitLabel}</span>
+            </div>
+          </div>
+
           <div className="flex justify-between gap-3 pt-2">
             <Button variant="secondary" onClick={goPrev}>Retour</Button>
             <Button onClick={goNext} disabled={!canGoToStep3}>Suivant</Button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Étape 3 : Prime ── */}
       {step === 3 && (

@@ -34,6 +34,16 @@ router.post(
   checkRole(UserRole.MANAGER, UserRole.BU_MANAGER, UserRole.TEAM_LEAD),
   commissionController.cancel,
 );
+router.post(
+  '/:id/revert',
+  checkRole(UserRole.MANAGER, UserRole.BU_MANAGER, UserRole.TEAM_LEAD),
+  commissionController.revertToPending,
+);
+router.delete(
+  '/:id',
+  checkRole(UserRole.MANAGER, UserRole.BU_MANAGER, UserRole.TEAM_LEAD),
+  commissionController.delete,
+);
 
 // Routes commerciales : tous les rôles non-admin peuvent voir leurs propres commissions
 router.get(
@@ -43,7 +53,7 @@ router.get(
 );
 router.get(
   '/commercial/stats',
-  checkRole(UserRole.COMMERCIAL, UserRole.RECRUITER),
+  checkRole(UserRole.COMMERCIAL, UserRole.RECRUITER, UserRole.TEAM_LEAD, UserRole.BU_MANAGER),
   commissionController.getCommercialStats,
 );
 // Chantier 3 — Projections : commissions PENDING du commercial (ventes WON en attente de versement)

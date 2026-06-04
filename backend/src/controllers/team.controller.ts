@@ -6,6 +6,7 @@ import { UserRole } from '../../../shared/types';
 import type { Objective } from '../../../shared/types';
 import { prisma } from '../config/prisma';
 import { logger } from '../config/logger';
+import { buildOccurrence } from '../services/objectiveRecurrence.service';
 
 export const teamController = {
   async getTeam(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -103,6 +104,20 @@ export const teamController = {
           recurrence: z.enum(['none', 'monthly', 'quarterly', 'annual']).optional(),
           recurrenceEndDate: z.string().optional(),
           parentObjectiveId: z.string().optional(),
+        }).superRefine((obj, ctx) => {
+          // Validation croisée : les champs de période requis selon periodType
+          if (obj.periodType === 'monthly' && !obj.month) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['month'], message: 'Le mois est requis pour un objectif mensuel' });
+          }
+          if (obj.periodType === 'quarterly' && !obj.quarter) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['quarter'], message: 'Le trimestre est requis pour un objectif trimestriel' });
+          }
+          if ((obj.periodType === 'monthly' || obj.periodType === 'quarterly' || obj.periodType === 'annual') && !obj.year) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['year'], message: "L'année est requise" });
+          }
+          if (obj.periodType === 'custom' && (!obj.startDate || !obj.endDate)) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['startDate'], message: 'Les dates sont requises pour une période personnalisée' });
+          }
         })).optional(),
       });
 
@@ -139,6 +154,18 @@ export const teamController = {
           : [];
 
         const newObjectives: Objective[] = [];
+        // Tracker les IDs des occurrences déjà ajoutées pour éviter les doublons
+        const addedOccurrenceIds = new Set<string>();
+        // Collecter les IDs de templates pour filtrer les occurrences envoyées par le frontend
+        const templateIds = new Set<string>();
+
+        // Première passe : identifier les templates
+        for (const obj of objectives as Objective[]) {
+          if (obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId) {
+            templateIds.add(obj.id);
+          }
+        }
+
         for (const obj of objectives as Objective[]) {
           const isTemplate = obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId;
 
@@ -147,43 +174,98 @@ export const teamController = {
             const existingTemplate = existingObjectives.find((e) => e.id === obj.id);
             newObjectives.push(obj);
 
+            const now = new Date();
+            const currentMonth = now.getMonth() + 1;
+            const currentYear = now.getFullYear();
+            const currentQuarter = Math.ceil(currentMonth / 3);
+
             if (existingTemplate) {
               // Conserver les occurrences passées et en cours (dont la période a commencé)
-              const now = new Date();
               const existingOccurrences = existingObjectives.filter((e) => e.parentObjectiveId === obj.id);
               for (const occ of existingOccurrences) {
+                if (addedOccurrenceIds.has(occ.id)) continue;
                 const occStart = getOccurrenceStartDate(occ);
                 if (occStart && occStart <= now) {
                   // Occurrence passée ou en cours → on la conserve telle quelle
                   newObjectives.push(occ);
+                  addedOccurrenceIds.add(occ.id);
                 }
                 // Les occurrences futures sont supprimées — elles seront régénérées par le cron
               }
+
+              // Vérifier qu'une occurrence du mois courant existe, sinon la générer
+              const freq = obj.recurrence!;
+              let hasCurrentPeriod = false;
+              if (freq === 'monthly') {
+                hasCurrentPeriod = newObjectives.some(
+                  (o) => o.parentObjectiveId === obj.id && o.month === currentMonth && o.year === currentYear,
+                );
+              } else if (freq === 'quarterly') {
+                hasCurrentPeriod = newObjectives.some(
+                  (o) => o.parentObjectiveId === obj.id && o.quarter === currentQuarter && o.year === currentYear,
+                );
+              } else if (freq === 'annual') {
+                hasCurrentPeriod = newObjectives.some(
+                  (o) => o.parentObjectiveId === obj.id && o.year === currentYear,
+                );
+              }
+
+              if (!hasCurrentPeriod) {
+                let periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'year'>> = {};
+                if (freq === 'monthly') periodOverride = { periodType: 'monthly', month: currentMonth, year: currentYear };
+                else if (freq === 'quarterly') periodOverride = { periodType: 'quarterly', quarter: currentQuarter, year: currentYear };
+                else if (freq === 'annual') periodOverride = { periodType: 'annual', year: currentYear };
+
+                const newOcc = buildOccurrence(obj, periodOverride);
+                newObjectives.push(newOcc);
+                addedOccurrenceIds.add(newOcc.id);
+                logger.info('OBJECTIVE_OCCURRENCE_AUTO_GENERATED', {
+                  userId: memberId,
+                  tenantId: manager.tenantId,
+                  templateId: obj.id,
+                  period: periodOverride,
+                });
+              }
+
               logger.info('OBJECTIVE_TEMPLATE_UPDATED', {
                 userId: memberId,
                 tenantId: manager.tenantId,
                 objectiveId: obj.id,
-                keptOccurrences: existingOccurrences.filter((o) => {
-                  const s = getOccurrenceStartDate(o);
-                  return s && s <= now;
-                }).length,
+                keptOccurrences: newObjectives.filter((o) => o.parentObjectiveId === obj.id).length,
+              });
+            } else {
+              // Nouveau template → générer immédiatement l'occurrence de la période en cours
+              const freq = obj.recurrence!;
+              let periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'year'>> = {};
+
+              if (freq === 'monthly') {
+                periodOverride = { periodType: 'monthly', month: currentMonth, year: currentYear };
+              } else if (freq === 'quarterly') {
+                periodOverride = { periodType: 'quarterly', quarter: currentQuarter, year: currentYear };
+              } else if (freq === 'annual') {
+                periodOverride = { periodType: 'annual', year: currentYear };
+              }
+
+              const newOcc = buildOccurrence(obj, periodOverride);
+              newObjectives.push(newOcc);
+              addedOccurrenceIds.add(newOcc.id);
+              logger.info('OBJECTIVE_OCCURRENCE_AUTO_GENERATED', {
+                userId: memberId,
+                tenantId: manager.tenantId,
+                templateId: obj.id,
+                period: periodOverride,
               });
             }
+          } else if (obj.parentObjectiveId && templateIds.has(obj.parentObjectiveId)) {
+            // Occurrence d'un template présent dans l'input → déjà traitée ci-dessus, ignorer
+            // pour éviter les doublons
+            if (!addedOccurrenceIds.has(obj.id)) {
+              newObjectives.push(obj);
+              addedOccurrenceIds.add(obj.id);
+            }
           } else {
-            // Occurrence simple ou objectif non-récurrent → simple update
+            // Objectif non-récurrent → simple update
             newObjectives.push(obj);
-          }
-        }
-
-        // Conserver aussi les occurrences orphelines (dont le template n'est pas dans la liste envoyée)
-        // Ceci évite de perdre des occurrences si le frontend n'envoie que certains objectifs
-        const sentIds = new Set((objectives as Objective[]).map((o) => o.id));
-        const sentParentIds = new Set((objectives as Objective[]).filter(
-          (o) => o.recurrence && o.recurrence !== 'none' && !o.parentObjectiveId,
-        ).map((o) => o.id));
-        for (const existing of existingObjectives) {
-          if (!sentIds.has(existing.id) && existing.parentObjectiveId && !sentParentIds.has(existing.parentObjectiveId)) {
-            newObjectives.push(existing);
           }
         }
 

@@ -20,6 +20,7 @@ const resolveDisputeSchema = z.object({
     costAmount: z.number().nullable().optional(),
     marginAmount: z.number().nullable().optional(),
   }).optional(),
+  commissionOverride: z.number().nullable().optional(),
 });
 
 export const commissionDisputeController = {
@@ -45,7 +46,7 @@ export const commissionDisputeController = {
     try {
       const user = (req as AuthenticatedRequest).user;
       const { id } = req.params;
-      const { action, response, dealUpdates } = resolveDisputeSchema.parse(req.body);
+      const { action, response, dealUpdates, commissionOverride } = resolveDisputeSchema.parse(req.body);
 
       const dispute = await commissionDisputeService.resolve(
         id,
@@ -55,6 +56,7 @@ export const commissionDisputeController = {
         action,
         response,
         dealUpdates,
+        commissionOverride,
       );
       res.json({ success: true, data: dispute });
     } catch (err) {

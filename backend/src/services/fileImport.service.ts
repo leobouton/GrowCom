@@ -121,6 +121,11 @@ const DealRowSchema = z.object({
     (v) => (v === '' || v === undefined || v === null ? undefined : cleanCurrencyValue(v)),
     z.coerce.number().optional(),
   ),
+  // stage : étape du pipeline CRM → détermine si le deal est WON ou OPEN
+  stage:             z.preprocess((v) => {
+    if (v === '' || v === undefined || v === null) return undefined;
+    return String(v).trim();
+  }, z.string().optional()),
 }).superRefine((data, ctx) => {
   if (!data.commercial_email && !data.commercial_name) {
     ctx.addIssue({
@@ -132,6 +137,53 @@ const DealRowSchema = z.object({
 });
 
 export type DealRow = z.infer<typeof DealRowSchema>;
+
+// ─── Déduction du statut du deal depuis l'étape CRM ─────────────────────────
+
+/**
+ * Déduit le DealStatus à partir du champ "stage" (étape pipeline CRM).
+ * - Piste, opportunité, prospect, etc. → OPEN (pas de commission, visible uniquement dans "Mes projections")
+ * - Gagné, signé, facturé, etc. → WON (déclenche les commissions)
+ * - Perdu, annulé, etc. → LOST
+ * - Si pas de stage ou non reconnu → WON (comportement par défaut = vente conclue)
+ */
+function inferDealStatus(stage: string | undefined): DealStatus {
+  if (!stage) return DealStatus.WON;
+
+  const s = stage.trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // Statuts "en cours" → OPEN (pas encore vendu)
+  const openKeywords = [
+    'piste', 'lead', 'prospect', 'prospection',
+    'opportunite', 'opportunity',
+    'qualification', 'qualifie',
+    'proposition', 'proposal', 'devis',
+    'negociation', 'negotiation',
+    'en cours', 'in progress', 'pipeline',
+    'contact', 'contacte',
+    'a relancer', 'relance',
+    'demo', 'demonstration',
+    'analyse', 'analysis',
+    'evaluation',
+  ];
+  if (openKeywords.some((kw) => s === kw || s.includes(kw))) {
+    return DealStatus.OPEN;
+  }
+
+  // Statuts "perdu" → LOST
+  const lostKeywords = [
+    'perdu', 'lost', 'annule', 'cancelled', 'canceled',
+    'refuse', 'rejected', 'abandonne', 'abandoned',
+    'clos sans suite', 'closed lost',
+  ];
+  if (lostKeywords.some((kw) => s === kw || s.includes(kw))) {
+    return DealStatus.LOST;
+  }
+
+  // Tout le reste (gagné, signé, facturé, clos, won, etc.) → WON
+  return DealStatus.WON;
+}
 
 // ─── Types internes ──────────────────────────────────────────────────────────
 
@@ -254,6 +306,28 @@ function mergeSecondarySheets(
   }
 }
 
+/**
+ * Détecte si une ligne est une ligne de total/sous-total (souvent en bas des exports CRM).
+ * Regarde les premières cellules texte pour des mots-clés typiques.
+ */
+function isTotalRow(cols: unknown[]): boolean {
+  const totalKeywords = [
+    'total', 'totaux', 'sous-total', 'sous total', 'subtotal', 'sub-total',
+    'grand total', 'total general', 'total général',
+    'somme', 'sum', 'totale',
+  ];
+  // Vérifier les premières cellules non-vides de la ligne
+  for (const cell of cols.slice(0, 5)) {
+    if (cell === '' || cell === null || cell === undefined) continue;
+    const val = String(cell).trim().toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (totalKeywords.some((kw) => val === kw || val.startsWith('total ') || val.startsWith('sous-total') || val.startsWith('subtotal'))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function parseBuffer(
   buffer: Buffer,
   _originalName: string,
@@ -285,12 +359,22 @@ function parseBuffer(
 
   // Extraire les lignes en utilisant le mapping
   const rows: ParsedRow[] = [];
+  let skippedTotalRows = 0;
   for (let i = 1; i < raw.length; i++) {
     const cols = raw[i] as unknown[];
     if (cols.every((c) => c === '' || c === null || c === undefined)) continue;
 
+    // Ignorer les lignes de type "Total" / "Sous-total" souvent présentes en fin d'export CRM
+    if (isTotalRow(cols)) {
+      skippedTotalRows++;
+      continue;
+    }
+
     const data = extractRowWithMapping(cols, finalMapping);
     rows.push({ rowIndex: i + 1, data });
+  }
+  if (skippedTotalRows > 0) {
+    logger.info('[FileImport] Lignes de total ignorées', { count: skippedTotalRows });
   }
 
   // Tenter de fusionner les onglets secondaires (enrichissement marge, etc.)
@@ -374,6 +458,7 @@ export async function previewImport(
       errorRows: 0,
       duplicateRows: 0,
       unmatchedCommercials: 0,
+      openRows: 0,
       errors: [],
       unmatchedIdentifiers: [],
       sample: [],
@@ -426,7 +511,9 @@ export async function previewImport(
   }
   const unmatchedCommercials = unmatchedIdentifiersSet.size;
 
-  // 5. Aperçu des 5 premières lignes valides
+  // 5. Compter les deals OPEN (pistes/opportunités) et aperçu des 5 premières lignes valides
+  const openRows = valid.filter((row) => inferDealStatus(row.stage) !== DealStatus.WON).length;
+
   const sample: ImportPreviewRow[] = valid.slice(0, 5).map((row) => {
     const user = findUserByCommercial(row, userByEmail, userByName);
     return {
@@ -440,6 +527,7 @@ export async function previewImport(
       commercialName: user ? `${user.firstName} ${user.lastName}` : null,
       clientName: row.client_name ?? null,
       dealType: row.deal_type ?? null,
+      inferredStatus: inferDealStatus(row.stage),
       isDuplicate: duplicateExternalIds.has(row.external_id),
       isUnmatched: !user,
     };
@@ -463,6 +551,7 @@ export async function previewImport(
     errorRows: errors.length,
     duplicateRows,
     unmatchedCommercials,
+    openRows,
     errors,
     unmatchedIdentifiers: Array.from(unmatchedIdentifiersSet),
     sample,
@@ -634,6 +723,9 @@ export async function confirmImport(
       const { costAmount, marginAmount, marginSource } = computeMarginFields(row);
       const closedAt = new Date(row.closed_at);
 
+      // Déduire le statut depuis l'étape CRM (piste/opportunité → OPEN, gagné → WON, etc.)
+      const dealStatus = inferDealStatus(row.stage);
+
       // ── Étape 1 : chercher un doublon ──
 
       // D'abord par external_id (le plus fiable)
@@ -683,7 +775,7 @@ export async function confirmImport(
 
         // Vérifier si des champs impactant les commissions ont changé
         const amountChanged = existingDeal.amount !== row.amount;
-        const statusChanged = existingDeal.status !== DealStatus.WON;
+        const statusChanged = existingDeal.status !== dealStatus;
         const marginChanged = marginAmount !== null && existingDeal.marginAmount !== marginAmount;
 
         // Mise à jour du deal
@@ -694,9 +786,9 @@ export async function confirmImport(
             clientName: row.client_name ?? existingDeal.clientName,
             amount: row.amount,
             currency: row.currency,
-            status: DealStatus.WON,
+            status: dealStatus,
             assignedToId: user?.id ?? existingDeal.assignedToId,
-            closedAt,
+            closedAt: dealStatus === DealStatus.WON ? closedAt : existingDeal.closedAt,
             dealType: row.deal_type ?? existingDeal.dealType,
             notes: row.notes ?? existingDeal.notes,
             fileExternalId: row.external_id || existingDeal.fileExternalId,
@@ -708,8 +800,8 @@ export async function confirmImport(
           },
         });
 
-        // Recalculer les commissions si des champs impactants ont changé
-        if (user && (amountChanged || statusChanged || marginChanged)) {
+        // Recalculer les commissions uniquement pour les deals WON
+        if (user && dealStatus === DealStatus.WON && (amountChanged || statusChanged || marginChanged)) {
           try {
             await handlePostImportCommissions(existingDeal.id, tenantId, row.payment_status, closedAt);
           } catch (commErr) {
@@ -737,9 +829,9 @@ export async function confirmImport(
           clientName: row.client_name ?? null,
           amount: row.amount,
           currency: row.currency,
-          status: DealStatus.WON,
+          status: dealStatus,
           assignedToId: user?.id ?? null,
-          closedAt,
+          closedAt: dealStatus === DealStatus.WON ? closedAt : null,
           dealType: row.deal_type ?? null,
           notes: row.notes ?? null,
           importLogId,
@@ -754,8 +846,8 @@ export async function confirmImport(
           data: { importBatchId: batch.id },
         });
 
-        // Déclencher le moteur de commissions si le commercial est reconnu
-        if (user) {
+        // Déclencher le moteur de commissions uniquement pour les deals WON
+        if (user && dealStatus === DealStatus.WON) {
           try {
             await handlePostImportCommissions(deal.id, tenantId, row.payment_status, closedAt);
           } catch (commErr) {

@@ -2,18 +2,18 @@ import { api } from './api';
 import type { PayrollReportPreview } from '@shared/types';
 
 export const payrollReportService = {
-  async preview(year: number, month: number, userId?: string): Promise<PayrollReportPreview> {
+  async preview(year: number, month: number, userIds?: string[]): Promise<PayrollReportPreview> {
     const params = new URLSearchParams({ year: year.toString(), month: month.toString() });
-    if (userId) params.set('userId', userId);
+    if (userIds && userIds.length > 0) params.set('userIds', userIds.join(','));
     const res = await api.get<{ success: true; data: PayrollReportPreview }>(
       `/reports/payroll/preview?${params.toString()}`,
     );
     return res.data.data;
   },
 
-  async downloadPdf(year: number, month: number, userId?: string): Promise<void> {
+  async downloadPdf(year: number, month: number, userIds?: string[]): Promise<void> {
     const params = new URLSearchParams({ year: year.toString(), month: month.toString() });
-    if (userId) params.set('userId', userId);
+    if (userIds && userIds.length > 0) params.set('userIds', userIds.join(','));
 
     const res = await api.get(`/reports/payroll/pdf?${params.toString()}`, {
       responseType: 'blob',
