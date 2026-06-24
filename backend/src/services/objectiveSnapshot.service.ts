@@ -6,7 +6,7 @@ import type { Objective, ObjectiveBonusTier } from '@shared/types';
 
 // ─── Helpers période (sans date-fns) ─────────────────────────
 
-function getObjectiveDateRange(obj: Objective): [Date, Date] | null {
+export function getObjectiveDateRange(obj: Objective): [Date, Date] | null {
   const y = obj.year ?? new Date().getFullYear();
 
   if (obj.periodType === 'monthly') {
@@ -20,6 +20,13 @@ function getObjectiveDateRange(obj: Objective): [Date, Date] | null {
     const startMonth = (q - 1) * 3;
     const start = new Date(y, startMonth, 1);
     const end = new Date(y, startMonth + 3, 0, 23, 59, 59, 999);
+    return [start, end];
+  }
+  if (obj.periodType === 'semester') {
+    const s = obj.semester ?? 1;
+    const startMonth = (s - 1) * 6; // S1 = 0 (jan), S2 = 6 (juil)
+    const start = new Date(y, startMonth, 1);
+    const end = new Date(y, startMonth + 6, 0, 23, 59, 59, 999);
     return [start, end];
   }
   if (obj.periodType === 'annual') {
@@ -40,6 +47,7 @@ function formatObjectivePeriod(obj: Objective): string {
   const y = obj.year ?? new Date().getFullYear();
   if (obj.periodType === 'monthly') return `${MONTHS_FR[(obj.month ?? 1) - 1]} ${y}`;
   if (obj.periodType === 'quarterly') return `T${obj.quarter ?? 1} ${y}`;
+  if (obj.periodType === 'semester') return `S${obj.semester ?? 1} ${y}`;
   if (obj.periodType === 'annual') return `Année ${y}`;
   if (obj.periodType === 'custom' && obj.startDate && obj.endDate) {
     const fmt = (d: string) => {
@@ -51,7 +59,7 @@ function formatObjectivePeriod(obj: Objective): string {
   return 'Période perso.';
 }
 
-function isObjectiveEnded(obj: Objective): boolean {
+export function isObjectiveEnded(obj: Objective): boolean {
   const range = getObjectiveDateRange(obj);
   if (!range) return false;
   return new Date() > range[1];
@@ -59,7 +67,7 @@ function isObjectiveEnded(obj: Objective): boolean {
 
 // ─── Calcul bonus ─────────────────────────────────────────────
 
-function computeBonus(obj: Objective, current: number): number {
+export function computeBonus(obj: Objective, current: number): number {
   const bonus = obj.bonus ?? { enabled: false, type: 'percentage' as const, value: 0 };
   const pct = obj.target > 0 ? (current / obj.target) * 100 : 0;
   const mode = obj.bonusMode ?? (bonus.enabled ? 'simple' : 'none');

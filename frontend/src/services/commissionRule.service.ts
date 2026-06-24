@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { CommissionRule, RuleScope } from '@shared/types';
+import type { CommissionRule, CommissionRuleConfig, CommissionRuleType, RuleScope } from '@shared/types';
 
 export interface CommissionRuleWithCount extends CommissionRule {
   assignmentCount: number;
@@ -10,6 +10,21 @@ export const commissionRuleApiService = {
     const params = filter?.archived !== undefined ? `?archived=${filter.archived}` : '';
     const res = await api.get<{ success: true; data: CommissionRuleWithCount[] }>(
       `/commission-rules${params}`,
+    );
+    return res.data.data;
+  },
+
+  async create(data: {
+    name: string;
+    type: CommissionRuleType;
+    config: CommissionRuleConfig;
+    dealType?: string | null;
+    scope?: RuleScope;
+    paymentDelayDays?: number | null;
+  }): Promise<CommissionRule> {
+    const res = await api.post<{ success: true; data: CommissionRule }>(
+      '/commission-rules',
+      data,
     );
     return res.data.data;
   },
@@ -33,6 +48,8 @@ export const commissionRuleApiService = {
     description: string;
     dealType?: string | null;
     paymentDelayDays?: number | null;
+    type?: CommissionRuleType;
+    config?: CommissionRuleConfig;
   }): Promise<CommissionRule> {
     const res = await api.patch<{ success: true; data: CommissionRule }>(
       `/commission-rules/${ruleId}`,

@@ -25,9 +25,9 @@ export interface CreateAssignmentData {
 }
 
 export const ruleAssignmentRepository = {
-  async findById(id: string): Promise<RuleAssignmentWithRule | null> {
-    return prisma.ruleAssignment.findUnique({
-      where: { id },
+  async findById(id: string, tenantId: string): Promise<RuleAssignmentWithRule | null> {
+    return prisma.ruleAssignment.findFirst({
+      where: { id, tenantId },
       include: {
         rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true, paymentDelayDays: true } },
       },

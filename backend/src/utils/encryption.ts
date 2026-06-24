@@ -22,7 +22,8 @@ export function encrypt(plaintext: string): string {
 
 /**
  * Déchiffre une chaîne chiffrée par encrypt().
- * Si le format ne correspond pas (valeur ancienne en clair), retourne la valeur telle quelle.
+ * Si la valeur n'est pas au format iv:authTag:ciphertext (anciennes valeurs en clair),
+ * elle est retournée telle quelle pour assurer la rétrocompatibilité.
  */
 export function decrypt(value: string): string {
   const parts = value.split(':');
@@ -31,19 +32,18 @@ export function decrypt(value: string): string {
     return value;
   }
 
-  try {
-    const [ivHex, authTagHex, ciphertextHex] = parts;
-    const key = Buffer.from(env.ENCRYPTION_KEY, 'hex');
-    const iv = Buffer.from(ivHex, 'hex');
-    const authTag = Buffer.from(authTagHex, 'hex');
-    const ciphertext = Buffer.from(ciphertextHex, 'hex');
+  const [ivHex, authTagHex, ciphertextHex] = parts;
+  const key = Buffer.from(env.ENCRYPTION_KEY, 'hex');
+  const iv = Buffer.from(ivHex, 'hex');
+  const authTag = Buffer.from(authTagHex, 'hex');
+  const ciphertext = Buffer.from(ciphertextHex, 'hex');
 
+  try {
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
     decipher.setAuthTag(authTag);
-
     return decipher.update(ciphertext).toString('utf8') + decipher.final('utf8');
   } catch {
-    // En cas d'échec (ex: valeur corrompue ou ancienne), retourne telle quelle
+    // Données corrompues ou clé incorrecte — retourne la valeur brute par sécurité
     return value;
   }
 }

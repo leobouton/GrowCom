@@ -21,6 +21,7 @@ export const YEARS = [currentYear - 1, currentYear, currentYear + 1, currentYear
 const PERIOD_TYPE_OPTIONS: { value: ObjectivePeriodType; label: string; description: string }[] = [
   { value: 'monthly',   label: 'Mensuel',     description: 'Un mois précis' },
   { value: 'quarterly', label: 'Trimestriel', description: 'T1, T2, T3 ou T4' },
+  { value: 'semester',  label: 'Semestriel',  description: 'S1 ou S2' },
   { value: 'annual',    label: 'Annuel',       description: 'Toute une année' },
   { value: 'custom',    label: 'Personnalisé', description: 'Plage de dates libre' },
 ];
@@ -219,10 +220,11 @@ export function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }
           <div className="space-y-3 bg-blue-50 border border-blue-200 rounded-xl p-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-2">Fréquence</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {([
                   { value: 'monthly',   label: 'Mensuel' },
                   { value: 'quarterly', label: 'Trimestriel' },
+                  { value: 'semester',  label: 'Semestriel' },
                   { value: 'annual',    label: 'Annuel' },
                 ] as { value: ObjectiveRecurrence; label: string }[]).map((opt) => (
                   <label key={opt.value} className={`flex items-center justify-center p-2 rounded-lg border-2 cursor-pointer text-xs font-medium transition-colors ${recurrence === opt.value ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>
@@ -243,7 +245,7 @@ export function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }
             </div>
             {obj.recurrenceEndDate && (
               <p className="text-xs text-blue-600">
-                Cet objectif sera généré chaque {recurrence === 'monthly' ? 'mois' : recurrence === 'quarterly' ? 'trimestre' : 'an'} jusqu'au {format(new Date(obj.recurrenceEndDate), 'dd/MM/yyyy')}
+                Cet objectif sera généré chaque {recurrence === 'monthly' ? 'mois' : recurrence === 'quarterly' ? 'trimestre' : recurrence === 'semester' ? 'semestre' : 'an'} jusqu'au {format(new Date(obj.recurrenceEndDate), 'dd/MM/yyyy')}
               </p>
             )}
           </div>
@@ -287,6 +289,26 @@ function PeriodFields({ obj, onChange }: PeriodFieldsProps) {
           <div className="grid grid-cols-4 gap-1">
             {[1, 2, 3, 4].map((q) => (
               <button key={q} type="button" onClick={() => onChange(obj.id, 'quarter', q)} className={`py-2 rounded-lg text-xs font-semibold border-2 transition-colors ${obj.quarter === q ? 'border-primary-400 bg-primary-50 text-primary-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>T{q}</button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Année</label>
+          <select value={obj.year ?? currentYear} onChange={(e) => onChange(obj.id, 'year', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white">
+            {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+      </div>
+    );
+  }
+  if (obj.periodType === 'semester') {
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Semestre</label>
+          <div className="grid grid-cols-2 gap-1">
+            {[1, 2].map((s) => (
+              <button key={s} type="button" onClick={() => onChange(obj.id, 'semester', s)} className={`py-2 rounded-lg text-xs font-semibold border-2 transition-colors ${obj.semester === s ? 'border-primary-400 bg-primary-50 text-primary-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>S{s}</button>
             ))}
           </div>
         </div>

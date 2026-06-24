@@ -57,9 +57,9 @@ export const importBatchRepository = {
     });
   },
 
-  async update(id: string, data: Prisma.ImportBatchUpdateInput): Promise<ImportBatch> {
+  async update(id: string, tenantId: string, data: Prisma.ImportBatchUpdateInput): Promise<ImportBatch> {
     return prisma.importBatch.update({
-      where: { id },
+      where: { id, tenantId },
       data,
     });
   },

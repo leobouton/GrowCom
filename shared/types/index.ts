@@ -102,7 +102,7 @@ export type CommissionPaymentTrigger = 'DEAL_WON' | 'CLIENT_PAID';
 // --- Objectifs — modes bonus et récurrence (Session B) ---
 
 export type ObjectiveBonusMode = 'none' | 'simple' | 'tiered';
-export type ObjectiveRecurrence = 'none' | 'monthly' | 'quarterly' | 'annual';
+export type ObjectiveRecurrence = 'none' | 'monthly' | 'quarterly' | 'semester' | 'annual';
 
 // --- Tenant ---
 
@@ -119,7 +119,7 @@ export interface Tenant {
 
 // --- Objectif commercial ---
 
-export type ObjectivePeriodType = 'monthly' | 'quarterly' | 'annual' | 'custom';
+export type ObjectivePeriodType = 'monthly' | 'quarterly' | 'semester' | 'annual' | 'custom';
 
 export interface ObjectiveBonus {
   enabled: boolean;
@@ -146,6 +146,8 @@ export interface Objective {
   year?: number;
   // trimestriel → quarter (1-4) + year
   quarter?: number;
+  // semestriel → semester (1-2) + year
+  semester?: number;
   // personnalisé → plage de dates ISO
   startDate?: string;
   endDate?: string;

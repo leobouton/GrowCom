@@ -15,8 +15,8 @@ export interface CreateRuleData {
 }
 
 export const commissionRuleRepository = {
-  async findById(id: string): Promise<CommissionRule | null> {
-    return prisma.commissionRule.findUnique({ where: { id } });
+  async findById(id: string, tenantId: string): Promise<CommissionRule | null> {
+    return prisma.commissionRule.findFirst({ where: { id, tenantId } });
   },
 
   async findByTenantId(tenantId: string, filter?: { isArchived?: boolean }): Promise<CommissionRule[]> {

@@ -16,7 +16,7 @@ const COOKIE_OPTIONS = {
 
 const registerSchema = z.object({
   email: z.string().email('Email invalide'),
-  password: z.string().min(8, 'Le mot de passe doit faire au moins 8 caractères'),
+  password: z.string().min(12, 'Le mot de passe doit faire au moins 12 caractères'),
   firstName: z.string().min(1, 'Prénom requis').max(50),
   lastName: z.string().min(1, 'Nom requis').max(50),
   companyName: z.string().min(1, 'Nom de l\'entreprise requis').max(100),
@@ -36,13 +36,13 @@ const inviteSchema = z.object({
   email: z.string().email('Email invalide'),
   firstName: z.string().min(1, 'Prénom requis').max(50),
   lastName: z.string().min(1, 'Nom requis').max(50),
-  role: z.enum([UserRole.COMMERCIAL, UserRole.RECRUITER, UserRole.BU_MANAGER]).default(UserRole.COMMERCIAL),
+  role: z.enum([UserRole.COMMERCIAL, UserRole.RECRUITER, UserRole.TEAM_LEAD, UserRole.BU_MANAGER]).default(UserRole.COMMERCIAL),
   fixedSalary: z.number().min(0).default(0),
 });
 
 const acceptInviteSchema = z.object({
   token: z.string().min(1),
-  password: z.string().min(8, 'Le mot de passe doit faire au moins 8 caractères'),
+  password: z.string().min(12, 'Le mot de passe doit faire au moins 12 caractères'),
 });
 
 const forgotPasswordSchema = z.object({
@@ -51,7 +51,7 @@ const forgotPasswordSchema = z.object({
 
 const resetPasswordSchema = z.object({
   token: z.string().min(1),
-  password: z.string().min(8, 'Le mot de passe doit faire au moins 8 caractères'),
+  password: z.string().min(12, 'Le mot de passe doit faire au moins 12 caractères'),
 });
 
 export const authController = {

@@ -13,6 +13,28 @@ const updateRuleSchema = z.object({
   dealType: z.string().max(50).optional().nullable(),
   paymentDelayDays: z.number().int().min(1).max(730).optional().nullable(),
   description: z.string().min(10).max(1000),
+  // Config structurée optionnelle — si fournie, remplace la génération IA
+  type: z.nativeEnum(CommissionRuleType).optional(),
+  config: z.object({
+    type: z.nativeEnum(CommissionRuleType),
+    description: z.string(),
+    rate: z.number().min(0).max(1).optional(),
+    fixedAmount: z.number().min(0).optional(),
+    tiers: z.array(z.object({
+      min: z.number().min(0),
+      max: z.number().nullable(),
+      rate: z.number().min(0).max(1),
+    })).optional(),
+    examples: z.array(z.object({
+      saleAmount: z.number(),
+      commission: z.number(),
+      explanation: z.string(),
+    })).min(1),
+    calculationBasis: z.enum(['REVENUE', 'MARGIN']).optional(),
+    paymentTrigger: z.enum(['DEAL_WON', 'CLIENT_PAID']).optional(),
+    cap: z.number().min(0).optional().nullable().transform(v => v ?? undefined),
+    floor: z.number().min(0).optional().nullable().transform(v => v ?? undefined),
+  }).optional(),
 });
 
 const generateRuleSchema = z.object({
@@ -24,6 +46,38 @@ const generateRuleSchema = z.object({
   dealType: z.string().max(50).optional().nullable(),
   scope: z.nativeEnum(RuleScope).optional(),
   paymentDelayDays: z.number().int().min(1).max(730).optional().nullable(),
+});
+
+const tierSchema = z.object({
+  min: z.number().min(0),
+  max: z.number().nullable(),
+  rate: z.number().min(0).max(1),
+});
+
+const exampleSchema = z.object({
+  saleAmount: z.number(),
+  commission: z.number(),
+  explanation: z.string(),
+});
+
+const createRuleSchema = z.object({
+  name: z.string().min(1, 'Le nom est requis').max(100),
+  dealType: z.string().max(50).optional().nullable(),
+  scope: z.nativeEnum(RuleScope).optional(),
+  paymentDelayDays: z.number().int().min(1).max(730).optional().nullable(),
+  type: z.nativeEnum(CommissionRuleType),
+  config: z.object({
+    type: z.nativeEnum(CommissionRuleType),
+    description: z.string(),
+    rate: z.number().min(0).max(1).optional(),
+    fixedAmount: z.number().min(0).optional(),
+    tiers: z.array(tierSchema).optional(),
+    examples: z.array(exampleSchema).min(1),
+    calculationBasis: z.enum(['REVENUE', 'MARGIN']).optional(),
+    paymentTrigger: z.enum(['DEAL_WON', 'CLIENT_PAID']).optional(),
+    cap: z.number().min(0).optional().nullable().transform(v => v ?? undefined),
+    floor: z.number().min(0).optional().nullable().transform(v => v ?? undefined),
+  }),
 });
 
 export const commissionRuleController = {
@@ -41,6 +95,38 @@ export const commissionRuleController = {
       );
 
       res.json({ success: true, data: rulesWithCount });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async create(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const { name, dealType, scope, paymentDelayDays, type, config } = createRuleSchema.parse(req.body);
+
+      const rule = await commissionRuleRepository.create({
+        tenantId: user.tenantId!,
+        name,
+        description: config.description,
+        type,
+        config,
+        createdBy: user.userId,
+        dealType: dealType ?? null,
+        scope: scope ?? RuleScope.GLOBAL,
+        paymentDelayDays: paymentDelayDays ?? null,
+      });
+
+      await auditLogRepository.create({
+        tenantId: user.tenantId!,
+        userId: user.userId,
+        action: 'CREATE_COMMISSION_RULE',
+        entity: 'CommissionRule',
+        entityId: rule.id,
+        metadata: { name, type },
+      });
+
+      res.status(201).json({ success: true, data: rule });
     } catch (err) {
       next(err);
     }
@@ -85,22 +171,31 @@ export const commissionRuleController = {
       const user = (req as AuthenticatedRequest).user;
       const { id } = req.params;
 
-      const rule = await commissionRuleRepository.findById(id);
+      const rule = await commissionRuleRepository.findById(id, user.tenantId!);
       if (!rule) throw new AppError(404, 'RULE_NOT_FOUND', 'Règle introuvable');
-      if (rule.tenantId !== user.tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
       if (rule.isArchived) throw new AppError(400, 'RULE_ARCHIVED', 'Impossible de modifier une règle archivée');
 
-      const { name, dealType, paymentDelayDays, description } = updateRuleSchema.parse(req.body);
+      const { name, dealType, paymentDelayDays, description, type: structuredType, config: structuredConfig } = updateRuleSchema.parse(req.body);
 
-      const generatedConfig = await commissionAIService.generateRule(description);
+      let finalConfig;
+      let finalType: CommissionRuleType;
+
+      if (structuredConfig && structuredType) {
+        finalConfig = structuredConfig;
+        finalType = structuredType;
+      } else {
+        const generatedConfig = await commissionAIService.generateRule(description);
+        finalConfig = generatedConfig;
+        finalType = generatedConfig.type as CommissionRuleType;
+      }
 
       const updated = await commissionRuleRepository.updateMeta(id, user.tenantId!, {
         name,
         dealType: dealType ?? null,
         paymentDelayDays: paymentDelayDays ?? null,
         description,
-        config: generatedConfig,
-        type: generatedConfig.type as CommissionRuleType,
+        config: finalConfig,
+        type: finalType,
       });
 
       await auditLogRepository.create({
@@ -123,9 +218,8 @@ export const commissionRuleController = {
       const user = (req as AuthenticatedRequest).user;
       const { id } = req.params;
 
-      const rule = await commissionRuleRepository.findById(id);
+      const rule = await commissionRuleRepository.findById(id, user.tenantId!);
       if (!rule) throw new AppError(404, 'RULE_NOT_FOUND', 'Règle introuvable');
-      if (rule.tenantId !== user.tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
 
       const archived = await commissionRuleRepository.archive(id, user.tenantId!);
 
@@ -149,9 +243,8 @@ export const commissionRuleController = {
       const user = (req as AuthenticatedRequest).user;
       const { id } = req.params;
 
-      const rule = await commissionRuleRepository.findById(id);
+      const rule = await commissionRuleRepository.findById(id, user.tenantId!);
       if (!rule) throw new AppError(404, 'RULE_NOT_FOUND', 'Règle introuvable');
-      if (rule.tenantId !== user.tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
 
       const unarchived = await commissionRuleRepository.unarchive(id, user.tenantId!);
       res.json({ success: true, data: unarchived });
@@ -165,9 +258,8 @@ export const commissionRuleController = {
       const user = (req as AuthenticatedRequest).user;
       const { id } = req.params;
 
-      const rule = await commissionRuleRepository.findById(id);
+      const rule = await commissionRuleRepository.findById(id, user.tenantId!);
       if (!rule) throw new AppError(404, 'RULE_NOT_FOUND', 'Règle introuvable');
-      if (rule.tenantId !== user.tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
       if (!rule.isArchived) throw new AppError(400, 'RULE_NOT_ARCHIVED', 'Seules les règles archivées peuvent être supprimées');
 
       // Vérifier s'il y a des commissions liées

@@ -6,7 +6,8 @@
 
 import * as XLSX from 'xlsx';
 import { z } from 'zod';
-import { DealStatus, CommissionStatus as PrismaCommissionStatus } from '@prisma/client';
+import { CommissionStatus as PrismaCommissionStatus } from '@prisma/client';
+import { DealStatus } from '../../../shared/types';
 import { prisma } from '../config/prisma';
 import { dealRepository } from '../repositories/deal.repository';
 import { importLogRepository } from '../repositories/importLog.repository';
@@ -27,7 +28,7 @@ import {
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
-const SUPPORTED_CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY'];
+export const SUPPORTED_CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY'];
 
 // ─── Aliases de colonnes ─────────────────────────────────────────────────────
 // Le dictionnaire de synonymes est maintenant dans excelColumnMapper.service.ts
@@ -78,7 +79,7 @@ function toIsoDate(v: unknown): unknown {
   return v;
 }
 
-const DealRowSchema = z.object({
+export const DealRowSchema = z.object({
   external_id:       z.string().min(1, 'external_id est requis'),
   deal_name:         z.string().min(1, 'deal_name est requis'),
   // Preprocessing : strip "€", espaces et virgule décimale avant conversion numérique
@@ -201,18 +202,18 @@ interface ValidationResult {
 
 // Les fonctions normalizeHeader / normalizeHeaders sont maintenant dans excelColumnMapper.service.ts
 // On les ré-exporte pour rétrocompatibilité.
-function normalizeHeader(h: string): string {
+export function normalizeHeader(h: string): string {
   return mapperNormalizeHeader(h).replace(/ /g, '_');
 }
 
-function normalizeHeaders(headers: string[]): string[] {
+export function normalizeHeaders(headers: string[]): string[] {
   return headers.map(normalizeHeader);
 }
 
 /**
  * Résultat du parsing avec le mapping détecté.
  */
-interface ParseResult {
+export interface ParseResult {
   rows: ParsedRow[];
   mapping: ColumnMapping;
   originalHeaders: string[];
@@ -328,7 +329,7 @@ function isTotalRow(cols: unknown[]): boolean {
   return false;
 }
 
-function parseBuffer(
+export function parseBuffer(
   buffer: Buffer,
   _originalName: string,
   customMapping?: Partial<Record<DealField, string>>,
@@ -395,7 +396,7 @@ function parseBuffer(
 
 // ─── Validation Zod ligne par ligne ──────────────────────────────────────────
 
-function validateRows(rows: ParsedRow[]): ValidationResult {
+export function validateRows(rows: ParsedRow[]): ValidationResult {
   const valid: DealRow[] = [];
   const errors: ImportRowError[] = [];
 
@@ -564,7 +565,7 @@ export async function previewImport(
  * Construit une clé de dédoublonnage normalisée : clientName|title|date (YYYY-MM-DD).
  * Deux deals avec la même clé sont considérés comme identiques.
  */
-function buildDedupeKey(clientName: string, title: string, date: Date): string {
+export function buildDedupeKey(clientName: string, title: string, date: Date): string {
   const normalizedClient = clientName.trim().toLowerCase();
   const normalizedTitle = title.trim().toLowerCase();
   const normalizedDate = date.toISOString().split('T')[0]; // YYYY-MM-DD
@@ -665,14 +666,13 @@ export async function confirmImport(
   importLogId: string,
   tenantId: string,
 ): Promise<FileImportConfirmResult> {
-  const importLog = await importLogRepository.findById(importLogId);
+  const importLog = await importLogRepository.findById(importLogId, tenantId);
   if (!importLog) throw new Error('Import introuvable');
-  if (importLog.tenantId !== tenantId) throw new Error('Accès non autorisé à cet import');
   if (importLog.status !== 'PENDING') throw new Error('Cet import a déjà été traité');
 
   const pendingRows = importLog.pendingRows as DealRow[] | null;
   if (!pendingRows || pendingRows.length === 0) {
-    await importLogRepository.update(importLogId, {
+    await importLogRepository.update(importLogId, tenantId, {
       status: 'SUCCESS',
       successRows: 0,
       skippedRows: 0,
@@ -682,7 +682,7 @@ export async function confirmImport(
     return { created: 0, skipped: 0, errors: 0, importLogId };
   }
 
-  await importLogRepository.update(importLogId, { status: 'PROCESSING' });
+  await importLogRepository.update(importLogId, tenantId, { status: 'PROCESSING' });
 
   // Déterminer la source du fichier
   const ext = importLog.fileName.split('.').pop()?.toLowerCase() ?? '';
@@ -891,7 +891,7 @@ export async function confirmImport(
 
   const finalStatus = errorCount > 0 ? 'PARTIAL_ERROR' : 'SUCCESS';
 
-  await importLogRepository.update(importLogId, {
+  await importLogRepository.update(importLogId, tenantId, {
     status: finalStatus,
     successRows: createdCount,
     skippedRows: updatedCount, // "skipped" = mis à jour dans le nouveau paradigme
@@ -917,7 +917,7 @@ type UserRecord = { id: string; email: string; firstName: string; lastName: stri
 /**
  * Construit une Map nom→utilisateur (prénom nom ET nom prénom, insensible à la casse).
  */
-function buildUserByNameMap(users: UserRecord[]): Map<string, UserRecord> {
+export function buildUserByNameMap(users: UserRecord[]): Map<string, UserRecord> {
   const map = new Map<string, UserRecord>();
   for (const u of users) {
     const fn = `${u.firstName} ${u.lastName}`.toLowerCase().trim();
@@ -931,7 +931,7 @@ function buildUserByNameMap(users: UserRecord[]): Map<string, UserRecord> {
 /**
  * Trouve un utilisateur d'abord par email, ensuite par nom complet.
  */
-function findUserByCommercial(
+export function findUserByCommercial(
   row: DealRow,
   userByEmail: Map<string, UserRecord>,
   userByName: Map<string, UserRecord>,
@@ -946,16 +946,3 @@ function findUserByCommercial(
   return undefined;
 }
 
-// ─── Exports pour tests unitaires ────────────────────────────────────────────
-
-export {
-  parseBuffer,
-  validateRows,
-  normalizeHeader,
-  normalizeHeaders,
-  buildUserByNameMap,
-  findUserByCommercial,
-  buildDedupeKey,
-  DealRowSchema,
-  SUPPORTED_CURRENCIES,
-};

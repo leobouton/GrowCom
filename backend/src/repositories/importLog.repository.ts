@@ -37,9 +37,9 @@ export const importLogRepository = {
     });
   },
 
-  async update(id: string, data: UpdateImportLogData): Promise<ImportLog> {
+  async update(id: string, tenantId: string, data: UpdateImportLogData): Promise<ImportLog> {
     return prisma.importLog.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         status: data.status,
         ...(data.successRows !== undefined && { successRows: data.successRows }),
@@ -52,8 +52,8 @@ export const importLogRepository = {
     });
   },
 
-  async findById(id: string): Promise<ImportLog | null> {
-    return prisma.importLog.findUnique({ where: { id } });
+  async findById(id: string, tenantId: string): Promise<ImportLog | null> {
+    return prisma.importLog.findFirst({ where: { id, tenantId } });
   },
 
   async findLastByTenantId(tenantId: string, limit = 5): Promise<ImportLog[]> {

@@ -111,6 +111,7 @@ function formatObjectivePeriod(obj: Objective): string {
   switch (obj.periodType) {
     case 'monthly':   return `${MONTHS[(obj.month ?? 1) - 1]} ${obj.year ?? currentYear}`;
     case 'quarterly': return `T${obj.quarter ?? 1} ${obj.year ?? currentYear}`;
+    case 'semester':  return `S${obj.semester ?? 1} ${obj.year ?? currentYear}`;
     case 'annual':    return `Année ${obj.year ?? currentYear}`;
     case 'custom':
       if (obj.startDate && obj.endDate) {
@@ -153,11 +154,19 @@ function filterVisibleObjectives(objectives: Objective[]): Objective[] {
           const now = new Date();
           const withRange = occurrences.map((occ) => {
             const y = occ.year ?? now.getFullYear();
-            const m = occ.month ? occ.month - 1 : 0;
-            return { occ, start: new Date(y, m, 1) };
+            let startMonth = 0;
+            if (occ.periodType === 'monthly' && occ.month) startMonth = occ.month - 1;
+            else if (occ.periodType === 'quarterly' && occ.quarter) startMonth = (occ.quarter - 1) * 3;
+            else if (occ.periodType === 'semester' && occ.semester) startMonth = (occ.semester - 1) * 6;
+            // annual → startMonth = 0 (default)
+            return { occ, start: new Date(y, startMonth, 1) };
           });
           const current = withRange.find((w) => {
-            const end = new Date(w.start.getFullYear(), w.start.getMonth() + 1, 0, 23, 59, 59);
+            let endMonth = w.start.getMonth() + 1; // default: 1 month
+            if (w.occ.periodType === 'quarterly') endMonth = w.start.getMonth() + 3;
+            else if (w.occ.periodType === 'semester') endMonth = w.start.getMonth() + 6;
+            else if (w.occ.periodType === 'annual') endMonth = 12;
+            const end = new Date(w.start.getFullYear(), endMonth, 0, 23, 59, 59);
             return now >= w.start && now <= end;
           });
           result.push(current?.occ ?? withRange.sort((a, b) => b.start.getTime() - a.start.getTime())[0].occ);

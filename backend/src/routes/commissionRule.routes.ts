@@ -16,6 +16,11 @@ router.get(
 
 // Écriture : MANAGER et BU_MANAGER uniquement (création et archivage)
 router.post(
+  '/',
+  checkRole(UserRole.MANAGER, UserRole.BU_MANAGER),
+  commissionRuleController.create,
+);
+router.post(
   '/generate',
   checkRole(UserRole.MANAGER, UserRole.BU_MANAGER),
   commissionRuleController.generate,

@@ -10,8 +10,25 @@ import { emailService } from '../integrations/email.service';
 import { stripeService } from '../integrations/stripe.service';
 import { UserRole } from '../../../shared/types';
 import type { User } from '@prisma/client';
+import { checkPasswordCompromised } from '../utils/hibp';
 
 const SALT_ROUNDS = 12;
+
+/**
+ * Vérifie un mot de passe contre l'API HaveIBeenPwned.
+ * Lève une AppError si le mot de passe est compromis.
+ * Fail-open si l'API est indisponible.
+ */
+async function assertPasswordNotCompromised(password: string): Promise<void> {
+  const { compromised, count } = await checkPasswordCompromised(password);
+  if (compromised) {
+    throw new AppError(
+      400,
+      'PASSWORD_COMPROMISED',
+      `Ce mot de passe a été trouvé dans ${count.toLocaleString('fr-FR')} fuites de données. Veuillez en choisir un plus sûr.`,
+    );
+  }
+}
 
 function generateAccessToken(user: User): string {
   return jwt.sign(
@@ -52,6 +69,7 @@ export const authService = {
       throw new AppError(409, 'SLUG_TAKEN', 'Ce nom d\'entreprise est déjà pris');
     }
 
+    await assertPasswordNotCompromised(data.password);
     const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
 
     // Créer le tenant et l'utilisateur dans une transaction
@@ -207,11 +225,31 @@ export const authService = {
     role: UserRole = UserRole.COMMERCIAL,
     fixedSalary: number = 0,
   ) {
+    // Vérification hiérarchique : empêcher l'escalade de privilège via l'invitation
+    const inviter = await userRepository.findById(managerId);
+    if (!inviter) throw new AppError(403, 'FORBIDDEN', 'Invitant introuvable');
+
+    const allowedRolesByInviter: Record<string, UserRole[]> = {
+      [UserRole.TEAM_LEAD]: [UserRole.COMMERCIAL, UserRole.RECRUITER],
+      [UserRole.BU_MANAGER]: [UserRole.COMMERCIAL, UserRole.RECRUITER, UserRole.TEAM_LEAD],
+      [UserRole.MANAGER]: [UserRole.COMMERCIAL, UserRole.RECRUITER, UserRole.TEAM_LEAD, UserRole.BU_MANAGER],
+      [UserRole.SUPER_ADMIN]: [UserRole.COMMERCIAL, UserRole.RECRUITER, UserRole.TEAM_LEAD, UserRole.BU_MANAGER, UserRole.MANAGER],
+    };
+
+    const allowed = allowedRolesByInviter[inviter.role] ?? [];
+    if (!allowed.includes(role)) {
+      throw new AppError(
+        403,
+        'ROLE_ESCALATION_FORBIDDEN',
+        'Vous ne pouvez pas inviter un utilisateur avec un rôle supérieur ou égal au vôtre',
+      );
+    }
+
     const existing = await userRepository.findByEmail(email.toLowerCase());
     if (existing) {
       // Si l'utilisateur existe mais est inactif ET appartient au même tenant, on le supprime pour permettre la ré-invitation
       if (!existing.isActive && existing.tenantId === managerTenantId) {
-        await userRepository.hardDelete(existing.id);
+        await userRepository.hardDelete(existing.id, managerTenantId);
       } else {
         throw new AppError(409, 'EMAIL_TAKEN', 'Cet email est déjà utilisé');
       }
@@ -221,7 +259,7 @@ export const authService = {
     const inviteTokenExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72h
 
     // Trouver le groupe à assigner automatiquement selon le rôle de l'invitant
-    const inviter = await userRepository.findById(managerId);
+    // (inviter déjà récupéré plus haut pour la vérification hiérarchique)
     let autoGroupId: string | null = null;
 
     if (inviter) {
@@ -307,6 +345,7 @@ export const authService = {
       throw new AppError(410, 'RESET_TOKEN_EXPIRED', 'Ce lien a expiré, veuillez refaire une demande');
     }
 
+    await assertPasswordNotCompromised(newPassword);
     const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
     await prisma.user.update({
@@ -347,6 +386,7 @@ export const authService = {
       throw new AppError(410, 'INVITE_EXPIRED', 'Ce lien d\'invitation a expiré');
     }
 
+    await assertPasswordNotCompromised(password);
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
     const updatedUser = await prisma.user.update({

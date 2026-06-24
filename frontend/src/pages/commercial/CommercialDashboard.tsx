@@ -150,7 +150,7 @@ function ObjectiveProgressCard({ obj, wonDeals, pendingCommissionCount }: { obj:
   const isCurrent = isObjectiveCurrent(obj);
   const isFuture = isObjectiveFuture(obj);
   const isDone = pct >= 100;
-  const { amount: bonusEarned, tierReached } = computeBonus(obj, current);
+  const { amount: bonusEarned } = computeBonus(obj, current);
   const effectiveBonusMode = obj.bonusMode ?? (obj.bonus?.enabled ? 'simple' : 'none');
   const hasBonusRule = effectiveBonusMode !== 'none';
   const isTiered = effectiveBonusMode === 'tiered';
@@ -172,8 +172,6 @@ function ObjectiveProgressCard({ obj, wonDeals, pendingCommissionCount }: { obj:
     : [];
   // Échelle de la barre : s'étend jusqu'au palier max ou 100%, selon le plus grand
   const barScale = Math.max(100, ...sortedTiers.map((t) => t.threshold), pct);
-  const nextTier = sortedTiers.find((t) => pct < t.threshold);
-
   return (
     <div className={`bg-white rounded-xl border p-5 space-y-3 ${isDone && hasBonusRule ? 'border-green-300 ring-1 ring-green-200' : 'border-gray-200'}`}>
       {/* En-tête */}
@@ -184,7 +182,7 @@ function ObjectiveProgressCard({ obj, wonDeals, pendingCommissionCount }: { obj:
             {isRecurrent && (
               <span
                 className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 font-medium cursor-help"
-                title={`Cet objectif se renouvelle automatiquement chaque ${obj.periodType === 'monthly' ? 'mois' : obj.periodType === 'quarterly' ? 'trimestre' : 'année'}`}
+                title={`Cet objectif se renouvelle automatiquement chaque ${obj.periodType === 'monthly' ? 'mois' : obj.periodType === 'quarterly' ? 'trimestre' : obj.periodType === 'semester' ? 'semestre' : 'année'}`}
               >
                 🔁 {formatObjectivePeriod(obj)}
               </span>

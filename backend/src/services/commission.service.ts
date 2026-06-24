@@ -229,8 +229,8 @@ const COMMERCIAL_ROLES = [PrismaUserRole.COMMERCIAL, PrismaUserRole.RECRUITER, P
 
 export const commissionService = {
   async findById(id: string, tenantId: string) {
-    const commission = await commissionRepository.findById(id);
-    if (!commission || commission.tenantId !== tenantId) return null;
+    const commission = await commissionRepository.findById(id, tenantId);
+    if (!commission) return null;
     return commission;
   },
 
@@ -261,9 +261,8 @@ export const commissionService = {
   },
 
   async validate(commissionId: string, tenantId: string, callerId: string, callerRole: UserRole) {
-    const commission = await commissionRepository.findById(commissionId);
+    const commission = await commissionRepository.findById(commissionId, tenantId);
     if (!commission) throw new AppError(404, 'COMMISSION_NOT_FOUND', 'Commission introuvable');
-    if (commission.tenantId !== tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
     if (commission.status !== CommissionStatus.PENDING) {
       throw new AppError(400, 'INVALID_STATUS', 'Seules les commissions en attente peuvent être validées');
     }
@@ -279,9 +278,8 @@ export const commissionService = {
   },
 
   async markAsPaid(commissionId: string, tenantId: string, callerId: string, callerRole: UserRole) {
-    const commission = await commissionRepository.findById(commissionId);
+    const commission = await commissionRepository.findById(commissionId, tenantId);
     if (!commission) throw new AppError(404, 'COMMISSION_NOT_FOUND', 'Commission introuvable');
-    if (commission.tenantId !== tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
     if (commission.status !== CommissionStatus.VALIDATED && commission.status !== CommissionStatus.PENDING) {
       throw new AppError(400, 'INVALID_STATUS', 'Commission déjà payée');
     }
@@ -571,9 +569,8 @@ export const commissionService = {
   },
 
   async markClientPaid(commissionId: string, tenantId: string, callerId: string, callerRole: UserRole) {
-    const commission = await commissionRepository.findById(commissionId);
+    const commission = await commissionRepository.findById(commissionId, tenantId);
     if (!commission) throw new AppError(404, 'COMMISSION_NOT_FOUND', 'Commission introuvable');
-    if (commission.tenantId !== tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
     if (!commission.awaitingClientPayment) {
       throw new AppError(
         400,
@@ -590,7 +587,7 @@ export const commissionService = {
     // Récupère le délai de la règle pour savoir si on planifie ou on valide directement
     const paymentDelayDays = commission.rule?.paymentDelayDays ?? null;
 
-    return commissionRepository.markClientPaid(commissionId, callerId, paymentDelayDays);
+    return commissionRepository.markClientPaid(commissionId, tenantId, callerId, paymentDelayDays);
   },
 
   /**
@@ -605,9 +602,8 @@ export const commissionService = {
     callerRole: UserRole,
     reason: string,
   ) {
-    const commission = await commissionRepository.findById(commissionId);
+    const commission = await commissionRepository.findById(commissionId, tenantId);
     if (!commission) throw new AppError(404, 'COMMISSION_NOT_FOUND', 'Commission introuvable');
-    if (commission.tenantId !== tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
 
     if (commission.status !== CommissionStatus.VALIDATED && commission.status !== CommissionStatus.PAID) {
       throw new AppError(400, 'INVALID_STATUS', 'Seules les commissions validées ou payées peuvent être révoquées');
@@ -672,9 +668,8 @@ export const commissionService = {
     reason: string,
     options?: { cancelDeal?: boolean },
   ) {
-    const commission = await commissionRepository.findById(commissionId);
+    const commission = await commissionRepository.findById(commissionId, tenantId);
     if (!commission) throw new AppError(404, 'COMMISSION_NOT_FOUND', 'Commission introuvable');
-    if (commission.tenantId !== tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
     if (commission.status === CommissionStatus.CANCELLED) {
       throw new AppError(400, 'ALREADY_CANCELLED', 'Cette commission est déjà annulée');
     }
@@ -733,7 +728,7 @@ export const commissionService = {
 
     // Chantier 2 — Propagation de l'annulation aux objectifs/concours
     // Détermine si le deal est du mois en cours pour décider si on recalcule ou si on préserve le snapshot
-    const deal = await dealRepository.findById(commission.dealId);
+    const deal = await dealRepository.findById(commission.dealId, tenantId);
     const now = new Date();
     const dealDate = deal?.closedAt ?? (deal ? new Date(deal.syncedAt) : now);
     const dealMonth = new Date(dealDate).getMonth();
@@ -844,8 +839,8 @@ export const commissionService = {
    * - Supporte calculationBasis MARGIN/REVENUE et paymentTrigger CLIENT_PAID/DEAL_WON.
    */
   async recalculateForDeal(dealId: string, tenantId: string) {
-    const deal = await dealRepository.findById(dealId);
-    if (!deal || deal.tenantId !== tenantId) {
+    const deal = await dealRepository.findById(dealId, tenantId);
+    if (!deal) {
       throw new AppError(404, 'DEAL_NOT_FOUND', 'Deal introuvable');
     }
 

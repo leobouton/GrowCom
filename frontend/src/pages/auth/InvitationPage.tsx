@@ -10,7 +10,7 @@ import { useState } from 'react';
 
 const schema = z
   .object({
-    password: z.string().min(8, 'Minimum 8 caractères'),
+    password: z.string().min(12, 'Minimum 12 caractères'),
     confirmPassword: z.string().min(1, 'Confirmez votre mot de passe'),
   })
   .refine((data) => data.password === data.confirmPassword, {
@@ -72,7 +72,7 @@ export function InvitationPage() {
             <Input
               label="Mot de passe"
               type="password"
-              placeholder="Minimum 8 caractères"
+              placeholder="Minimum 12 caractères"
               error={errors.password?.message}
               showPasswordToggle
               {...register('password')}

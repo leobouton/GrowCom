@@ -71,6 +71,23 @@ export async function generateOccurrences(userId: string, tenantId: string): Pro
         }));
         generated++;
       }
+    } else if (freq === 'semester') {
+      const currentSemester = currentMonth <= 6 ? 1 : 2;
+      const exists = objectives.some(
+        (o) =>
+          o.parentObjectiveId === template.id &&
+          o.periodType === 'semester' &&
+          o.semester === currentSemester &&
+          o.year === currentYear,
+      );
+      if (!exists) {
+        newObjectives.push(buildOccurrence(template, {
+          periodType: 'semester',
+          semester: currentSemester,
+          year: currentYear,
+        }));
+        generated++;
+      }
     } else if (freq === 'annual') {
       const exists = objectives.some(
         (o) =>
@@ -103,7 +120,7 @@ export async function generateOccurrences(userId: string, tenantId: string): Pro
 /** Construit une occurrence à partir d'un template. */
 export function buildOccurrence(
   template: Objective,
-  periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'year'>>,
+  periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'semester' | 'year'>>,
 ): Objective {
   return {
     ...template,
@@ -114,6 +131,7 @@ export function buildOccurrence(
     periodType: periodOverride.periodType ?? template.periodType,
     month: periodOverride.month,
     quarter: periodOverride.quarter,
+    semester: periodOverride.semester,
     year: periodOverride.year ?? new Date().getFullYear(),
     // Nettoyer les champs custom hérités du template pour éviter que
     // getObjectiveDateRange tombe dans la branche 'custom' par erreur

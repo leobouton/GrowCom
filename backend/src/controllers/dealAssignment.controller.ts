@@ -33,9 +33,8 @@ export const dealAssignmentController = {
       const user = (req as AuthenticatedRequest).user;
       const { dealId } = req.params;
 
-      const deal = await dealRepository.findById(dealId);
+      const deal = await dealRepository.findById(dealId, user.tenantId!);
       if (!deal) throw new AppError(404, 'DEAL_NOT_FOUND', 'Deal introuvable');
-      if (deal.tenantId !== user.tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
 
       // Un commercial ne peut voir que les deals qui le concernent
       if (
@@ -64,9 +63,8 @@ export const dealAssignmentController = {
       const user = (req as AuthenticatedRequest).user;
       const { dealId } = req.params;
 
-      const deal = await dealRepository.findById(dealId);
+      const deal = await dealRepository.findById(dealId, user.tenantId!);
       if (!deal) throw new AppError(404, 'DEAL_NOT_FOUND', 'Deal introuvable');
-      if (deal.tenantId !== user.tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
 
       const { assignments } = putAssignmentsSchema.parse(req.body);
 

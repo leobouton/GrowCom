@@ -77,11 +77,14 @@ export const userRepository = {
     return prisma.user.count({ where: { tenantId, isActive: true } });
   },
 
-  async deactivate(id: string): Promise<User> {
-    return prisma.user.update({ where: { id }, data: { isActive: false } });
+  async deactivate(id: string, tenantId: string): Promise<User> {
+    return prisma.user.update({ where: { id, tenantId }, data: { isActive: false } });
   },
 
-  async hardDelete(id: string): Promise<void> {
+  async hardDelete(id: string, tenantId: string): Promise<void> {
+    // Vérification d'appartenance au tenant avant suppression définitive
+    const user = await prisma.user.findFirst({ where: { id, tenantId } });
+    if (!user) throw new Error('Utilisateur introuvable');
     await prisma.user.delete({ where: { id } });
   },
 };

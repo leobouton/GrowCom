@@ -51,6 +51,7 @@ function formatObjectivePeriod(obj: Objective): string {
   switch (obj.periodType) {
     case 'monthly':  return `${MONTHS[(obj.month ?? 1) - 1]} ${obj.year ?? currentYear}`;
     case 'quarterly': return `T${obj.quarter ?? 1} ${obj.year ?? currentYear}`;
+    case 'semester':  return `S${obj.semester ?? 1} ${obj.year ?? currentYear}`;
     case 'annual':   return `Année ${obj.year ?? currentYear}`;
     case 'custom':
       if (obj.startDate && obj.endDate) {
@@ -767,16 +768,16 @@ export function TeamPage() {
                     {member.fixedSalary ? `${member.fixedSalary.toLocaleString('fr-FR')} €` : <span className="text-gray-400">—</span>}
                   </td>
                   <td className="py-4 px-6">
-                    {objectives.length === 0
+                    {objectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).length === 0
                       ? <span className="text-gray-400 text-xs">Aucun objectif</span>
                       : <div className="flex flex-wrap gap-1">
-                          {objectives.slice(0, 2).map((obj) => (
+                          {objectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).slice(0, 2).map((obj) => (
                             <span key={obj.id} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
                               {obj.label || 'Objectif'} · {obj.target.toLocaleString('fr-FR')} {obj.unit} · {formatObjectivePeriod(obj)}
                               {obj.bonus?.enabled && <span className="ml-1 text-green-600 font-bold">+{obj.bonus.value}{obj.bonus.type === 'percentage' ? '%' : '€'}</span>}
                             </span>
                           ))}
-                          {objectives.length > 2 && <span className="text-xs text-gray-400">+{objectives.length - 2}</span>}
+                          {objectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).length > 2 && <span className="text-xs text-gray-400">+{objectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).length - 2}</span>}
                         </div>}
                   </td>
                   <td className="py-4 px-6 text-gray-500">{format(new Date(member.createdAt), 'dd MMM yyyy', { locale: fr })}</td>
@@ -1190,11 +1191,11 @@ export function TeamPage() {
                   </button>
                   <div className="px-5 pb-3.5">
                     {!isExpObjectifs ? (
-                      editObjectives.length === 0 ? (
+                      editObjectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).length === 0 ? (
                         <p className="text-xs text-gray-400 italic">Aucun objectif défini</p>
                       ) : (
                         <div className="flex flex-wrap gap-1.5">
-                          {editObjectives.map((obj) => (
+                          {editObjectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).map((obj) => (
                             <span key={obj.id} className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full border border-indigo-100">
                               {obj.label || 'Objectif'} · {obj.target.toLocaleString('fr-FR')} {obj.unit} · {formatObjectivePeriod(obj)}
                               {obj.bonus?.enabled && <span className="text-green-600 ml-0.5 font-semibold">+{obj.bonus.value}{obj.bonus.type === 'percentage' ? '%' : '€'}</span>}
@@ -1211,14 +1212,14 @@ export function TeamPage() {
                             onClose={() => setShowEditPicker(false)}
                           />
                         )}
-                        {editObjectives.length === 0 && !showEditPicker ? (
+                        {editObjectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).length === 0 && !showEditPicker ? (
                           <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center">
                             <p className="text-sm text-gray-400">Aucun objectif défini</p>
                             <p className="text-xs text-gray-300 mt-1">Cliquez sur « + Nouveau » pour créer un objectif</p>
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            {editObjectives.map((obj) => {
+                            {editObjectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).map((obj) => {
                               const isRecurrent = !!obj.parentObjectiveId;
                               const isTemplate = obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId;
                               const effectiveBonusMode = obj.bonusMode ?? (obj.bonus?.enabled ? 'simple' : 'none');

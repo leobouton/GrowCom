@@ -1,29 +1,13 @@
 import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import axios from 'axios';
 import { commissionRuleApiService, type CommissionRuleWithCount } from '../../services/commissionRule.service';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
-import { Input } from '../../components/ui/Input';
 import type { CommissionRuleConfig } from '@shared/types';
 import { CommissionRuleType } from '@shared/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-
-const schema = z.object({
-  name: z.string().min(1, 'Le nom est requis'),
-  dealType: z.string().max(50).optional(),
-  paymentDelayDays: z.number().int().min(1, 'Minimum 1 jour').max(730, 'Maximum 730 jours').nullable().optional(),
-  description: z
-    .string()
-    .min(10, 'Décrivez la règle en au moins 10 caractères')
-    .max(1000),
-});
-
-type FormData = z.infer<typeof schema>;
+import { CommissionWizard } from '../../components/commissions/CommissionWizard';
 
 type FilterTab = 'active' | 'archived';
 
@@ -59,7 +43,7 @@ function RuleConfigDisplay({ config }: { config: CommissionRuleConfig }) {
           {config.tiers.map((tier, i) => (
             <div key={i} className="flex items-center gap-2 text-xs bg-gray-50 rounded px-2 py-1">
               <span className="text-gray-500">
-                {formatEur(tier.min)} → {tier.max ? formatEur(tier.max) : '∞'}
+                {formatEur(tier.min)} {'\u2192'} {tier.max ? formatEur(tier.max) : '\u221E'}
               </span>
               <span className="font-semibold text-primary-700">{(tier.rate * 100).toFixed(0)}%</span>
             </div>
@@ -77,17 +61,13 @@ function RuleConfigDisplay({ config }: { config: CommissionRuleConfig }) {
 export function CommissionRulesPage() {
   const [rules, setRules] = useState<CommissionRuleWithCount[]>([]);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
   const [archivingId, setArchivingId] = useState<string | null>(null);
-  const [editingRule, setEditingRule] = useState<CommissionRuleWithCount | null>(null);
-  const [generatedRule, setGeneratedRule] = useState<CommissionRuleWithCount | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [filterTab, setFilterTab] = useState<FilterTab>('active');
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: { paymentDelayDays: undefined },
-  });
+  // Wizard state
+  const [showWizard, setShowWizard] = useState(false);
+  const [editingRule, setEditingRule] = useState<CommissionRuleWithCount | null>(null);
+  const [successRule, setSuccessRule] = useState<CommissionRuleWithCount | null>(null);
 
   const loadRules = async () => {
     try {
@@ -100,63 +80,28 @@ export function CommissionRulesPage() {
 
   useEffect(() => { void loadRules(); }, []);
 
+  const handleCreateClick = () => {
+    setEditingRule(null);
+    setSuccessRule(null);
+    setShowWizard(true);
+  };
+
   const handleEditClick = (rule: CommissionRuleWithCount) => {
     setEditingRule(rule);
-    setGeneratedRule(null);
-    setError(null);
-    reset({
-      name: rule.name,
-      description: rule.description,
-      dealType: rule.dealType ?? undefined,
-      paymentDelayDays: rule.paymentDelayDays ?? undefined,
-    });
+    setSuccessRule(null);
+    setShowWizard(true);
   };
 
-  const handleCancelEdit = () => {
+  const handleWizardCancel = () => {
+    setShowWizard(false);
     setEditingRule(null);
-    setError(null);
-    reset({ name: '', description: '', dealType: undefined, paymentDelayDays: undefined });
   };
 
-  const onSubmit = async (data: FormData) => {
-    setError(null);
-    setGenerating(true);
-    setGeneratedRule(null);
-    try {
-      if (editingRule) {
-        await commissionRuleApiService.update(editingRule.id, {
-          name: data.name,
-          description: data.description,
-          dealType: data.dealType || null,
-          paymentDelayDays: data.paymentDelayDays || null,
-        });
-        setEditingRule(null);
-        reset({ name: '', description: '', dealType: undefined, paymentDelayDays: undefined });
-      } else {
-        const rule = await commissionRuleApiService.generate({
-          name: data.name,
-          description: data.description,
-          dealType: data.dealType || null,
-          paymentDelayDays: data.paymentDelayDays || null,
-        });
-        const ruleWithCount: CommissionRuleWithCount = { ...rule, assignmentCount: 0 };
-        setGeneratedRule(ruleWithCount);
-        reset();
-      }
-      await loadRules();
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        const status = err.response?.status;
-        const apiMsg = (err.response?.data as { error?: { message?: string } } | undefined)?.error?.message;
-        setError(`[${status ?? '?'}] ${apiMsg ?? err.message}`);
-      } else if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Erreur inconnue');
-      }
-    } finally {
-      setGenerating(false);
-    }
+  const handleWizardSuccess = (rule: CommissionRuleWithCount) => {
+    setShowWizard(false);
+    setEditingRule(null);
+    setSuccessRule(rule);
+    void loadRules();
   };
 
   const handleArchive = async (ruleId: string) => {
@@ -164,7 +109,7 @@ export function CommissionRulesPage() {
     try {
       await commissionRuleApiService.archive(ruleId);
       await loadRules();
-      if (generatedRule?.id === ruleId) setGeneratedRule(null);
+      if (successRule?.id === ruleId) setSuccessRule(null);
     } finally {
       setArchivingId(null);
     }
@@ -194,9 +139,19 @@ export function CommissionRulesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Règles de commission</h1>
-        <p className="text-gray-500 mt-1">Gérez votre bibliothèque de règles et assignez-les à vos commerciaux</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Règles de commission</h1>
+          <p className="text-gray-500 mt-1">Gérez votre bibliothèque de règles et assignez-les à vos commerciaux</p>
+        </div>
+        {!showWizard && (
+          <Button onClick={handleCreateClick}>
+            <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Nouvelle règle
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
@@ -210,7 +165,7 @@ export function CommissionRulesPage() {
               ([tab, label]) => (
                 <button
                   key={tab}
-                  onClick={() => { setFilterTab(tab); handleCancelEdit(); }}
+                  onClick={() => setFilterTab(tab)}
                   className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
                     filterTab === tab
                       ? 'bg-white text-gray-900 shadow-sm'
@@ -233,7 +188,7 @@ export function CommissionRulesPage() {
                 {filterTab === 'archived' ? 'Aucune règle archivée' : 'Aucune règle créée'}
               </p>
               {filterTab !== 'archived' && (
-                <p className="text-xs text-gray-300 mt-1">Utilisez le formulaire pour générer votre première règle</p>
+                <p className="text-xs text-gray-300 mt-1">Cliquez sur "Nouvelle règle" pour commencer</p>
               )}
             </div>
           ) : (
@@ -287,7 +242,6 @@ export function CommissionRulesPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleEditClick(rule)}
-                            className={editingRule?.id === rule.id ? 'bg-primary-50 text-primary-700' : ''}
                           >
                             Modifier
                           </Button>
@@ -310,11 +264,11 @@ export function CommissionRulesPage() {
           )}
         </div>
 
-        {/* ── Colonne droite : créer une règle ── */}
+        {/* ── Colonne droite : wizard ou message d'accueil ── */}
         <div className="lg:col-span-3 space-y-4">
-          <Card>
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
+          {showWizard ? (
+            <Card>
+              <div className="flex items-center gap-2 mb-5">
                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${editingRule ? 'bg-amber-100' : 'bg-primary-100'}`}>
                   {editingRule ? (
                     <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -322,93 +276,22 @@ export function CommissionRulesPage() {
                     </svg>
                   ) : (
                     <svg className="w-4 h-4 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
                   )}
                 </div>
                 <h2 className="text-base font-semibold text-gray-900">
-                  {editingRule ? `Modifier « ${editingRule.name} »` : 'Créer une nouvelle règle'}
+                  {editingRule ? `Modifier \u00AB ${editingRule.name} \u00BB` : 'Nouvelle règle de commission'}
                 </h2>
               </div>
-              {editingRule && (
-                <button type="button" onClick={handleCancelEdit} className="text-xs text-gray-400 hover:text-gray-600">
-                  Annuler
-                </button>
-              )}
-            </div>
-
-            <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} className="space-y-4">
-              <Input
-                label="Nom de la règle"
-                placeholder="Ex : Commission CDI Senior"
-                error={errors.name?.message}
-                {...register('name')}
+              <CommissionWizard
+                key={editingRule?.id ?? 'new'}
+                existingRule={editingRule ?? undefined}
+                onSuccess={handleWizardSuccess}
+                onCancel={handleWizardCancel}
               />
-
-              <Input
-                label="Type de deal concerné (optionnel)"
-                placeholder="Ex : CDI, CDD, Intérim, Placement..."
-                error={errors.dealType?.message}
-                hint="Laissez vide pour une règle applicable à tous les deals"
-                {...register('dealType')}
-              />
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Délai de paiement (optionnel)
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={730}
-                    placeholder="Ex : 90"
-                    className="block w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    {...register('paymentDelayDays', {
-                      setValueAs: (v) => (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Number(v),
-                    })}
-                  />
-                  <span className="text-sm text-gray-500">jours après la signature</span>
-                </div>
-                {errors.paymentDelayDays && (
-                  <p className="mt-1 text-xs text-red-600">{errors.paymentDelayDays.message}</p>
-                )}
-                <p className="mt-1 text-xs text-gray-400">
-                  Laissez vide pour un paiement immédiat dès validation. Ex : 90 = paiement 3 mois après la vente.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Décrivez votre règle de commission
-                </label>
-                <textarea
-                  className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none"
-                  rows={5}
-                  placeholder="Ex : 10% sur toutes les ventes, 15% au-dessus de 10 000€ de CA mensuel, avec un palier à 20% au-dessus de 25 000€..."
-                  {...register('description')}
-                />
-                {errors.description && (
-                  <p className="mt-1 text-xs text-red-600">{errors.description.message}</p>
-                )}
-              </div>
-
-              {error && (
-                <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
-                  <p className="text-sm text-red-600">{error}</p>
-                </div>
-              )}
-
-              <Button type="submit" loading={generating} className="w-full">
-                {generating
-                  ? (editingRule ? 'Enregistrement...' : 'Génération en cours...')
-                  : (editingRule ? 'Enregistrer les modifications' : 'Générer avec l\'IA')}
-              </Button>
-            </form>
-          </Card>
-
-          {/* Règle générée */}
-          {generatedRule && (
+            </Card>
+          ) : successRule ? (
             <Card className="border-green-200 bg-green-50">
               <div className="flex items-center gap-2 mb-3">
                 <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -418,15 +301,35 @@ export function CommissionRulesPage() {
               </div>
               <div className="bg-white rounded-lg p-3 border border-green-100">
                 <div className="flex items-center gap-2 mb-1">
-                  <p className="font-medium text-gray-900">{generatedRule.name}</p>
-                  {ruleTypeBadge(generatedRule.type)}
-                  {generatedRule.dealType && <Badge variant="yellow">{generatedRule.dealType}</Badge>}
+                  <p className="font-medium text-gray-900">{successRule.name}</p>
+                  {ruleTypeBadge(successRule.type)}
+                  {successRule.dealType && <Badge variant="yellow">{successRule.dealType}</Badge>}
                 </div>
-                <RuleConfigDisplay config={generatedRule.config as unknown as CommissionRuleConfig} />
+                <RuleConfigDisplay config={successRule.config as unknown as CommissionRuleConfig} />
               </div>
               <p className="text-xs text-green-700 mt-3">
                 La règle est disponible dans votre bibliothèque. Assignez-la à vos commerciaux depuis la page <strong>Mon équipe</strong>.
               </p>
+              <div className="mt-3">
+                <Button size="sm" onClick={handleCreateClick}>Créer une autre règle</Button>
+              </div>
+            </Card>
+          ) : (
+            <Card className="border-dashed border-2 border-gray-200 bg-gray-50">
+              <div className="text-center py-8">
+                <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-6 h-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-1">Créez vos règles de commission</h3>
+                <p className="text-xs text-gray-400 max-w-xs mx-auto">
+                  Définissez des règles de type pourcentage, montant fixe ou paliers progressifs, puis assignez-les à vos commerciaux.
+                </p>
+                <Button onClick={handleCreateClick} className="mt-4">
+                  Commencer
+                </Button>
+              </div>
             </Card>
           )}
         </div>

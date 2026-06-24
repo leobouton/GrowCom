@@ -8,9 +8,9 @@ export interface CommissionWithRelations extends Commission {
 }
 
 export const commissionRepository = {
-  async findById(id: string): Promise<CommissionWithRelations | null> {
-    return prisma.commission.findUnique({
-      where: { id },
+  async findById(id: string, tenantId: string): Promise<CommissionWithRelations | null> {
+    return prisma.commission.findFirst({
+      where: { id, tenantId },
       include: {
         deal: { select: { title: true, clientName: true, amount: true, status: true, closedAt: true } },
         rule: { select: { name: true, config: true, paymentDelayDays: true } },
@@ -245,6 +245,7 @@ export const commissionRepository = {
 
   async markClientPaid(
     id: string,
+    tenantId: string,
     managerId: string,
     paymentDelayDays?: number | null,
   ): Promise<Commission> {
@@ -255,7 +256,7 @@ export const commissionRepository = {
       const scheduledPaymentAt = new Date(now);
       scheduledPaymentAt.setDate(scheduledPaymentAt.getDate() + paymentDelayDays);
       return prisma.commission.update({
-        where: { id },
+        where: { id, tenantId },
         data: {
           awaitingClientPayment: false,
           clientPaidAt: now,
@@ -267,7 +268,7 @@ export const commissionRepository = {
 
     // Pas de délai → validation directe
     return prisma.commission.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         awaitingClientPayment: false,
         clientPaidAt: now,

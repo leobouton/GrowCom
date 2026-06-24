@@ -90,7 +90,7 @@ export const teamController = {
           label: z.string(),
           target: z.number(),
           unit: z.string(),
-          periodType: z.enum(['monthly', 'quarterly', 'annual', 'custom']),
+          periodType: z.enum(['monthly', 'quarterly', 'semester', 'annual', 'custom']),
           month: z.number().optional(),
           quarter: z.number().optional(),
           year: z.number().optional(),
@@ -101,7 +101,8 @@ export const teamController = {
           // Champs Session B — bonus avancé et récurrence
           bonusMode: z.enum(['none', 'simple', 'tiered']).optional(),
           bonusTiers: z.array(objectiveBonusTierSchema).optional(),
-          recurrence: z.enum(['none', 'monthly', 'quarterly', 'annual']).optional(),
+          recurrence: z.enum(['none', 'monthly', 'quarterly', 'semester', 'annual']).optional(),
+          semester: z.number().optional(),
           recurrenceEndDate: z.string().optional(),
           parentObjectiveId: z.string().optional(),
         }).superRefine((obj, ctx) => {
@@ -112,7 +113,10 @@ export const teamController = {
           if (obj.periodType === 'quarterly' && !obj.quarter) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['quarter'], message: 'Le trimestre est requis pour un objectif trimestriel' });
           }
-          if ((obj.periodType === 'monthly' || obj.periodType === 'quarterly' || obj.periodType === 'annual') && !obj.year) {
+          if (obj.periodType === 'semester' && !obj.semester) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['semester'], message: 'Le semestre est requis pour un objectif semestriel' });
+          }
+          if ((obj.periodType === 'monthly' || obj.periodType === 'quarterly' || obj.periodType === 'semester' || obj.periodType === 'annual') && !obj.year) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['year'], message: "L'année est requise" });
           }
           if (obj.periodType === 'custom' && (!obj.startDate || !obj.endDate)) {
@@ -204,6 +208,11 @@ export const teamController = {
                 hasCurrentPeriod = newObjectives.some(
                   (o) => o.parentObjectiveId === obj.id && o.quarter === currentQuarter && o.year === currentYear,
                 );
+              } else if (freq === 'semester') {
+                const currentSemester = currentMonth <= 6 ? 1 : 2;
+                hasCurrentPeriod = newObjectives.some(
+                  (o) => o.parentObjectiveId === obj.id && o.semester === currentSemester && o.year === currentYear,
+                );
               } else if (freq === 'annual') {
                 hasCurrentPeriod = newObjectives.some(
                   (o) => o.parentObjectiveId === obj.id && o.year === currentYear,
@@ -211,9 +220,10 @@ export const teamController = {
               }
 
               if (!hasCurrentPeriod) {
-                let periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'year'>> = {};
+                let periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'semester' | 'year'>> = {};
                 if (freq === 'monthly') periodOverride = { periodType: 'monthly', month: currentMonth, year: currentYear };
                 else if (freq === 'quarterly') periodOverride = { periodType: 'quarterly', quarter: currentQuarter, year: currentYear };
+                else if (freq === 'semester') { const cs = currentMonth <= 6 ? 1 : 2; periodOverride = { periodType: 'semester', semester: cs, year: currentYear }; }
                 else if (freq === 'annual') periodOverride = { periodType: 'annual', year: currentYear };
 
                 const newOcc = buildOccurrence(obj, periodOverride);
@@ -236,12 +246,15 @@ export const teamController = {
             } else {
               // Nouveau template → générer immédiatement l'occurrence de la période en cours
               const freq = obj.recurrence!;
-              let periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'year'>> = {};
+              let periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'semester' | 'year'>> = {};
 
               if (freq === 'monthly') {
                 periodOverride = { periodType: 'monthly', month: currentMonth, year: currentYear };
               } else if (freq === 'quarterly') {
                 periodOverride = { periodType: 'quarterly', quarter: currentQuarter, year: currentYear };
+              } else if (freq === 'semester') {
+                const cs = currentMonth <= 6 ? 1 : 2;
+                periodOverride = { periodType: 'semester', semester: cs, year: currentYear };
               } else if (freq === 'annual') {
                 periodOverride = { periodType: 'annual', year: currentYear };
               }
@@ -323,7 +336,7 @@ export const teamController = {
       }
 
       // Soft delete : désactiver le membre sans supprimer son historique de commissions
-      await userRepository.deactivate(memberId);
+      await userRepository.deactivate(memberId, manager.tenantId!);
 
       res.json({ success: true });
     } catch (err) {
@@ -343,6 +356,9 @@ function getOccurrenceStartDate(obj: Objective): Date | null {
   }
   if (obj.periodType === 'quarterly' && obj.quarter) {
     return new Date(year, (obj.quarter - 1) * 3, 1);
+  }
+  if (obj.periodType === 'semester' && obj.semester) {
+    return new Date(year, (obj.semester - 1) * 6, 1);
   }
   if (obj.periodType === 'annual') {
     return new Date(year, 0, 1);

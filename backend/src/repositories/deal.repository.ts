@@ -35,8 +35,8 @@ export interface CreateFileImportDealData {
 }
 
 export const dealRepository = {
-  async findById(id: string): Promise<Deal | null> {
-    return prisma.deal.findUnique({ where: { id } });
+  async findById(id: string, tenantId: string): Promise<Deal | null> {
+    return prisma.deal.findFirst({ where: { id, tenantId } });
   },
 
   async findByOdooId(odooId: string, tenantId: string): Promise<Deal | null> {

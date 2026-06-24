@@ -51,9 +51,9 @@ export const commissionDisputeRepository = {
     }) as unknown as Promise<DisputeWithDetails>;
   },
 
-  async findById(id: string): Promise<DisputeWithDetails | null> {
-    return prisma.commissionDispute.findUnique({
-      where: { id },
+  async findById(id: string, tenantId: string): Promise<DisputeWithDetails | null> {
+    return prisma.commissionDispute.findFirst({
+      where: { id, tenantId },
       include: DISPUTE_INCLUDE,
     }) as unknown as Promise<DisputeWithDetails | null>;
   },

@@ -12,7 +12,7 @@ const schema = z.object({
   firstName: z.string().min(1, 'Prénom requis'),
   lastName: z.string().min(1, 'Nom requis'),
   email: z.string().email('Email invalide'),
-  password: z.string().min(8, 'Minimum 8 caractères'),
+  password: z.string().min(12, 'Minimum 12 caractères'),
   companyName: z.string().min(1, "Nom de l'entreprise requis"),
   companySlug: z
     .string()
@@ -104,7 +104,7 @@ export function RegisterPage() {
             <Input
               label="Mot de passe"
               type="password"
-              placeholder="Minimum 8 caractères"
+              placeholder="Minimum 12 caractères"
               error={errors.password?.message}
               showPasswordToggle
               {...register('password')}

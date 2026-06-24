@@ -66,10 +66,11 @@ export function ObjectiveWizard({ initialObjective, onSubmit, onCancel, loading,
       const updated = { ...prev, [field]: value };
       // Nettoyer les champs de période lors du changement de type
       if (field === 'periodType') {
-        delete updated.month; delete updated.quarter; delete updated.startDate; delete updated.endDate;
+        delete updated.month; delete updated.quarter; delete updated.semester; delete updated.startDate; delete updated.endDate;
         const pt = value as ObjectivePeriodType;
         if (pt === 'monthly') { updated.month = new Date().getMonth() + 1; updated.year = currentYear; }
         if (pt === 'quarterly') { updated.quarter = Math.ceil((new Date().getMonth() + 1) / 3); updated.year = currentYear; }
+        if (pt === 'semester') { updated.semester = new Date().getMonth() < 6 ? 1 : 2; updated.year = currentYear; }
         if (pt === 'annual') { updated.year = currentYear; }
       }
       return updated;
@@ -87,6 +88,7 @@ export function ObjectiveWizard({ initialObjective, onSubmit, onCancel, loading,
     if (recurrenceEnabled) return true;
     if (obj.periodType === 'monthly') return !!(obj.month && obj.year);
     if (obj.periodType === 'quarterly') return !!(obj.quarter && obj.year);
+    if (obj.periodType === 'semester') return !!(obj.semester && obj.year);
     if (obj.periodType === 'annual') return !!obj.year;
     if (obj.periodType === 'custom') return !!(obj.startDate && obj.endDate);
     return false;
@@ -128,13 +130,15 @@ export function ObjectiveWizard({ initialObjective, onSubmit, onCancel, loading,
   // ── Formattage période pour récap ──
   const periodSummary = useMemo(() => {
     if (recurrenceEnabled) {
-      const freq = recurrence === 'monthly' ? 'Mensuel' : recurrence === 'quarterly' ? 'Trimestriel' : 'Annuel';
+      const freqLabels: Record<string, string> = { monthly: 'Mensuel', quarterly: 'Trimestriel', semester: 'Semestriel', annual: 'Annuel' };
+      const freq = freqLabels[recurrence] ?? recurrence;
       const until = obj.recurrenceEndDate ? ` jusqu'au ${format(new Date(obj.recurrenceEndDate), 'dd/MM/yyyy')}` : '';
       return `${freq}${until}`;
     }
     switch (obj.periodType) {
       case 'monthly': return `${MONTHS[(obj.month ?? 1) - 1]} ${obj.year ?? currentYear}`;
       case 'quarterly': return `T${obj.quarter ?? 1} ${obj.year ?? currentYear}`;
+      case 'semester': return `S${obj.semester ?? 1} ${obj.year ?? currentYear}`;
       case 'annual': return `Année ${obj.year ?? currentYear}`;
       case 'custom':
         if (obj.startDate && obj.endDate) {
@@ -194,6 +198,7 @@ export function ObjectiveWizard({ initialObjective, onSubmit, onCancel, loading,
             {([
               { value: 'single-monthly', label: 'Sur un seul mois', pt: 'monthly' },
               { value: 'single-quarterly', label: 'Sur un seul trimestre', pt: 'quarterly' },
+              { value: 'single-semester', label: 'Sur un seul semestre', pt: 'semester' },
               { value: 'single-annual', label: 'Sur une seule année', pt: 'annual' },
               { value: 'recurrent', label: 'Récurrent (renouvelé automatiquement)', pt: null },
             ] as { value: string; label: string; pt: ObjectivePeriodType | null }[]).map((opt) => {
@@ -230,10 +235,11 @@ export function ObjectiveWizard({ initialObjective, onSubmit, onCancel, loading,
             <div className="space-y-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-2">Fréquence</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   {([
                     { value: 'monthly', label: 'Mensuel' },
                     { value: 'quarterly', label: 'Trimestriel' },
+                    { value: 'semester', label: 'Semestriel' },
                     { value: 'annual', label: 'Annuel' },
                   ] as { value: ObjectiveRecurrence; label: string }[]).map((opt) => (
                     <label key={opt.value} className={`flex items-center justify-center p-2 rounded-lg border-2 cursor-pointer text-xs font-medium transition-colors ${recurrence === opt.value ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>
@@ -281,6 +287,24 @@ export function ObjectiveWizard({ initialObjective, onSubmit, onCancel, loading,
                     <div className="grid grid-cols-4 gap-1">
                       {[1, 2, 3, 4].map((q) => (
                         <button key={q} type="button" onClick={() => update('quarter', q)} className={`py-2 rounded-lg text-xs font-semibold border-2 transition-colors ${obj.quarter === q ? 'border-primary-400 bg-primary-50 text-primary-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>T{q}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Année</label>
+                    <select value={obj.year ?? currentYear} onChange={(e) => update('year', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white">
+                      {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+              {obj.periodType === 'semester' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Semestre</label>
+                    <div className="grid grid-cols-2 gap-1">
+                      {[1, 2].map((s) => (
+                        <button key={s} type="button" onClick={() => update('semester', s)} className={`py-2 rounded-lg text-xs font-semibold border-2 transition-colors ${obj.semester === s ? 'border-primary-400 bg-primary-50 text-primary-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>S{s}</button>
                       ))}
                     </div>
                   </div>

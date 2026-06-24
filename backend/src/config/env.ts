@@ -14,7 +14,6 @@ const envSchema = z.object({
 
   // JWT
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET doit faire au moins 32 caractères'),
-  JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET doit faire au moins 32 caractères'),
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
 
@@ -38,7 +37,7 @@ const envSchema = z.object({
   // Brevo (email)
   BREVO_SMTP_KEY: z.string().min(1, 'BREVO_SMTP_KEY est requis'),
   BREVO_SMTP_LOGIN: z.string().email('BREVO_SMTP_LOGIN doit être un email valide'),
-  EMAIL_FROM: z.string().email().default('leobouton17@gmail.com'),
+  EMAIL_FROM: z.string().email('EMAIL_FROM doit être un email valide'),
 });
 
 const parsed = envSchema.safeParse(process.env);

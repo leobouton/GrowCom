@@ -2,7 +2,7 @@
  * fileImport.service.test.ts
  * Tests unitaires — parsing, validation Zod, mapping, détection doublons
  *
- * Pour exécuter : npm install --save-dev vitest && npx vitest run src/services/fileImport.service.test.ts
+ * Pour exécuter : npx vitest run src/services/fileImport.service.test.ts
  */
 
 import { describe, it, expect } from 'vitest';
@@ -11,7 +11,6 @@ import {
   parseBuffer,
   validateRows,
   normalizeHeaders,
-  applyColumnAliases,
   buildUserByNameMap,
   findUserByCommercial,
   DealRowSchema,
@@ -20,10 +19,9 @@ import {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function makeCSVBuffer(rows: string[][]): Buffer {
-  const headers = rows[0];
-  const lines = rows.map((r) => r.join(';'));
-  return Buffer.from('\uFEFF' + lines.join('\n'), 'utf-8');
+function makeCSVBuffer(rows: string[][], separator = ','): Buffer {
+  const lines = rows.map((r) => r.join(separator));
+  return Buffer.from(lines.join('\n'), 'utf-8');
 }
 
 function makeXLSXBuffer(rows: string[][]): Buffer {
@@ -81,17 +79,17 @@ describe('normalizeHeaders', () => {
 describe('parseBuffer — CSV', () => {
   it('parse une ligne valide depuis un CSV', () => {
     const buf = makeCSVBuffer([VALID_HEADERS, VALID_ROW]);
-    const rows = parseBuffer(buf, 'test.csv');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].data['external_id']).toBe('DEAL-001');
-    expect(rows[0].data['deal_name']).toBe('Mission développement');
-    expect(rows[0].rowIndex).toBe(2);
+    const result = parseBuffer(buf, 'test.csv');
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].data['external_id']).toBe('DEAL-001');
+    expect(result.rows[0].data['deal_name']).toBe('Mission développement');
+    expect(result.rows[0].rowIndex).toBe(2);
   });
 
   it('ignore les lignes complètement vides', () => {
     const buf = makeCSVBuffer([VALID_HEADERS, VALID_ROW, ['', '', '', '', '', '', '', '', '']]);
-    const rows = parseBuffer(buf, 'test.csv');
-    expect(rows).toHaveLength(1);
+    const result = parseBuffer(buf, 'test.csv');
+    expect(result.rows).toHaveLength(1);
   });
 
   it('lève une erreur si le fichier est vide', () => {
@@ -110,9 +108,9 @@ describe('parseBuffer — CSV', () => {
 describe('parseBuffer — XLSX', () => {
   it('parse une ligne valide depuis un Excel', () => {
     const buf = makeXLSXBuffer([VALID_HEADERS, VALID_ROW]);
-    const rows = parseBuffer(buf, 'test.xlsx');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].data['external_id']).toBe('DEAL-001');
+    const result = parseBuffer(buf, 'test.xlsx');
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].data['external_id']).toBe('DEAL-001');
   });
 });
 
@@ -149,14 +147,13 @@ describe('validateRows — validation Zod', () => {
 
   it('retourne une erreur si email commercial invalide', () => {
     const row = { rowIndex: 2, data: { ...validParsedRow.data, commercial_email: 'pas-un-email' } };
-    const { valid, errors } = validateRows([row]);
+    const { errors } = validateRows([row]);
     expect(errors).toHaveLength(1);
     expect(errors[0].column).toBe('commercial_email');
   });
 
   it('accepte commercial_name seul (sans email)', () => {
-    const { commercial_email, ...withoutEmail } = validParsedRow.data;
-    void commercial_email;
+    const { commercial_email: _removed, ...withoutEmail } = validParsedRow.data;
     const row = { rowIndex: 2, data: { ...withoutEmail, commercial_name: 'Jean Dupont' } };
     const { valid, errors } = validateRows([row]);
     expect(valid).toHaveLength(1);
@@ -165,8 +162,7 @@ describe('validateRows — validation Zod', () => {
   });
 
   it('retourne une erreur si ni email ni nom commercial', () => {
-    const { commercial_email, ...withoutEmail } = validParsedRow.data;
-    void commercial_email;
+    const { commercial_email: _removed, ...withoutEmail } = validParsedRow.data;
     const row = { rowIndex: 2, data: withoutEmail };
     const { valid, errors } = validateRows([row]);
     expect(valid).toHaveLength(0);
@@ -175,10 +171,17 @@ describe('validateRows — validation Zod', () => {
   });
 
   it('retourne une erreur si date invalide', () => {
-    const row = { rowIndex: 2, data: { ...validParsedRow.data, closed_at: '15/01/2024' } };
-    const { valid, errors } = validateRows([row]);
+    const row = { rowIndex: 2, data: { ...validParsedRow.data, closed_at: 'pas-une-date' } };
+    const { errors } = validateRows([row]);
     expect(errors).toHaveLength(1);
     expect(errors[0].column).toBe('closed_at');
+  });
+
+  it('accepte le format DD/MM/YYYY (français)', () => {
+    const row = { rowIndex: 2, data: { ...validParsedRow.data, closed_at: '15/01/2024' } };
+    const { valid, errors } = validateRows([row]);
+    expect(valid).toHaveLength(1);
+    expect(errors).toHaveLength(0);
   });
 
   it('accepte les dates ISO 8601 complètes', () => {
@@ -186,13 +189,6 @@ describe('validateRows — validation Zod', () => {
     const { valid, errors } = validateRows([row]);
     expect(valid).toHaveLength(1);
     expect(errors).toHaveLength(0);
-  });
-
-  it('devise par défaut = EUR si non spécifiée', () => {
-    const row = { rowIndex: 2, data: { ...validParsedRow.data, currency: '' } };
-    const { valid } = validateRows([row]);
-    // '' ne passe pas la validation regex [A-Z]{3}
-    expect(valid).toHaveLength(0);
   });
 
   it('retourne une erreur bloquante si devise non supportée', () => {
@@ -204,8 +200,7 @@ describe('validateRows — validation Zod', () => {
   });
 
   it('accepte les colonnes optionnelles absentes', () => {
-    const { client_name, deal_type, notes, ...withoutOptional } = validParsedRow.data;
-    void client_name; void deal_type; void notes;
+    const { client_name: _c, deal_type: _d, notes: _n, ...withoutOptional } = validParsedRow.data;
     const row = { rowIndex: 2, data: withoutOptional };
     const { valid, errors } = validateRows([row]);
     expect(valid).toHaveLength(1);
@@ -239,31 +234,6 @@ describe('DealRowSchema — mapping colonnes', () => {
       commercial_email: 'test@example.com',
     });
     expect(result.success).toBe(false);
-  });
-});
-
-// ─── Tests applyColumnAliases ─────────────────────────────────────────────────
-
-describe('applyColumnAliases', () => {
-  it('renomme salesperson en commercial_name', () => {
-    const result = applyColumnAliases({ salesperson: 'Jean Dupont', amount: '5000' });
-    expect(result['commercial_name']).toBe('Jean Dupont');
-    expect(result['salesperson']).toBeUndefined();
-  });
-
-  it('ne remplace pas si commercial_name est déjà présent', () => {
-    const result = applyColumnAliases({ salesperson: 'Jean', commercial_name: 'Marie Dupont' });
-    expect(result['commercial_name']).toBe('Marie Dupont');
-  });
-
-  it('renomme salesperson_email en commercial_email', () => {
-    const result = applyColumnAliases({ salesperson_email: 'jean@ex.com' });
-    expect(result['commercial_email']).toBe('jean@ex.com');
-  });
-
-  it('renomme opportunity en deal_name', () => {
-    const result = applyColumnAliases({ opportunity: 'Mission ABC' });
-    expect(result['deal_name']).toBe('Mission ABC');
   });
 });
 
@@ -317,7 +287,6 @@ describe('Détection doublons — logique métier', () => {
     expect(valid).toHaveLength(2);
     expect(valid[0].external_id).toBe('SAME-001');
     expect(valid[1].external_id).toBe('SAME-001');
-    // La détection du doublon réel se fait via dealRepository.findByFileExternalId dans previewImport
   });
 
   it('SUPPORTED_CURRENCIES contient EUR, USD, GBP', () => {

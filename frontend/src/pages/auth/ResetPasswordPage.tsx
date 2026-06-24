@@ -9,7 +9,7 @@ import { Button } from '../../components/ui/Button';
 
 const schema = z
   .object({
-    password: z.string().min(8, 'Au moins 8 caractères'),
+    password: z.string().min(12, 'Au moins 12 caractères'),
     confirm: z.string().min(1, 'Confirmation requise'),
   })
   .refine((d) => d.password === d.confirm, {

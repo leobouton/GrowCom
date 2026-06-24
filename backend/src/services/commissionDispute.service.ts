@@ -19,9 +19,8 @@ export const commissionDisputeService = {
     callerId: string,
     reason: string,
   ): Promise<DisputeWithDetails> {
-    const commission = await commissionRepository.findById(commissionId);
+    const commission = await commissionRepository.findById(commissionId, tenantId);
     if (!commission) throw new AppError(404, 'COMMISSION_NOT_FOUND', 'Commission introuvable');
-    if (commission.tenantId !== tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
     if (commission.userId !== callerId) {
       throw new AppError(403, 'FORBIDDEN', 'Vous ne pouvez contester que vos propres commissions');
     }
@@ -75,9 +74,8 @@ export const commissionDisputeService = {
     },
     commissionOverride?: number | null,
   ): Promise<DisputeWithDetails> {
-    const dispute = await commissionDisputeRepository.findById(disputeId);
+    const dispute = await commissionDisputeRepository.findById(disputeId, tenantId);
     if (!dispute) throw new AppError(404, 'DISPUTE_NOT_FOUND', 'Contestation introuvable');
-    if (dispute.tenantId !== tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
     if (dispute.status !== 'OPEN') {
       throw new AppError(400, 'DISPUTE_ALREADY_RESOLVED', 'Cette contestation est déjà résolue');
     }
@@ -86,7 +84,7 @@ export const commissionDisputeService = {
     }
 
     // Vérification de périmètre : TEAM_LEAD ne peut résoudre que pour son équipe
-    const commission = await commissionRepository.findById(dispute.commissionId);
+    const commission = await commissionRepository.findById(dispute.commissionId, tenantId);
     if (commission) {
       const teamIds = await resolveTeamScope(callerId, callerRole, tenantId);
       if (teamIds !== null && !teamIds.includes(commission.userId)) {

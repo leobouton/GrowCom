@@ -37,9 +37,8 @@ export const ruleAssignmentController = {
       const user = (req as AuthenticatedRequest).user;
       const { ruleId, assignedToType, userId, teamName, startDate, endDate } = assignSchema.parse(req.body);
 
-      const rule = await commissionRuleRepository.findById(ruleId);
+      const rule = await commissionRuleRepository.findById(ruleId, user.tenantId!);
       if (!rule) throw new AppError(404, 'RULE_NOT_FOUND', 'Règle introuvable');
-      if (rule.tenantId !== user.tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
       if (rule.isArchived) throw new AppError(400, 'RULE_ARCHIVED', 'Impossible d\'assigner une règle archivée');
 
       if (assignedToType === AssigneeType.INDIVIDUAL && !userId) {
@@ -75,9 +74,8 @@ export const ruleAssignmentController = {
       const user = (req as AuthenticatedRequest).user;
       const { id } = req.params;
 
-      const assignment = await ruleAssignmentRepository.findById(id);
+      const assignment = await ruleAssignmentRepository.findById(id, user.tenantId!);
       if (!assignment) throw new AppError(404, 'ASSIGNMENT_NOT_FOUND', 'Assignation introuvable');
-      if (assignment.tenantId !== user.tenantId) throw new AppError(403, 'FORBIDDEN', 'Accès refusé');
 
       // TEAM_LEAD : vérifier que l'assignation concerne un membre de son équipe
       if (assignment.userId) {
