@@ -16,6 +16,21 @@ export interface UpsertDealData {
   marginSource?: string | null;
 }
 
+export interface UpsertHubspotDealData {
+  tenantId: string;
+  hubspotId: string; // Requis pour les deals HubSpot
+  title: string;
+  clientName?: string | null;
+  amount: number;
+  status: DealStatus;
+  probability: number;
+  assignedToId?: string | null;
+  closedAt?: Date | null;
+  costAmount?: number | null;
+  marginAmount?: number | null;
+  marginSource?: string | null;
+}
+
 export interface CreateFileImportDealData {
   tenantId: string;
   fileExternalId: string;
@@ -143,6 +158,10 @@ export const dealRepository = {
     });
   },
 
+  async findByHubspotId(hubspotId: string, tenantId: string): Promise<Deal | null> {
+    return prisma.deal.findUnique({ where: { tenantId_hubspotId: { tenantId, hubspotId } } });
+  },
+
   async findByFileExternalId(fileExternalId: string, tenantId: string): Promise<Deal | null> {
     return prisma.deal.findUnique({
       where: { tenantId_fileExternalId: { tenantId, fileExternalId } },
@@ -176,6 +195,45 @@ export const dealRepository = {
 
   async deleteByOdooId(odooId: string, tenantId: string): Promise<void> {
     await prisma.deal.delete({ where: { tenantId_odooId: { tenantId, odooId } } });
+  },
+
+  async deleteByHubspotId(hubspotId: string, tenantId: string): Promise<void> {
+    await prisma.deal.delete({ where: { tenantId_hubspotId: { tenantId, hubspotId } } });
+  },
+
+  async upsertHubspot(data: UpsertHubspotDealData): Promise<Deal> {
+    return prisma.deal.upsert({
+      where: { tenantId_hubspotId: { tenantId: data.tenantId, hubspotId: data.hubspotId } },
+      update: {
+        title: data.title,
+        clientName: data.clientName ?? null,
+        amount: data.amount,
+        status: data.status,
+        probability: data.probability,
+        assignedToId: data.assignedToId,
+        closedAt: data.closedAt,
+        costAmount: data.costAmount ?? null,
+        marginAmount: data.marginAmount ?? null,
+        marginSource: data.marginSource ?? null,
+        syncedAt: new Date(),
+      },
+      create: {
+        tenantId: data.tenantId,
+        hubspotId: data.hubspotId,
+        source: 'HUBSPOT',
+        title: data.title,
+        clientName: data.clientName ?? null,
+        amount: data.amount,
+        status: data.status,
+        probability: data.probability,
+        assignedToId: data.assignedToId ?? null,
+        closedAt: data.closedAt ?? null,
+        costAmount: data.costAmount ?? null,
+        marginAmount: data.marginAmount ?? null,
+        marginSource: data.marginSource ?? null,
+        syncedAt: new Date(),
+      },
+    });
   },
 
   async upsert(data: UpsertDealData): Promise<Deal> {

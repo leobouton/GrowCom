@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { logger } from '../config/logger';
 import { tenantRepository } from '../repositories/tenant.repository';
 import { odooService } from '../integrations/odoo.service';
+import { hubspotService } from '../integrations/hubspot.service';
 import { prisma } from '../config/prisma';
 import { decrypt } from '../utils/encryption';
 import { UserRole } from '@prisma/client';
@@ -68,6 +69,59 @@ async function syncAllTenants(): Promise<void> {
 }
 
 /**
+ * Synchronise tous les tenants qui ont HubSpot configuré.
+ * Appelé automatiquement toutes les heures et au démarrage, en miroir de la sync Odoo.
+ */
+async function syncAllTenantsHubspot(): Promise<void> {
+  logger.info('[Scheduler] Démarrage de la synchronisation automatique HubSpot');
+
+  const tenants = await tenantRepository.findAll();
+  const configured = tenants.filter((t) => t.hubspotToken);
+
+  if (configured.length === 0) {
+    logger.info('[Scheduler] Aucun tenant avec HubSpot configuré — sync ignorée');
+    return;
+  }
+
+  for (const tenant of configured) {
+    try {
+      const systemUser = await prisma.user.findFirst({
+        where: { tenantId: tenant.id, role: { in: [UserRole.MANAGER, UserRole.BU_MANAGER] }, isActive: true },
+        select: { id: true },
+      });
+
+      if (!systemUser) {
+        logger.warn('[Scheduler] Pas de manager actif pour déclencher la sync HubSpot', { tenantId: tenant.id });
+        continue;
+      }
+
+      const result = await hubspotService.sync(
+        tenant.id,
+        systemUser.id,
+        decrypt(tenant.hubspotToken!), // Déchiffrement du token stocké chiffré
+      );
+
+      logger.info('[Scheduler] Sync HubSpot réussie', {
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        synced: result.synced,
+        created: result.created,
+        updated: result.updated,
+        errors: result.errors.length,
+      });
+    } catch (err) {
+      logger.error('[Scheduler] Échec de la sync HubSpot pour le tenant', {
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  logger.info('[Scheduler] Synchronisation automatique HubSpot terminée');
+}
+
+/**
  * Valide et paie automatiquement les commissions différées dont la date de paiement est arrivée.
  * Passe toutes les commissions PENDING avec scheduledPaymentAt <= maintenant en PAID (validée = payée).
  */
@@ -105,6 +159,9 @@ export function startScheduler(): void {
     syncAllTenants().catch((err) =>
       logger.error('[Scheduler] Erreur lors de la sync initiale', { error: err }),
     );
+    syncAllTenantsHubspot().catch((err) =>
+      logger.error('[Scheduler] Erreur lors de la sync HubSpot initiale', { error: err }),
+    );
     // Générer les occurrences manquantes au démarrage
     generateOccurrencesForAllTenants().catch((err) =>
       logger.error('[Scheduler] Erreur lors de la génération initiale des occurrences', { error: err }),
@@ -115,6 +172,9 @@ export function startScheduler(): void {
   cron.schedule('0 * * * *', () => {
     syncAllTenants().catch((err) =>
       logger.error('[Scheduler] Erreur lors de la sync planifiée', { error: err }),
+    );
+    syncAllTenantsHubspot().catch((err) =>
+      logger.error('[Scheduler] Erreur lors de la sync HubSpot planifiée', { error: err }),
     );
   });
 
@@ -141,7 +201,7 @@ export function startScheduler(): void {
   });
 
   const cronJobs = [
-    'Odoo sync: toutes les heures (0 * * * *)',
+    'Odoo + HubSpot sync: toutes les heures (0 * * * *)',
     'Commissions différées: tous les jours à 8h (0 8 * * *)',
     'Occurrences récurrentes: tous les jours à 6h (0 6 * * *)',
     'Snapshot objectifs: tous les jours à 7h (0 7 * * *)',

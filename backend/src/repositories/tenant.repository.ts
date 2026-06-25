@@ -57,6 +57,20 @@ export const tenantRepository = {
     });
   },
 
+  async updateHubspotConfig(
+    id: string,
+    hubspotToken: string,
+    hubspotPortalId?: string | null,
+  ): Promise<Tenant> {
+    return prisma.tenant.update({
+      where: { id },
+      data: {
+        hubspotToken: encrypt(hubspotToken),
+        ...(hubspotPortalId !== undefined ? { hubspotPortalId } : {}),
+      },
+    });
+  },
+
   async findByStripeCustomerId(stripeCustomerId: string): Promise<Tenant | null> {
     return prisma.tenant.findFirst({ where: { stripeCustomerId } });
   },

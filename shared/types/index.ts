@@ -72,6 +72,7 @@ export enum ContestStatus {
 
 export enum DealSource {
   ODOO = 'ODOO',
+  HUBSPOT = 'HUBSPOT',
   FILE = 'FILE',
 }
 
@@ -498,6 +499,14 @@ export interface OdooConfig {
 }
 
 export interface OdooSyncResult {
+  synced: number;
+  created: number;
+  updated: number;
+  errors: string[];
+  syncedAt: string;
+}
+
+export interface HubspotSyncResult {
   synced: number;
   created: number;
   updated: number;

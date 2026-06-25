@@ -715,3 +715,19 @@ END $$;
 -- ============================================================
 
 ALTER TABLE "Contest" ADD COLUMN IF NOT EXISTS "anonymousLeaderboard" BOOLEAN NOT NULL DEFAULT false;
+
+
+-- ============================================================
+-- INTÉGRATION HUBSPOT
+-- ============================================================
+
+-- Nouvelle source de deals : HUBSPOT
+ALTER TYPE "DealSource" ADD VALUE IF NOT EXISTS 'HUBSPOT';
+
+-- Token Private App HubSpot (chiffré) + identifiant de portail
+ALTER TABLE "Tenant" ADD COLUMN IF NOT EXISTS "hubspotToken" TEXT;
+ALTER TABLE "Tenant" ADD COLUMN IF NOT EXISTS "hubspotPortalId" TEXT;
+
+-- Identifiant HubSpot du deal + unicité multi-tenant
+ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "hubspotId" TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS "Deal_tenantId_hubspotId_key" ON "Deal"("tenantId", "hubspotId");

@@ -85,6 +85,7 @@ enum ContestStatus {
 
 enum DealSource {
   ODOO
+  HUBSPOT
   FILE
 }
 
@@ -122,6 +123,8 @@ model Tenant {
   odooLogin                  String?
   odooApiKey                 String?      // Stockée chiffrée (AES-256-GCM) via encryption.ts
   odooLimitWarningSentAt     DateTime?    // Date du dernier email d'alerte limite Odoo (throttle 2 jours)
+  hubspotToken               String?      // Token Private App HubSpot, stocké chiffré (AES-256-GCM) via encryption.ts
+  hubspotPortalId            String?      // Identifiant du portail HubSpot (hub_id), affiché en lecture seule
   createdAt                  DateTime     @default(now())
 
   users               User[]
@@ -268,6 +271,7 @@ model Deal {
   id             String     @id @default(cuid())
   tenantId       String
   odooId         String?    // Uniquement pour les deals Odoo
+  hubspotId      String?    // Uniquement pour les deals HubSpot
   fileExternalId String?    // Uniquement pour les deals importés via fichier
   source         DealSource @default(ODOO)
   title          String
@@ -296,6 +300,7 @@ model Deal {
   assignments DealAssignment[]
 
   @@unique([tenantId, odooId])
+  @@unique([tenantId, hubspotId])
   @@unique([tenantId, fileExternalId])
   @@index([tenantId])
   @@index([tenantId, status])
