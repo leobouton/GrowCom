@@ -1,4 +1,4 @@
-import { RuleAssignment } from '@prisma/client';
+import { RuleAssignment, Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { AssigneeType } from '../../../shared/types';
 
@@ -20,6 +20,7 @@ export interface CreateAssignmentData {
   assignedToType: AssigneeType;
   userId?: string | null;
   teamName?: string | null;
+  overrides?: Record<string, unknown> | null;
   startDate?: Date;
   endDate?: Date | null;
 }
@@ -99,6 +100,7 @@ export const ruleAssignmentRepository = {
         assignedToType: data.assignedToType,
         userId: data.userId ?? null,
         teamName: data.teamName ?? null,
+        overrides: (data.overrides ?? undefined) as Prisma.InputJsonValue | undefined,
         startDate: data.startDate ?? new Date(),
         endDate: data.endDate ?? null,
         isActive: true,

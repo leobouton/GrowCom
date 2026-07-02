@@ -1,12 +1,14 @@
 import { logger } from '../config/logger';
 import { dealRepository } from '../repositories/deal.repository';
 import { dealAssignmentRepository } from '../repositories/dealAssignment.repository';
+import { missionRepository } from '../repositories/mission.repository';
 import { userRepository } from '../repositories/user.repository';
 import { auditLogRepository } from '../repositories/auditLog.repository';
 import { commissionService } from '../services/commission.service';
 import { AppError } from '../middlewares/errorHandler';
 import { DealStatus as PrismaDealStatus, CommissionStatus as PrismaCommissionStatus } from '@prisma/client';
 import { prisma } from '../config/prisma';
+import { HubspotLineItem, mapHubspotLineItemsToMission } from './crmMission.mapping';
 
 const HUBSPOT_API = 'https://api.hubapi.com';
 const HUBSPOT_PAGE_SIZE = 100;
@@ -38,6 +40,14 @@ interface HubspotDeal {
 interface HubspotPagedResponse<T> {
   results: T[];
   paging?: { next?: { after?: string } };
+}
+
+interface HubspotLineItemRaw {
+  id: string;
+  properties: Record<string, string | null>;
+  associations?: {
+    deals?: { results?: Array<{ id: string }> };
+  };
 }
 
 // Deal normalisé interne (proche d'OdooCrmLead)
@@ -254,6 +264,115 @@ export const hubspotService = {
     return map;
   },
 
+  /**
+   * Récupère tous les line items avec leurs propriétés de facturation récurrente,
+   * associés à leur deal. Propriétés récurrentes optionnelles : si le portail ne les
+   * expose pas, HubSpot renvoie null et aucune mission n'est créée (détection propre).
+   */
+  async fetchLineItems(token: string): Promise<HubspotLineItem[]> {
+    const props = [
+      'name', 'quantity', 'price', 'amount', 'hs_mrr',
+      'recurringbillingfrequency', 'hs_recurring_billing_period',
+      'hs_recurring_billing_start_date', 'hs_cost_of_goods_sold',
+    ].join(',');
+
+    const items: HubspotLineItem[] = [];
+    let after: string | undefined;
+    let pages = 0;
+
+    const numOrNull = (v: string | null | undefined): number | null => {
+      if (v == null || v === '') return null;
+      const n = Number(v);
+      return Number.isNaN(n) ? null : n;
+    };
+
+    do {
+      const afterParam = after ? `&after=${encodeURIComponent(after)}` : '';
+      const path = `/crm/v3/objects/line_items?limit=${HUBSPOT_PAGE_SIZE}&properties=${props}&associations=deals${afterParam}`;
+      const data = await hubspotFetch<HubspotPagedResponse<HubspotLineItemRaw>>(token, path);
+
+      for (const li of data.results ?? []) {
+        const p = li.properties ?? {};
+        const dealId = li.associations?.deals?.results?.[0]?.id ?? null;
+        items.push({
+          id: li.id,
+          dealId,
+          recurringBillingFrequency: p['recurringbillingfrequency'] || null,
+          recurringBillingPeriod: p['hs_recurring_billing_period'] || null,
+          quantity: numOrNull(p['quantity']) ?? 0,
+          hsMrr: numOrNull(p['hs_mrr']),
+          price: numOrNull(p['price']),
+          amount: numOrNull(p['amount']),
+          costOfGoodsSold: numOrNull(p['hs_cost_of_goods_sold']),
+          billingStartDate: p['hs_recurring_billing_start_date'] || null,
+        });
+      }
+
+      after = data.paging?.next?.after;
+      pages++;
+    } while (after && pages < HUBSPOT_MAX_PAGES);
+
+    return items;
+  },
+
+  /**
+   * Phase ADDITIONNELLE : synchronise les missions récurrentes ESN depuis les line items.
+   * N'impacte jamais le sync deal one-shot (appelée en try/catch dans sync()).
+   * Une mission est ancrée sur le Deal déjà synchronisé et gagné (WON) auquel le line item
+   * récurrent est associé ; sinon skip + log propre (aucune mission fabriquée).
+   */
+  async syncMissions(tenantId: string, token: string): Promise<{ missionsSynced: number; missionsSkipped: number }> {
+    const lineItems = await hubspotService.fetchLineItems(token);
+
+    // Regrouper les line items par deal HubSpot
+    const byDeal = new Map<string, HubspotLineItem[]>();
+    for (const li of lineItems) {
+      if (!li.dealId) continue;
+      const arr = byDeal.get(li.dealId) ?? [];
+      arr.push(li);
+      byDeal.set(li.dealId, arr);
+    }
+
+    let missionsSynced = 0;
+    let missionsSkipped = 0;
+
+    for (const [hubspotDealId, items] of byDeal) {
+      const deal = await dealRepository.findByHubspotId(hubspotDealId, tenantId);
+      if (!deal) {
+        missionsSkipped++;
+        logger.info('[HubSpot] Mission ignorée : deal non synchronisé', { tenantId, hubspotDealId });
+        continue;
+      }
+
+      const mapping = mapHubspotLineItemsToMission(items, {
+        closeDate: deal.closedAt ? deal.closedAt.toISOString() : null,
+      });
+      if (!mapping) continue; // aucun line item récurrent sur ce deal
+
+      // Une mission active suppose un deal gagné (revenu récurrent effectif)
+      if (deal.status !== PrismaDealStatus.WON) {
+        missionsSkipped++;
+        continue;
+      }
+
+      await missionRepository.upsertHubspot({
+        tenantId,
+        hubspotId: hubspotDealId,
+        dealId: deal.id,
+        userId: deal.assignedToId,
+        source: 'HUBSPOT',
+        ...mapping,
+      });
+      missionsSynced++;
+    }
+
+    if (missionsSynced === 0 && missionsSkipped === 0) {
+      logger.info('[HubSpot] Aucun line item récurrent détecté — aucune mission', { tenantId });
+    }
+
+    return { missionsSynced, missionsSkipped };
+  },
+
   async sync(tenantId: string, userId: string, token: string) {
     logger.info('Démarrage synchronisation HubSpot', { tenantId });
 
@@ -371,11 +490,28 @@ export const hubspotService = {
       throw new AppError(502, 'HUBSPOT_SYNC_FAILED', `Échec de la synchronisation : ${message}`);
     }
 
+    // Phase ADDITIONNELLE : missions récurrentes ESN. Isolée en try/catch pour ne jamais
+    // faire échouer le sync deal one-shot.
+    let missionsSynced = 0;
+    let missionsSkipped = 0;
+    try {
+      const missionResult = await hubspotService.syncMissions(tenantId, token);
+      missionsSynced = missionResult.missionsSynced;
+      missionsSkipped = missionResult.missionsSkipped;
+    } catch (missionErr) {
+      logger.warn('[HubSpot] Sync des missions récurrentes échouée (sync deals non impactée)', {
+        tenantId,
+        error: missionErr instanceof Error ? missionErr.message : String(missionErr),
+      });
+    }
+
     const result = {
       synced,
       created,
       updated,
       errors,
+      missionsSynced,
+      missionsSkipped,
       syncedAt: new Date().toISOString(),
     };
 

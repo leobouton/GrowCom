@@ -1,21 +1,53 @@
 /**
- * Service de generation du rapport de paie PDF.
+ * Service du rapport de paie (éléments variables BRUTS).
  *
- * Convention de periode :
- * - Les commissions sont incluses selon leur `validatedAt` (fallback : `calculatedAt`).
- * - C'est la convention paie la plus courante : on inclut dans la fiche de mai 2026 toutes
- *   les commissions validees en mai, peu importe quand le deal a ete signe.
+ * Principe : GrowCom ne calcule PAS la paie nette (pas de charges, pas de DSN).
+ * Il produit les éléments variables bruts par commercial pour une période, prêts
+ * à être transmis à un logiciel de paie externe (PayFit, Lucca, Silae).
+ *
+ * Règles d'inclusion d'une commission dans une période P (strictes) :
+ *   1. status === VALIDATED
+ *   2. condition de paiement levée : awaitingClientPayment === false OU clientPaidAt !== null
+ *   3. date de rattachement (scheduledPaymentAt, fallback validatedAt) dans P
+ *   4. aucun litige au statut OPEN
+ *
+ * Verrouillage : une fois la période figée, les commissions incluses passent en PAID
+ * (paidAt = clôture de période). Un recalcul rétroactif ne modifie plus une période figée.
  */
 import PDFDocument from 'pdfkit';
+import JSZip from 'jszip';
+import * as XLSX from 'xlsx';
 import { prisma } from '../config/prisma';
+import {
+  commissionRepository,
+  buildPayrollIncludedWhere,
+  type PayrollCommissionRow,
+} from '../repositories/commission.repository';
 import { commissionAdjustmentRepository } from '../repositories/commissionAdjustment.repository';
+import { objectiveSnapshotRepository } from '../repositories/objectiveSnapshot.repository';
+import { payrollPeriodRepository } from '../repositories/payrollPeriod.repository';
 import { resolveTeamScope } from './commission.service';
 import { AppError } from '../middlewares/errorHandler';
 import { UserRole } from '../../../shared/types';
-import type { PayrollReportPreview, PayrollReportPreviewItem } from '../../../shared/types';
+import type {
+  PayrollReportPreview,
+  PayrollReportPreviewItem,
+  PayrollExcludedCommission,
+  PayrollExclusionReason,
+  PayrollLockInfo,
+  PayrollPeriodHistoryItem,
+} from '../../../shared/types';
 import { CommissionStatus as PrismaCommissionStatus, UserRole as PrismaUserRole } from '@prisma/client';
 
-// ─── Helpers ─────────────────────────────────────────────────
+// ─── Constantes ───────────────────────────────────────────────
+
+/** Rôles considérés comme "commerciaux" éligibles à une fiche de paie variable. */
+const ELIGIBLE_ROLES = [
+  PrismaUserRole.COMMERCIAL,
+  PrismaUserRole.RECRUITER,
+  PrismaUserRole.TEAM_LEAD,
+  PrismaUserRole.BU_MANAGER,
+] as const;
 
 const ROLE_LABELS: Record<string, string> = {
   COMMERCIAL: 'Commercial',
@@ -24,6 +56,14 @@ const ROLE_LABELS: Record<string, string> = {
   MANAGER: 'Manager',
   RECRUITER: 'Recruteur',
 };
+
+const EXCLUSION_LABELS: Record<PayrollExclusionReason, string> = {
+  PENDING: 'En attente de validation',
+  AWAITING_CLIENT_PAYMENT: 'En attente du paiement client',
+  DISPUTED: 'Litige en cours',
+};
+
+// ─── Helpers de formatage ─────────────────────────────────────
 
 function formatEuro(amount: number): string {
   const neg = amount < 0;
@@ -54,136 +94,574 @@ function formatGenDate(d: Date): string {
   return `${String(d.getDate()).padStart(2, '0')} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-// Tronque un texte pour qu'il tienne dans une largeur donnee (en points) a une fontSize donnee.
-// Helvetica : ~4.5pt par caractere a fontSize 7, ~5pt a fontSize 8.
+/** Étiquette de période stable pour les exports (ex : "2026-05"). */
+function periodKey(periodStart: Date): string {
+  return `${periodStart.getFullYear()}-${String(periodStart.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return text.substring(0, maxChars - 2) + '..';
 }
 
-// ─── Collecte des donnees ─────────────────────────────────────
+function monthsBetween(periodStart: Date, periodEnd: Date): number {
+  return Math.max(
+    1,
+    (periodEnd.getFullYear() - periodStart.getFullYear()) * 12 +
+      (periodEnd.getMonth() - periodStart.getMonth()) + 1,
+  );
+}
 
-interface UserPayrollData {
-  userId: string;
+// ─── Types internes ───────────────────────────────────────────
+
+interface EligibleUser {
+  id: string;
   firstName: string;
   lastName: string;
   email: string;
   role: string;
   fixedSalary: number;
-  commissions: Array<{
-    id: string;
-    dealTitle: string;
-    clientName: string | null;
-    amount: number;
-    status: string;
-    validatedAt: Date | null;
-    closedAt: Date | null;
-    paidAt: Date | null;
-    clientPaidAt: Date | null;
-    ruleName: string;
-    dealAmount: number;
-  }>;
-  adjustments: Array<{
-    id: string;
-    reason: string;
-    amount: number;
-    createdAt: Date;
-  }>;
-  bonusFromObjectives: number;
+}
+
+interface CommissionLine {
+  commissionId: string;
+  dealTitle: string;
+  clientName: string | null;
+  dealAmount: number;
+  amount: number;
+  ruleName: string;
+  scheduledPaymentAt: Date | null;
+  validatedAt: Date | null;
+}
+
+interface AdjustmentLine {
+  adjustmentId: string;
+  reason: string;
+  amount: number;
+  createdAt: Date;
+}
+
+interface UserReportData {
+  user: EligibleUser;
+  fixedSalaryTotal: number;
+  monthsInPeriod: number;
+  commissions: CommissionLine[];
+  adjustments: AdjustmentLine[];
   commissionsTotal: number;
   adjustmentsTotal: number;
-  fixedSalaryTotal: number;
+  bonusTotal: number;
+  variableTotal: number;
   netTotal: number;
 }
 
-async function collectUserData(
-  userId: string,
+interface ReportData {
+  users: UserReportData[];
+  excluded: PayrollExcludedCommission[];
+  monthsInPeriod: number;
+}
+
+// ─── Résolution du périmètre ──────────────────────────────────
+
+/**
+ * Renvoie les utilisateurs éligibles dans le périmètre du demandeur.
+ * Si `requestedUserIds` est fourni, on restreint à cette sélection (toujours dans le scope).
+ */
+async function resolveEligibleUsers(
+  tenantId: string,
+  callerId: string,
+  callerRole: UserRole,
+  requestedUserIds?: string[],
+): Promise<EligibleUser[]> {
+  const teamIds = await resolveTeamScope(callerId, callerRole, tenantId);
+
+  const users = await prisma.user.findMany({
+    where: {
+      tenantId,
+      isActive: true,
+      role: { in: [...ELIGIBLE_ROLES] },
+      ...(teamIds !== null ? { id: { in: teamIds } } : {}),
+      ...(requestedUserIds && requestedUserIds.length > 0
+        ? { id: teamIds !== null ? { in: teamIds.filter((id) => requestedUserIds.includes(id)) } : { in: requestedUserIds } }
+        : {}),
+    },
+    select: { id: true, firstName: true, lastName: true, email: true, role: true, fixedSalary: true },
+    orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+  });
+
+  return users;
+}
+
+// ─── Logique d'inclusion / exclusion (pure, testable) ────────
+
+/** Champs minimaux d'une commission nécessaires à la décision d'inclusion. */
+export interface PayrollDecisionInput {
+  status: string;
+  scheduledPaymentAt: Date | null;
+  validatedAt: Date | null;
+  calculatedAt: Date;
+  awaitingClientPayment: boolean;
+  clientPaidAt: Date | null;
+  hasOpenDispute: boolean;
+}
+
+export type PayrollDecision = 'INCLUDED' | PayrollExclusionReason | 'IGNORED';
+
+/**
+ * Décide du sort d'une commission pour la paie d'une période (logique miroir de
+ * `buildPayrollIncludedWhere` côté base) :
+ * - INCLUDED : part à la paie
+ * - PENDING / AWAITING_CLIENT_PAYMENT / DISPUTED : exclue, à afficher pour transparence
+ * - IGNORED : hors période ou non pertinente (ne rien afficher)
+ */
+export function classifyCommissionForPayroll(
+  c: PayrollDecisionInput,
+  periodStart: Date,
+  periodEnd: Date,
+): PayrollDecision {
+  // Date de rattachement : scheduledPaymentAt, sinon validatedAt, sinon calculatedAt (PENDING).
+  const attachDate = c.scheduledPaymentAt ?? c.validatedAt ?? c.calculatedAt;
+  const inPeriod = attachDate >= periodStart && attachDate <= periodEnd;
+  if (!inPeriod) return 'IGNORED';
+
+  if (c.hasOpenDispute) return 'DISPUTED';
+  if (c.status === PrismaCommissionStatus.PENDING) return 'PENDING';
+
+  if (c.status === PrismaCommissionStatus.VALIDATED) {
+    const paymentLifted = !c.awaitingClientPayment || c.clientPaidAt !== null;
+    if (!paymentLifted) return 'AWAITING_CLIENT_PAYMENT';
+    // Pour l'inclusion, on s'appuie sur scheduledPaymentAt (fallback validatedAt),
+    // pas calculatedAt : une commission validée sans date de rattachement dans la
+    // période est ignorée (rattachée à une autre période).
+    const includeDate = c.scheduledPaymentAt ?? c.validatedAt;
+    if (includeDate && includeDate >= periodStart && includeDate <= periodEnd) return 'INCLUDED';
+    return 'IGNORED';
+  }
+
+  return 'IGNORED';
+}
+
+// ─── Collecte des données du rapport ──────────────────────────
+
+async function collectReportData(
   tenantId: string,
   periodStart: Date,
   periodEnd: Date,
-  monthsInPeriod: number,
-): Promise<UserPayrollData> {
-  const [user, rawCommissions, adjustments, snapshots] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: { firstName: true, lastName: true, email: true, fixedSalary: true, role: true },
-    }),
-    prisma.commission.findMany({
-      where: {
-        userId,
-        tenantId,
-        status: { in: [PrismaCommissionStatus.VALIDATED, PrismaCommissionStatus.PAID] },
-        OR: [
-          { validatedAt: { gte: periodStart, lte: periodEnd } },
-          { validatedAt: null, calculatedAt: { gte: periodStart, lte: periodEnd } },
-        ],
-      },
-      include: {
-        deal: { select: { title: true, clientName: true, closedAt: true, amount: true } },
-        rule: { select: { name: true } },
-      },
-      orderBy: { validatedAt: 'asc' },
-    }),
-    commissionAdjustmentRepository.findByUserInPeriod(userId, tenantId, periodStart, periodEnd),
-    prisma.objectiveSnapshot.findMany({
-      where: { userId, tenantId, snapshotAt: { gte: periodStart, lte: periodEnd } },
-      select: { bonusEarned: true },
-    }),
+  users: EligibleUser[],
+): Promise<ReportData> {
+  const monthsInPeriod = monthsBetween(periodStart, periodEnd);
+  const userIds = users.map((u) => u.id);
+
+  if (userIds.length === 0) {
+    return { users: [], excluded: [], monthsInPeriod };
+  }
+
+  const [included, excludedCandidates, adjustments, snapshots] = await Promise.all([
+    commissionRepository.findPayrollIncluded(userIds, tenantId, periodStart, periodEnd),
+    commissionRepository.findPayrollExcludedCandidates(userIds, tenantId, periodStart, periodEnd),
+    commissionAdjustmentRepository.findUnpaidByUserIdsInPeriod(userIds, tenantId, periodStart, periodEnd),
+    objectiveSnapshotRepository.findByUserIdsInPeriod(userIds, tenantId, periodStart, periodEnd),
   ]);
 
-  if (!user) throw new AppError(404, 'USER_NOT_FOUND', `Utilisateur ${userId} introuvable`);
+  // Regroupement par commercial
+  const includedByUser = new Map<string, PayrollCommissionRow[]>();
+  for (const c of included) {
+    const arr = includedByUser.get(c.userId) ?? [];
+    arr.push(c);
+    includedByUser.set(c.userId, arr);
+  }
 
-  const commissions = rawCommissions.map((c) => ({
-    id: c.id,
-    dealTitle: c.deal.title,
-    clientName: c.deal.clientName,
-    amount: c.amount,
-    status: c.status,
-    validatedAt: c.validatedAt,
-    closedAt: c.deal.closedAt,
-    paidAt: c.paidAt,
-    clientPaidAt: c.clientPaidAt,
-    ruleName: c.rule.name,
-    dealAmount: c.deal.amount,
-  }));
+  const adjustmentsByUser = new Map<string, AdjustmentLine[]>();
+  for (const a of adjustments) {
+    const arr = adjustmentsByUser.get(a.userId) ?? [];
+    arr.push({ adjustmentId: a.id, reason: a.reason, amount: a.amount, createdAt: a.createdAt });
+    adjustmentsByUser.set(a.userId, arr);
+  }
 
-  const commissionsTotal = commissions.reduce((s, c) => s + c.amount, 0);
-  const bonusFromObjectives = snapshots.reduce((s, snap) => s + snap.bonusEarned, 0);
+  const bonusByUser = new Map<string, number>();
+  for (const s of snapshots) {
+    bonusByUser.set(s.userId, (bonusByUser.get(s.userId) ?? 0) + s.bonusEarned);
+  }
 
-  // Exclure les ajustements auto-generes par les objectifs (createdBy = 'SYSTEM' + reason
-  // commence par 'Prime objectif') pour eviter un double comptage : ces montants sont deja
-  // inclus dans bonusFromObjectives via les ObjectiveSnapshots.
-  const manualAdjustments = adjustments.filter(
-    (a) => !(a.createdBy === 'SYSTEM' && a.reason.startsWith('Prime objectif')),
-  );
-  const adjustmentsTotal = manualAdjustments.reduce((s, a) => s + a.amount, 0);
+  // IDs des commissions incluses, pour ne pas les reclasser comme "exclues"
+  const includedIds = new Set(included.map((c) => c.id));
 
-  const fixedSalaryTotal = user.fixedSalary * monthsInPeriod;
-  const netTotal = fixedSalaryTotal + commissionsTotal + adjustmentsTotal + bonusFromObjectives;
+  const userReports: UserReportData[] = users.map((user) => {
+    const commissions: CommissionLine[] = (includedByUser.get(user.id) ?? []).map((c) => ({
+      commissionId: c.id,
+      dealTitle: c.deal.title,
+      clientName: c.deal.clientName,
+      dealAmount: c.deal.amount,
+      amount: c.amount,
+      ruleName: c.rule.name,
+      scheduledPaymentAt: c.scheduledPaymentAt,
+      validatedAt: c.validatedAt,
+    }));
+    const userAdjustments = adjustmentsByUser.get(user.id) ?? [];
+
+    const commissionsTotal = commissions.reduce((s, c) => s + c.amount, 0);
+    const adjustmentsTotal = userAdjustments.reduce((s, a) => s + a.amount, 0);
+    const bonusTotal = bonusByUser.get(user.id) ?? 0;
+    const variableTotal = commissionsTotal + adjustmentsTotal + bonusTotal;
+    const fixedSalaryTotal = user.fixedSalary * monthsInPeriod;
+
+    return {
+      user,
+      fixedSalaryTotal,
+      monthsInPeriod,
+      commissions,
+      adjustments: userAdjustments,
+      commissionsTotal,
+      adjustmentsTotal,
+      bonusTotal,
+      variableTotal,
+      netTotal: fixedSalaryTotal + variableTotal,
+    };
+  });
+
+  // Classement des commissions exclues (transparence)
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const excluded: PayrollExcludedCommission[] = [];
+  for (const c of excludedCandidates) {
+    if (includedIds.has(c.id)) continue; // déjà incluse
+
+    const decision = classifyCommissionForPayroll(
+      {
+        status: c.status,
+        scheduledPaymentAt: c.scheduledPaymentAt,
+        validatedAt: c.validatedAt,
+        calculatedAt: c.calculatedAt,
+        awaitingClientPayment: c.awaitingClientPayment,
+        clientPaidAt: c.clientPaidAt,
+        hasOpenDispute: c.disputes.length > 0,
+      },
+      periodStart,
+      periodEnd,
+    );
+    if (decision === 'INCLUDED' || decision === 'IGNORED') continue;
+    const reason: PayrollExclusionReason = decision;
+
+    const u = userById.get(c.userId);
+    excluded.push({
+      commissionId: c.id,
+      userId: c.userId,
+      user: u
+        ? { firstName: u.firstName, lastName: u.lastName, email: u.email }
+        : { firstName: c.user.firstName, lastName: c.user.lastName, email: c.user.email },
+      dealTitle: c.deal.title,
+      clientName: c.deal.clientName,
+      amount: c.amount,
+      status: c.status,
+      reason,
+      reasonLabel: EXCLUSION_LABELS[reason],
+    });
+  }
+
+  return { users: userReports, excluded, monthsInPeriod };
+}
+
+/** Construit l'info de verrouillage (avec nom du manager) si la période est figée. */
+async function getLockInfo(
+  tenantId: string,
+  periodStart: Date,
+  periodEnd: Date,
+): Promise<PayrollLockInfo | null> {
+  const lock = await payrollPeriodRepository.findForPeriod(tenantId, periodStart, periodEnd);
+  if (!lock) return null;
+
+  const author = await prisma.user.findUnique({
+    where: { id: lock.generatedBy },
+    select: { firstName: true, lastName: true },
+  });
 
   return {
-    userId,
-    firstName: user.firstName,
-    lastName: user.lastName,
-    email: user.email,
-    role: user.role,
-    fixedSalary: user.fixedSalary,
-    commissions,
-    adjustments: manualAdjustments.map((a) => ({
-      id: a.id,
-      reason: a.reason,
-      amount: a.amount,
-      createdAt: a.createdAt,
-    })),
-    bonusFromObjectives,
-    commissionsTotal,
-    adjustmentsTotal,
-    fixedSalaryTotal,
-    netTotal,
+    lockedAt: lock.generatedAt.toISOString(),
+    lockedBy: lock.generatedBy,
+    lockedByName: author ? `${author.firstName} ${author.lastName}` : null,
+    totalAmount: lock.totalAmount,
+    userCount: lock.userCount,
   };
 }
 
-// ─── PDF Builder ──────────────────────────────────────────────
+// ─── Preview (JSON) ───────────────────────────────────────────
+
+export async function buildPayrollReport(params: {
+  tenantId: string;
+  callerId: string;
+  callerRole: UserRole;
+  periodStart: Date;
+  periodEnd: Date;
+  userIds?: string[];
+}): Promise<PayrollReportPreview> {
+  const { tenantId, callerId, callerRole, periodStart, periodEnd, userIds } = params;
+
+  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, userIds);
+  const data = await collectReportData(tenantId, periodStart, periodEnd, users);
+  const locked = await getLockInfo(tenantId, periodStart, periodEnd);
+
+  const items: PayrollReportPreviewItem[] = data.users.map((d) => ({
+    userId: d.user.id,
+    user: { firstName: d.user.firstName, lastName: d.user.lastName, email: d.user.email },
+    role: d.user.role,
+    fixedSalaryTotal: d.fixedSalaryTotal,
+    commissionsTotal: d.commissionsTotal,
+    adjustmentsTotal: d.adjustmentsTotal,
+    bonusTotal: d.bonusTotal,
+    variableTotal: d.variableTotal,
+    netTotal: d.netTotal,
+    commissions: d.commissions.map((c) => ({
+      commissionId: c.commissionId,
+      dealTitle: c.dealTitle,
+      clientName: c.clientName,
+      dealAmount: c.dealAmount,
+      amount: c.amount,
+      ruleName: c.ruleName,
+      scheduledPaymentAt: c.scheduledPaymentAt ? c.scheduledPaymentAt.toISOString() : null,
+      validatedAt: c.validatedAt ? c.validatedAt.toISOString() : null,
+    })),
+    adjustments: d.adjustments.map((a) => ({
+      adjustmentId: a.adjustmentId,
+      reason: a.reason,
+      amount: a.amount,
+      createdAt: a.createdAt.toISOString(),
+    })),
+  }));
+
+  const grandTotal = items.reduce((s, i) => s + i.netTotal, 0);
+  const variableGrandTotal = items.reduce((s, i) => s + i.variableTotal, 0);
+
+  return {
+    periodStart: periodStart.toISOString(),
+    periodEnd: periodEnd.toISOString(),
+    items,
+    excluded: data.excluded,
+    grandTotal,
+    variableGrandTotal,
+    locked,
+  };
+}
+
+// ─── Verrouillage de période ──────────────────────────────────
+
+export async function lockPayrollPeriod(params: {
+  tenantId: string;
+  callerId: string;
+  callerRole: UserRole;
+  periodStart: Date;
+  periodEnd: Date;
+}): Promise<PayrollLockInfo> {
+  const { tenantId, callerId, callerRole, periodStart, periodEnd } = params;
+
+  // Le verrouillage fige la période pour TOUT le périmètre (jamais un sous-ensemble choisi).
+  // Réservé aux rôles à scope tenant complet.
+  if (callerRole !== UserRole.MANAGER && callerRole !== UserRole.SUPER_ADMIN) {
+    throw new AppError(403, 'FORBIDDEN', 'Seul un manager peut figer une période de paie');
+  }
+
+  // Période déjà figée ?
+  const existing = await payrollPeriodRepository.findForPeriod(tenantId, periodStart, periodEnd);
+  if (existing) {
+    throw new AppError(
+      409,
+      'PERIOD_ALREADY_LOCKED',
+      `Cette période est déjà verrouillée (le ${formatDate(existing.generatedAt)}). Un recalcul donnera lieu à une régularisation sur la période suivante.`,
+    );
+  }
+
+  const users = await resolveEligibleUsers(tenantId, callerId, callerRole);
+  const data = await collectReportData(tenantId, periodStart, periodEnd, users);
+
+  const userIds = users.map((u) => u.id);
+  const totalAmount = data.users.reduce((s, u) => s + u.variableTotal, 0);
+  const userCount = data.users.filter((u) => u.variableTotal !== 0).length;
+  const closeDate = periodEnd; // date de clôture de période
+
+  await prisma.$transaction(async (tx) => {
+    // 1. Commissions incluses : VALIDATED → PAID
+    await tx.commission.updateMany({
+      where: buildPayrollIncludedWhere(userIds, tenantId, periodStart, periodEnd),
+      data: { status: PrismaCommissionStatus.PAID, paidAt: closeDate },
+    });
+
+    // 2. Ajustements inclus : paidAt = clôture
+    await tx.commissionAdjustment.updateMany({
+      where: {
+        userId: { in: userIds },
+        tenantId,
+        paidAt: null,
+        createdAt: { gte: periodStart, lte: periodEnd },
+        NOT: { createdBy: 'SYSTEM', reason: { startsWith: 'Prime objectif' } },
+      },
+      data: { paidAt: closeDate },
+    });
+
+    // 3. Enregistrement du verrouillage
+    await tx.payrollPeriod.create({
+      data: {
+        tenantId,
+        periodStart,
+        periodEnd,
+        status: 'LOCKED',
+        generatedBy: callerId,
+        totalAmount,
+        userCount,
+      },
+    });
+
+    // 4. Audit
+    await tx.auditLog.create({
+      data: {
+        tenantId,
+        userId: callerId,
+        action: 'PAYROLL_REPORT_GENERATED',
+        entity: 'PayrollPeriod',
+        entityId: `${periodStart.toISOString()}_${periodEnd.toISOString()}`,
+        metadata: {
+          periodStart: periodStart.toISOString(),
+          periodEnd: periodEnd.toISOString(),
+          userCount,
+          totalAmount,
+        },
+      },
+    });
+  });
+
+  const author = await prisma.user.findUnique({
+    where: { id: callerId },
+    select: { firstName: true, lastName: true },
+  });
+
+  return {
+    lockedAt: new Date().toISOString(),
+    lockedBy: callerId,
+    lockedByName: author ? `${author.firstName} ${author.lastName}` : null,
+    totalAmount,
+    userCount,
+  };
+}
+
+// ─── Historique des périodes figées ───────────────────────────
+
+export async function getPayrollHistory(tenantId: string): Promise<PayrollPeriodHistoryItem[]> {
+  const periods = await payrollPeriodRepository.findByTenant(tenantId);
+  if (periods.length === 0) return [];
+
+  const authorIds = [...new Set(periods.map((p) => p.generatedBy))];
+  const authors = await prisma.user.findMany({
+    where: { id: { in: authorIds } },
+    select: { id: true, firstName: true, lastName: true },
+  });
+  const authorById = new Map(authors.map((a) => [a.id, `${a.firstName} ${a.lastName}`]));
+
+  return periods.map((p) => ({
+    id: p.id,
+    periodStart: p.periodStart.toISOString(),
+    periodEnd: p.periodEnd.toISOString(),
+    generatedAt: p.generatedAt.toISOString(),
+    generatedBy: p.generatedBy,
+    generatedByName: authorById.get(p.generatedBy) ?? null,
+    totalAmount: p.totalAmount,
+    userCount: p.userCount,
+  }));
+}
+
+// ─── Exports CSV / XLSX (fichier paie) ────────────────────────
+
+interface ExportRow {
+  email: string;
+  nom: string;
+  prenom: string;
+  periode: string;
+  montant_commissions: number;
+  montant_ajustements: number;
+  montant_bonus: number;
+  total_variable_brut: number;
+}
+
+async function buildExportRows(params: {
+  tenantId: string;
+  callerId: string;
+  callerRole: UserRole;
+  periodStart: Date;
+  periodEnd: Date;
+  userIds?: string[];
+}): Promise<ExportRow[]> {
+  const { tenantId, callerId, callerRole, periodStart, periodEnd, userIds } = params;
+  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, userIds);
+  const data = await collectReportData(tenantId, periodStart, periodEnd, users);
+  const period = periodKey(periodStart);
+
+  // Seuls les commerciaux avec une part variable partent au logiciel de paie.
+  return data.users
+    .filter((u) => u.variableTotal !== 0)
+    .map((u) => ({
+      email: u.user.email,
+      nom: u.user.lastName,
+      prenom: u.user.firstName,
+      periode: period,
+      montant_commissions: round2(u.commissionsTotal),
+      montant_ajustements: round2(u.adjustmentsTotal),
+      montant_bonus: round2(u.bonusTotal),
+      total_variable_brut: round2(u.variableTotal),
+    }));
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+const EXPORT_COLUMNS: (keyof ExportRow)[] = [
+  'email', 'nom', 'prenom', 'periode',
+  'montant_commissions', 'montant_ajustements', 'montant_bonus', 'total_variable_brut',
+];
+
+export async function buildPayrollExport(params: {
+  tenantId: string;
+  callerId: string;
+  callerRole: UserRole;
+  periodStart: Date;
+  periodEnd: Date;
+  userIds?: string[];
+  format: 'csv' | 'xlsx';
+}): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
+  const rows = await buildExportRows(params);
+  const period = periodKey(params.periodStart);
+
+  if (params.format === 'csv') {
+    // Séparateur ';' (standard Excel FR), décimales '.', avec entête.
+    const header = EXPORT_COLUMNS.join(';');
+    const lines = rows.map((r) =>
+      EXPORT_COLUMNS.map((col) => {
+        const v = r[col];
+        if (typeof v === 'number') return v.toFixed(2);
+        // Échappe les éventuels ';' ou '"' dans les champs texte
+        const s = String(v);
+        return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      }).join(';'),
+    );
+    // BOM UTF-8 pour qu'Excel ouvre correctement les accents
+    const csv = '﻿' + [header, ...lines].join('\r\n');
+    return {
+      buffer: Buffer.from(csv, 'utf-8'),
+      filename: `paie-variable-${period}.csv`,
+      contentType: 'text/csv; charset=utf-8',
+    };
+  }
+
+  // XLSX : montants en nombres réels (réutilisables dans le tableur)
+  const worksheet = XLSX.utils.json_to_sheet(rows, { header: EXPORT_COLUMNS as string[] });
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Paie variable');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  return {
+    buffer,
+    filename: `paie-variable-${period}.xlsx`,
+    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  };
+}
+
+// ════════════════════════════════════════════════════════════
+//  PDF — Relevé de variable par commercial
+// ════════════════════════════════════════════════════════════
 
 const COLORS = {
   primary: '#1e3a5f',
@@ -196,17 +674,14 @@ const COLORS = {
   positive: '#15803d',
   white: '#ffffff',
   lightBg: '#f8f9fb',
-  dateBg: '#f1f3f8',
 };
 
 const MARGIN = 50;
-const PAGE_WIDTH = 595.28; // A4 width in points
-const PAGE_HEIGHT = 841.89; // A4 height in points
+const PAGE_WIDTH = 595.28;
+const PAGE_HEIGHT = 841.89;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 const FOOTER_Y = PAGE_HEIGHT - 45;
 
-// Wrapper pour doc.text qui ne declenche JAMAIS de saut de page automatique.
-// Toute ecriture de texte dans le PDF DOIT passer par cette fonction.
 function safeText(
   doc: PDFKit.PDFDocument,
   text: string,
@@ -222,9 +697,7 @@ function safeText(
       align: opts.align ?? 'left',
       lineBreak: false,
     });
-  // CRUCIAL : remettre le curseur interne a une position SAFE apres chaque ecriture.
-  // Sans ca, doc.y avance a chaque appel et quand il depasse la hauteur de page,
-  // PDFKit cree automatiquement une page vide au prochain doc.text().
+  // Remet le curseur à une position sûre : évite les pages vides auto de PDFKit.
   doc.x = MARGIN;
   doc.y = y;
 }
@@ -285,259 +758,151 @@ function drawTableRow(
   return y + rowH;
 }
 
-// ── Rendu d'un utilisateur ──
-
-function renderUserSection(
-  doc: PDFKit.PDFDocument,
-  data: UserPayrollData,
-  startY: number,
-): number {
+function renderUserSection(doc: PDFKit.PDFDocument, data: UserReportData, startY: number): number {
   let y = startY;
+  const roleLabel = ROLE_LABELS[data.user.role] ?? data.user.role;
 
-  const hasVariableComp =
-    data.commissionsTotal !== 0 || data.bonusFromObjectives !== 0 || data.adjustmentsTotal !== 0;
-
-  // ── Identite ──
-  const roleLabel = ROLE_LABELS[data.role] ?? data.role;
-  safeText(doc, `${data.firstName} ${data.lastName}`, MARGIN, y, {
-    fontSize: 13,
-    font: 'Helvetica-Bold',
-    color: COLORS.primary,
+  // ── Identité ──
+  safeText(doc, `${data.user.firstName} ${data.user.lastName}`, MARGIN, y, {
+    fontSize: 13, font: 'Helvetica-Bold', color: COLORS.primary,
   });
   y += 18;
-  safeText(doc, `${roleLabel} - ${data.email}`, MARGIN, y, {
-    fontSize: 9,
-    color: COLORS.muted,
-  });
+  safeText(doc, `${roleLabel} - ${data.user.email}`, MARGIN, y, { fontSize: 9, color: COLORS.muted });
   y += 18;
   drawHLine(doc, y, COLORS.primary);
   y += 12;
 
-  // ── Synthese ──
-  safeText(doc, 'Synthese', MARGIN, y, {
-    fontSize: 10,
-    font: 'Helvetica-Bold',
-    color: COLORS.text,
-  });
+  // ── Synthèse ──
+  safeText(doc, 'Synthese', MARGIN, y, { fontSize: 10, font: 'Helvetica-Bold', color: COLORS.text });
   y += 16;
 
   const colPoste = 345;
   const colMontant = CONTENT_WIDTH - colPoste;
-  const synthCols = [
+  y = drawTableHeader(doc, y, [
     { label: 'Poste', width: colPoste },
     { label: 'Montant', width: colMontant, align: 'right' as const },
+  ]);
+
+  const rows: Array<[string, number]> = [
+    ['Commissions (validees, dues sur la periode)', data.commissionsTotal],
+    ["Primes d'objectifs", data.bonusTotal],
   ];
-  y = drawTableHeader(doc, y, synthCols);
-
-  if (!hasVariableComp) {
-    const monthCount = Math.round(data.fixedSalaryTotal / Math.max(data.fixedSalary, 1));
+  if (data.adjustmentsTotal !== 0) {
+    rows.push(['Ajustements / Regularisations', data.adjustmentsTotal]);
+  }
+  rows.forEach(([label, val], i) => {
     y = drawTableRow(doc, y, [
-      { value: `Salaire fixe brut (${formatEuro(data.fixedSalary)}/mois x ${monthCount} mois)`, width: colPoste },
-      { value: formatEuro(data.fixedSalaryTotal), width: colMontant, align: 'right' },
-    ], false);
+      { value: label, width: colPoste },
+      { value: formatEuro(val), width: colMontant, align: 'right', color: val < 0 ? COLORS.negative : COLORS.text },
+    ], i % 2 === 0);
+  });
 
-    // Total
-    doc.fillColor(COLORS.primary).rect(MARGIN, y, CONTENT_WIDTH, 22).fill();
-    safeText(doc, 'TOTAL NET A VERSER', MARGIN + 6, y + 6, {
-      width: colPoste - 12, fontSize: 10, font: 'Helvetica-Bold', color: COLORS.white,
-    });
-    safeText(doc, formatEuro(data.netTotal), MARGIN + colPoste + 4, y + 6, {
-      width: colMontant - 8, fontSize: 10, font: 'Helvetica-Bold', color: COLORS.white, align: 'right',
-    });
-    y += 30;
+  // Total variable brut (mis en avant : c'est ce qui part à la paie)
+  doc.fillColor(COLORS.primary).rect(MARGIN, y, CONTENT_WIDTH, 22).fill();
+  safeText(doc, 'TOTAL VARIABLE BRUT', MARGIN + 6, y + 6, {
+    width: colPoste - 12, fontSize: 10, font: 'Helvetica-Bold', color: COLORS.white,
+  });
+  safeText(doc, formatEuro(data.variableTotal), MARGIN + colPoste + 4, y + 6, {
+    width: colMontant - 8, fontSize: 10, font: 'Helvetica-Bold',
+    color: data.variableTotal < 0 ? '#fca5a5' : COLORS.white, align: 'right',
+  });
+  y += 30;
 
-    safeText(doc, 'Aucune commission ni prime sur la periode. Seul le salaire fixe est du.', MARGIN, y, {
-      fontSize: 8, color: COLORS.muted,
-    });
+  // Rappel fixe (contexte, hors export paie)
+  safeText(
+    doc,
+    `Pour memoire : salaire fixe brut ${formatEuro(data.user.fixedSalary)}/mois (deja gere par votre logiciel de paie).`,
+    MARGIN, y, { fontSize: 8, color: COLORS.muted },
+  );
+  y += 16;
+
+  if (data.commissions.length === 0 && data.adjustments.length === 0 && data.bonusTotal === 0) {
+    safeText(doc, 'Aucun element variable sur la periode.', MARGIN, y, { fontSize: 8, color: COLORS.muted });
+    return y + 14;
+  }
+
+  // ── Détail des commissions ──
+  if (data.commissions.length > 0) {
+    if (needsNewPage(y, 70)) y = addPage(doc);
+    safeText(doc, 'Detail des commissions', MARGIN, y, { fontSize: 10, font: 'Helvetica-Bold', color: COLORS.text });
     y += 16;
-  } else {
-    const monthCount = Math.round(data.fixedSalaryTotal / Math.max(data.fixedSalary, 1));
-    const rows: Array<[string, number]> = [
-      [`Salaire fixe brut (${formatEuro(data.fixedSalary)}/mois x ${monthCount} mois)`, data.fixedSalaryTotal],
-      ['Commissions (validees / payees)', data.commissionsTotal],
-      ["Primes d'objectifs", data.bonusFromObjectives],
-    ];
-    if (data.adjustmentsTotal !== 0) {
-      rows.push(['Ajustements / Regularisations', data.adjustmentsTotal]);
-    }
-    rows.forEach(([label, val], i) => {
+
+    const cw = { info: 235, saleAmt: 100, commission: 100, date: 60 };
+    y = drawTableHeader(doc, y, [
+      { label: 'Deal / Client / Regle', width: cw.info },
+      { label: 'Montant vente', width: cw.saleAmt, align: 'right' as const },
+      { label: 'Commission', width: cw.commission, align: 'right' as const },
+      { label: 'Versee', width: cw.date, align: 'right' as const },
+    ]);
+
+    data.commissions.forEach((c, i) => {
+      if (needsNewPage(y, 34)) y = addPage(doc);
+      const shade = i % 2 === 0;
+      const blockH = 32;
+      doc.fillColor(shade ? COLORS.lightBg : COLORS.white).rect(MARGIN, y, CONTENT_WIDTH, blockH).fill();
+
+      safeText(doc, truncate(c.dealTitle, 42), MARGIN + 6, y + 4, {
+        width: cw.info - 12, fontSize: 8, font: 'Helvetica-Bold',
+      });
+      safeText(doc, formatEuro(c.dealAmount), MARGIN + cw.info + 4, y + 4, {
+        width: cw.saleAmt - 8, align: 'right',
+      });
+      safeText(doc, formatEuro(c.amount), MARGIN + cw.info + cw.saleAmt + 4, y + 4, {
+        width: cw.commission - 8, align: 'right', color: COLORS.positive, font: 'Helvetica-Bold',
+      });
+      const dueDate = c.scheduledPaymentAt ?? c.validatedAt;
+      safeText(doc, formatDate(dueDate), MARGIN + cw.info + cw.saleAmt + cw.commission + 4, y + 4, {
+        width: cw.date - 8, align: 'right', fontSize: 7, color: COLORS.muted,
+      });
+
+      const clientRule = [c.clientName, c.ruleName].filter(Boolean).join('  -  ');
+      safeText(doc, truncate(clientRule || '-', 60), MARGIN + 6, y + 18, {
+        width: CONTENT_WIDTH - 12, fontSize: 7, color: COLORS.muted,
+      });
+
+      y += blockH;
+      drawHLine(doc, y);
+    });
+  }
+
+  // ── Primes d'objectifs ──
+  if (data.bonusTotal !== 0) {
+    if (needsNewPage(y, 40)) y = addPage(doc);
+    y += 8;
+    safeText(doc, "Primes d'objectifs", MARGIN, y, { fontSize: 10, font: 'Helvetica-Bold', color: COLORS.text });
+    y += 16;
+    safeText(doc, `Total primes objectifs sur la periode : ${formatEuro(data.bonusTotal)}`, MARGIN, y, {
+      fontSize: 9, color: COLORS.muted,
+    });
+    y += 14;
+  }
+
+  // ── Ajustements ──
+  if (data.adjustments.length > 0) {
+    if (needsNewPage(y, 60)) y = addPage(doc);
+    y += 8;
+    safeText(doc, 'Ajustements / Regularisations', MARGIN, y, { fontSize: 10, font: 'Helvetica-Bold', color: COLORS.text });
+    y += 16;
+    y = drawTableHeader(doc, y, [
+      { label: 'Date', width: 80 },
+      { label: 'Motif', width: 315 },
+      { label: 'Montant', width: 100, align: 'right' as const },
+    ]);
+    data.adjustments.forEach((a, i) => {
+      if (needsNewPage(y, 20)) y = addPage(doc);
       y = drawTableRow(doc, y, [
-        { value: label, width: colPoste },
-        { value: formatEuro(val), width: colMontant, align: 'right', color: val < 0 ? COLORS.negative : COLORS.text },
+        { value: formatDate(a.createdAt), width: 80 },
+        { value: truncate(a.reason, 55), width: 315 },
+        { value: formatEuro(a.amount), width: 100, align: 'right', color: a.amount < 0 ? COLORS.negative : COLORS.positive },
       ], i % 2 === 0);
     });
-
-    // Total
-    doc.fillColor(COLORS.primary).rect(MARGIN, y, CONTENT_WIDTH, 22).fill();
-    safeText(doc, 'TOTAL NET A VERSER', MARGIN + 6, y + 6, {
-      width: colPoste - 12, fontSize: 10, font: 'Helvetica-Bold', color: COLORS.white,
-    });
-    safeText(doc, formatEuro(data.netTotal), MARGIN + colPoste + 4, y + 6, {
-      width: colMontant - 8, fontSize: 10, font: 'Helvetica-Bold', color: COLORS.white, align: 'right',
-    });
-    y += 30;
-
-    // ── Detail des commissions ──
-    if (data.commissions.length > 0) {
-      if (needsNewPage(y, 70)) y = addPage(doc);
-
-      safeText(doc, 'Detail des commissions', MARGIN, y, {
-        fontSize: 10, font: 'Helvetica-Bold', color: COLORS.text,
-      });
-      y += 16;
-
-      // 4 colonnes larges : Deal/Client | Montant vente | Commission | Statut
-      const cw = { info: 215, saleAmt: 100, commission: 100, status: 80 };
-      const commCols = [
-        { label: 'Deal / Client', width: cw.info },
-        { label: 'Montant vente', width: cw.saleAmt, align: 'right' as const },
-        { label: 'Commission', width: cw.commission, align: 'right' as const },
-        { label: 'Statut', width: cw.status },
-      ];
-      y = drawTableHeader(doc, y, commCols);
-
-      data.commissions.forEach((c, i) => {
-        // Chaque commission = ligne 1 deal (16pt) + ligne 2 client+regle (14pt) + ligne 3 dates (14pt) + marge (2pt)
-        if (needsNewPage(y, 48)) y = addPage(doc);
-
-        const shade = i % 2 === 0;
-        const blockH = 46;
-        const bgColor = shade ? COLORS.lightBg : COLORS.white;
-        doc.fillColor(bgColor).rect(MARGIN, y, CONTENT_WIDTH, blockH).fill();
-
-        const statusLabel = c.status === 'PAID' ? 'Payee' : 'Validee';
-        const statusColor = c.status === 'PAID' ? COLORS.positive : COLORS.primary;
-
-        // Ligne 1 : nom du deal + montants + statut
-        safeText(doc, c.dealTitle, MARGIN + 6, y + 4, {
-          width: cw.info - 12, fontSize: 8, font: 'Helvetica-Bold',
-        });
-        safeText(doc, formatEuro(c.dealAmount), MARGIN + cw.info + 4, y + 4, {
-          width: cw.saleAmt - 8, align: 'right',
-        });
-        safeText(doc, formatEuro(c.amount), MARGIN + cw.info + cw.saleAmt + 4, y + 4, {
-          width: cw.commission - 8, align: 'right', color: COLORS.positive, font: 'Helvetica-Bold',
-        });
-        safeText(doc, statusLabel, MARGIN + cw.info + cw.saleAmt + cw.commission + 6, y + 4, {
-          width: cw.status - 12, color: statusColor, font: 'Helvetica-Bold',
-        });
-
-        // Ligne 2 : client + regle
-        const clientRule = [c.clientName, c.ruleName].filter(Boolean).join('  -  ');
-        safeText(doc, clientRule || '-', MARGIN + 6, y + 18, {
-          width: CONTENT_WIDTH - 12, fontSize: 7, color: COLORS.muted,
-        });
-
-        // Ligne 3 : dates
-        const dates: string[] = [];
-        if (c.closedAt) dates.push(`Signe : ${formatDate(c.closedAt)}`);
-        if (c.validatedAt) dates.push(`Valide : ${formatDate(c.validatedAt)}`);
-        if (c.clientPaidAt) dates.push(`Paiement client : ${formatDate(c.clientPaidAt)}`);
-        safeText(doc, dates.length > 0 ? dates.join('     ') : '-', MARGIN + 6, y + 31, {
-          width: CONTENT_WIDTH - 12, fontSize: 7, color: COLORS.muted,
-        });
-
-        y += blockH;
-        drawHLine(doc, y);
-      });
-    }
-
-    // ── Primes d'objectifs ──
-    if (data.bonusFromObjectives > 0) {
-      if (needsNewPage(y, 40)) y = addPage(doc);
-      y += 8;
-      safeText(doc, "Primes d'objectifs", MARGIN, y, {
-        fontSize: 10, font: 'Helvetica-Bold', color: COLORS.text,
-      });
-      y += 16;
-      safeText(doc, `Total primes objectifs sur la periode : ${formatEuro(data.bonusFromObjectives)}`, MARGIN, y, {
-        fontSize: 9, color: COLORS.muted,
-      });
-      y += 14;
-    }
-
-    // ── Ajustements ──
-    if (data.adjustments.length > 0) {
-      if (needsNewPage(y, 60)) y = addPage(doc);
-      y += 8;
-      safeText(doc, 'Ajustements / Regularisations', MARGIN, y, {
-        fontSize: 10, font: 'Helvetica-Bold', color: COLORS.text,
-      });
-      y += 16;
-
-      const adjCols = [
-        { label: 'Date', width: 80 },
-        { label: 'Motif', width: 315 },
-        { label: 'Montant', width: 100, align: 'right' as const },
-      ];
-      y = drawTableHeader(doc, y, adjCols);
-
-      data.adjustments.forEach((a, i) => {
-        if (needsNewPage(y, 20)) y = addPage(doc);
-        y = drawTableRow(doc, y, [
-          { value: formatDate(a.createdAt), width: 80 },
-          { value: truncate(a.reason, 55), width: 315 },
-          { value: formatEuro(a.amount), width: 100, align: 'right', color: a.amount < 0 ? COLORS.negative : COLORS.positive },
-        ], i % 2 === 0);
-      });
-    }
   }
 
   return y;
 }
 
-// ─── Generation complete du PDF ───────────────────────────────
-
-export async function generatePayrollReport(params: {
-  tenantId: string;
-  userIds?: string[];
-  callerId: string;
-  callerRole: UserRole;
-  periodStart: Date;
-  periodEnd: Date;
-}): Promise<{ buffer: Buffer; filename: string }> {
-  const { tenantId, userIds: requestedUserIds, callerId, callerRole, periodStart, periodEnd } = params;
-
-  let userIds: string[];
-  if (requestedUserIds && requestedUserIds.length > 0) {
-    userIds = requestedUserIds;
-  } else {
-    const teamIds = await resolveTeamScope(callerId, callerRole, tenantId);
-    const eligibleUsers = await prisma.user.findMany({
-      where: {
-        tenantId,
-        isActive: true,
-        role: {
-          in: [
-            PrismaUserRole.COMMERCIAL,
-            PrismaUserRole.RECRUITER,
-            PrismaUserRole.TEAM_LEAD,
-            PrismaUserRole.BU_MANAGER,
-          ],
-        },
-        ...(teamIds !== null ? { id: { in: teamIds } } : {}),
-      },
-      select: { id: true },
-    });
-    userIds = eligibleUsers.map((u) => u.id);
-  }
-
-  if (userIds.length === 0) {
-    throw new AppError(404, 'NO_USERS', 'Aucun utilisateur éligible trouvé dans ce périmètre');
-  }
-
-  const monthsInPeriod = Math.max(
-    1,
-    (periodEnd.getFullYear() - periodStart.getFullYear()) * 12 +
-      (periodEnd.getMonth() - periodStart.getMonth()) + 1,
-  );
-
-  const usersData = await Promise.all(
-    userIds.map((uid) => collectUserData(uid, tenantId, periodStart, periodEnd, monthsInPeriod)),
-  );
-
-  // ── Construire le PDF ──
-  // autoFirstPage: false => on controle entierement la creation des pages
+/** Construit un PDF (une page ou plus par commercial) à partir d'une liste de relevés. */
+async function buildPdfBuffer(users: UserReportData[], periodStart: Date, periodEnd: Date): Promise<Buffer> {
   const doc = new PDFDocument({
     bufferPages: true,
     autoFirstPage: false,
@@ -550,16 +915,10 @@ export async function generatePayrollReport(params: {
   const genDate = formatGenDate(new Date());
   const periodLabel = formatPeriod(periodStart, periodEnd);
 
-  // ── Une page (ou plus) par utilisateur ──
-  usersData.forEach((data) => {
-    // Nouvelle page
+  users.forEach((data) => {
     doc.addPage({ size: 'A4', margin: MARGIN });
-
-    // Header
-    safeText(doc, 'GrowCom', MARGIN, MARGIN, {
-      fontSize: 18, font: 'Helvetica-Bold', color: COLORS.primary,
-    });
-    safeText(doc, 'Rapport de paie', PAGE_WIDTH - MARGIN - 200, MARGIN, {
+    safeText(doc, 'GrowCom', MARGIN, MARGIN, { fontSize: 18, font: 'Helvetica-Bold', color: COLORS.primary });
+    safeText(doc, 'Releve de variable', PAGE_WIDTH - MARGIN - 200, MARGIN, {
       width: 200, fontSize: 13, font: 'Helvetica-Bold', color: COLORS.text, align: 'right',
     });
     safeText(doc, `Periode : ${periodLabel}`, PAGE_WIDTH - MARGIN - 200, MARGIN + 18, {
@@ -569,29 +928,24 @@ export async function generatePayrollReport(params: {
       width: 200, fontSize: 9, color: COLORS.muted, align: 'right',
     });
     drawHLine(doc, MARGIN + 42, COLORS.primary);
-
-    // Contenu utilisateur — demarre apres le header (ligne a MARGIN+42 + marge 12pt)
     renderUserSection(doc, data, MARGIN + 54);
   });
 
-  // ── Footers sur toutes les pages ──
+  // Footers
   const range = doc.bufferedPageRange();
-  const pageCount = range.count;
   const legalNote =
-    'Ce document est un recapitulatif interne genere par GrowCom. ' +
+    'Ce document est un recapitulatif interne genere par GrowCom (elements variables bruts). ' +
     'Il ne se substitue pas au bulletin de salaire officiel.';
-
-  for (let i = 0; i < pageCount; i++) {
+  for (let i = 0; i < range.count; i++) {
     doc.switchToPage(i);
     drawHLine(doc, FOOTER_Y - 5, COLORS.border);
-    safeText(doc, `GrowCom - Rapport de paie - ${genDate}`, MARGIN, FOOTER_Y, {
+    safeText(doc, `GrowCom - Releve de variable - ${genDate}`, MARGIN, FOOTER_Y, {
       width: CONTENT_WIDTH - 50, fontSize: 7, color: COLORS.muted,
     });
-    safeText(doc, `${i + 1} / ${pageCount}`, MARGIN, FOOTER_Y, {
+    safeText(doc, `${i + 1} / ${range.count}`, MARGIN, FOOTER_Y, {
       width: CONTENT_WIDTH, fontSize: 7, color: COLORS.muted, align: 'right',
     });
-    // Mention legale sur la derniere page
-    if (i === pageCount - 1) {
+    if (i === range.count - 1) {
       safeText(doc, legalNote, MARGIN, FOOTER_Y + 10, {
         width: CONTENT_WIDTH, fontSize: 6, color: COLORS.muted, align: 'center',
       });
@@ -599,79 +953,76 @@ export async function generatePayrollReport(params: {
   }
 
   doc.end();
-
   await new Promise<void>((resolve) => doc.on('end', resolve));
-  const buffer = Buffer.concat(chunks);
-
-  const dateStr = periodStart.toISOString().slice(0, 10);
-  const dateEndStr = periodEnd.toISOString().slice(0, 10);
-  const filename = `payroll-${dateStr}_${dateEndStr}.pdf`;
-
-  return { buffer, filename };
+  return Buffer.concat(chunks);
 }
 
-// ─── Preview (JSON leger, sans PDF) ──────────────────────────
-
-export async function generatePayrollPreview(params: {
+/** PDF combiné : un seul document, une page par commercial. */
+export async function buildPayrollPdf(params: {
   tenantId: string;
-  userIds?: string[];
   callerId: string;
   callerRole: UserRole;
   periodStart: Date;
   periodEnd: Date;
-}): Promise<PayrollReportPreview> {
-  const { tenantId, userIds: requestedUserIds, callerId, callerRole, periodStart, periodEnd } = params;
+  userIds?: string[];
+}): Promise<{ buffer: Buffer; filename: string }> {
+  const { tenantId, callerId, callerRole, periodStart, periodEnd, userIds } = params;
+  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, userIds);
+  const data = await collectReportData(tenantId, periodStart, periodEnd, users);
 
-  let userIds: string[];
-  if (requestedUserIds && requestedUserIds.length > 0) {
-    userIds = requestedUserIds;
-  } else {
-    const teamIds = await resolveTeamScope(callerId, callerRole, tenantId);
-    const eligibleUsers = await prisma.user.findMany({
-      where: {
-        tenantId,
-        isActive: true,
-        role: {
-          in: [
-            PrismaUserRole.COMMERCIAL,
-            PrismaUserRole.RECRUITER,
-            PrismaUserRole.TEAM_LEAD,
-            PrismaUserRole.BU_MANAGER,
-          ],
-        },
-        ...(teamIds !== null ? { id: { in: teamIds } } : {}),
-      },
-      select: { id: true },
-    });
-    userIds = eligibleUsers.map((u) => u.id);
+  if (data.users.length === 0) {
+    throw new AppError(404, 'NO_USERS', 'Aucun collaborateur éligible dans ce périmètre');
   }
 
-  const monthsInPeriod = Math.max(
-    1,
-    (periodEnd.getFullYear() - periodStart.getFullYear()) * 12 +
-      (periodEnd.getMonth() - periodStart.getMonth()) + 1,
-  );
+  const buffer = await buildPdfBuffer(data.users, periodStart, periodEnd);
+  return { buffer, filename: `releve-variable-${periodKey(periodStart)}.pdf` };
+}
 
-  const usersData = await Promise.all(
-    userIds.map((uid) => collectUserData(uid, tenantId, periodStart, periodEnd, monthsInPeriod)),
-  );
+/** ZIP de PDF individuels : un fichier par commercial ayant une part variable. */
+export async function buildPayrollPdfZip(params: {
+  tenantId: string;
+  callerId: string;
+  callerRole: UserRole;
+  periodStart: Date;
+  periodEnd: Date;
+  userIds?: string[];
+}): Promise<{ buffer: Buffer; filename: string }> {
+  const { tenantId, callerId, callerRole, periodStart, periodEnd, userIds } = params;
+  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, userIds);
+  const data = await collectReportData(tenantId, periodStart, periodEnd, users);
 
-  const items: PayrollReportPreviewItem[] = usersData.map((d) => ({
-    userId: d.userId,
-    user: { firstName: d.firstName, lastName: d.lastName, email: d.email },
-    fixedSalaryTotal: d.fixedSalaryTotal,
-    commissionsTotal: d.commissionsTotal,
-    adjustmentsTotal: d.adjustmentsTotal,
-    bonusTotal: d.bonusFromObjectives,
-    netTotal: d.netTotal,
-  }));
+  // On ne génère un relevé que pour les commerciaux ayant un variable non nul.
+  const withVariable = data.users.filter((u) => u.variableTotal !== 0);
+  if (withVariable.length === 0) {
+    throw new AppError(404, 'NO_DATA', 'Aucun élément variable à exporter sur cette période');
+  }
 
-  const grandTotal = items.reduce((s, i) => s + i.netTotal, 0);
+  const period = periodKey(periodStart);
+  const zip = new JSZip();
+  const usedNames = new Set<string>();
 
-  return {
-    periodStart: periodStart.toISOString(),
-    periodEnd: periodEnd.toISOString(),
-    items,
-    grandTotal,
-  };
+  for (const u of withVariable) {
+    const pdf = await buildPdfBuffer([u], periodStart, periodEnd);
+    const base = slug(`${u.user.lastName}-${u.user.firstName}`);
+    let name = `releve-variable-${period}-${base}.pdf`;
+    let n = 2;
+    while (usedNames.has(name)) {
+      name = `releve-variable-${period}-${base}-${n}.pdf`;
+      n += 1;
+    }
+    usedNames.add(name);
+    zip.file(name, pdf);
+  }
+
+  const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+  return { buffer, filename: `releves-variable-${period}.zip` };
+}
+
+function slug(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'collaborateur';
 }

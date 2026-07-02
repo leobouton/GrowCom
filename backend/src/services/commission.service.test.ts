@@ -4,7 +4,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { calculateCommissionAmount } from './commission.service';
+import {
+  calculateCommissionAmount,
+  resolveBasisAmount,
+  computePlanComponentsAmount,
+  resolveEffectiveConfig,
+} from './commission.service';
 import { CommissionRuleType } from '../../../shared/types';
 import type { CommissionRuleConfig } from '../../../shared/types';
 
@@ -205,5 +210,225 @@ describe('calculateCommissionAmount — floor + cap combinés', () => {
   it('plafonne si au-dessus du cap', () => {
     const result = calculateCommissionAmount(100000, config);
     expect(result.amount).toBe(3000);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION F — moteur généralisé (events, forfait/consultant, somme composants)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── Forfait par consultant (PER_UNIT) ────────────────────────────────────────
+
+describe('calculateCommissionAmount — PER_UNIT (forfait par consultant)', () => {
+  const config: CommissionRuleConfig = {
+    type: CommissionRuleType.FIXED,
+    description: '100€ par mois et par consultant placé',
+    fixedAmount: 100,
+    calculationBasis: 'PER_UNIT',
+    examples: [{ saleAmount: 3, commission: 300, explanation: '3 × 100€' }],
+  };
+
+  it('multiplie le forfait par le nombre de consultants', () => {
+    const result = calculateCommissionAmount(3, config);
+    expect(result.amount).toBe(300);
+    expect(result.explanation).toContain('3 consultants');
+  });
+
+  it('retourne le forfait unitaire pour 1 consultant', () => {
+    const result = calculateCommissionAmount(1, config);
+    expect(result.amount).toBe(100);
+    expect(result.explanation).toContain('1 consultant');
+  });
+
+  it('retourne 0 pour 0 consultant', () => {
+    const result = calculateCommissionAmount(0, config);
+    expect(result.amount).toBe(0);
+  });
+
+  it('respecte le cap sur le forfait total', () => {
+    const capped: CommissionRuleConfig = { ...config, cap: 250 };
+    const result = calculateCommissionAmount(3, capped);
+    expect(result.amount).toBe(250);
+    expect(result.explanation).toContain('plafonné');
+  });
+});
+
+// ─── resolveBasisAmount ───────────────────────────────────────────────────────
+
+describe('resolveBasisAmount', () => {
+  it('REVENUE → utilise amount', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: 'CA', rate: 0.1,
+      examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
+    };
+    const { basisAmount, basisLabel } = resolveBasisAmount(config, { amount: 10000 });
+    expect(basisAmount).toBe(10000);
+    expect(basisLabel).toBe('CA');
+  });
+
+  it('MARGIN → utilise marginAmount fourni', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: 'Marge', rate: 0.1, calculationBasis: 'MARGIN',
+      examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
+    };
+    const { basisAmount } = resolveBasisAmount(config, { amount: 10000, marginAmount: 4000 });
+    expect(basisAmount).toBe(4000);
+  });
+
+  it('MARGIN → fallback amount - coût si pas de marge', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: 'Marge', rate: 0.1, calculationBasis: 'MARGIN',
+      examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
+    };
+    const { basisAmount } = resolveBasisAmount(config, { amount: 10000, marginAmount: null, costAmount: 6000 });
+    expect(basisAmount).toBe(4000);
+  });
+
+  it('MARGIN → fallback amount si ni marge ni coût', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: 'Marge', rate: 0.1, calculationBasis: 'MARGIN',
+      examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
+    };
+    const { basisAmount } = resolveBasisAmount(config, { amount: 10000 });
+    expect(basisAmount).toBe(10000);
+  });
+
+  it('PER_UNIT → utilise unitCount', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.FIXED, description: 'Forfait', fixedAmount: 100, calculationBasis: 'PER_UNIT',
+      examples: [{ saleAmount: 1, commission: 100, explanation: 'x' }],
+    };
+    const { basisAmount, basisLabel } = resolveBasisAmount(config, { amount: 0, unitCount: 4 });
+    expect(basisAmount).toBe(4);
+    expect(basisLabel).toBe('consultants');
+  });
+});
+
+// ─── Event mensuel de mission ESN ──────────────────────────────────────────────
+
+describe('moteur sur un event MISSION_MONTH', () => {
+  it('% sur la marge mensuelle d\'une mission', () => {
+    // Mission : 3000€ de marge mensuelle récurrente, règle 5% sur marge
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: '5% marge mensuelle', rate: 0.05, calculationBasis: 'MARGIN',
+      examples: [{ saleAmount: 3000, commission: 150, explanation: 'x' }],
+    };
+    const { basisAmount } = resolveBasisAmount(config, { amount: 8000, marginAmount: 3000 });
+    const result = calculateCommissionAmount(basisAmount, config);
+    expect(result.amount).toBe(150);
+  });
+
+  it('forfait par consultant sur un mois de mission (2 consultants)', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.FIXED, description: '100€/mois/consultant', fixedAmount: 100, calculationBasis: 'PER_UNIT',
+      examples: [{ saleAmount: 2, commission: 200, explanation: 'x' }],
+    };
+    const { basisAmount } = resolveBasisAmount(config, { amount: 8000, unitCount: 2 });
+    const result = calculateCommissionAmount(basisAmount, config);
+    expect(result.amount).toBe(200);
+  });
+});
+
+// ─── Somme des composants d'un plan (agrégation SUM) ───────────────────────────
+
+describe('computePlanComponentsAmount — SUM', () => {
+  const marginRule: CommissionRuleConfig = {
+    type: CommissionRuleType.PERCENTAGE, description: '5% marge', rate: 0.05, calculationBasis: 'MARGIN',
+    examples: [{ saleAmount: 3000, commission: 150, explanation: 'x' }],
+  };
+  const forfaitRule: CommissionRuleConfig = {
+    type: CommissionRuleType.FIXED, description: '100€/consultant', fixedAmount: 100, calculationBasis: 'PER_UNIT',
+    examples: [{ saleAmount: 2, commission: 200, explanation: 'x' }],
+  };
+
+  it('somme deux composants (marge mensuelle + forfait/consultant)', () => {
+    const { total, breakdown } = computePlanComponentsAmount(
+      [marginRule, forfaitRule],
+      { amount: 8000, marginAmount: 3000, unitCount: 2 },
+    );
+    // 5% de 3000 = 150 ; 2 × 100 = 200 ; somme = 350
+    expect(total).toBe(350);
+    expect(breakdown).toHaveLength(2);
+    expect(breakdown[0].amount).toBe(150);
+    expect(breakdown[1].amount).toBe(200);
+  });
+
+  it('applique la part (share) à chaque composant', () => {
+    const { total } = computePlanComponentsAmount(
+      [marginRule, forfaitRule],
+      { amount: 8000, marginAmount: 3000, unitCount: 2 },
+      0.5,
+    );
+    // (150 + 200) × 0.5 = 175
+    expect(total).toBe(175);
+  });
+
+  it('un seul composant = son montant', () => {
+    const { total } = computePlanComponentsAmount([marginRule], { amount: 8000, marginAmount: 3000 });
+    expect(total).toBe(150);
+  });
+});
+
+// ─── resolveEffectiveConfig (template + override) ──────────────────────────────
+
+describe('resolveEffectiveConfig', () => {
+  const base: CommissionRuleConfig = {
+    type: CommissionRuleType.PERCENTAGE,
+    description: '5% du CA',
+    rate: 0.05,
+    examples: [{ saleAmount: 10000, commission: 500, explanation: '5%' }],
+  };
+
+  it('retourne la base si aucun override', () => {
+    expect(resolveEffectiveConfig(base, null)).toBe(base);
+    expect(resolveEffectiveConfig(base, undefined)).toBe(base);
+  });
+
+  it('surcharge le taux (5% → 6% pour un senior)', () => {
+    const effective = resolveEffectiveConfig(base, { rate: 0.06 });
+    expect(effective.rate).toBe(0.06);
+    // Le calcul reflète bien le taux surchargé
+    expect(calculateCommissionAmount(10000, effective).amount).toBe(600);
+  });
+
+  it('ne mute pas la config de base', () => {
+    resolveEffectiveConfig(base, { rate: 0.06 });
+    expect(base.rate).toBe(0.05);
+  });
+
+  it('surcharge cap et floor', () => {
+    const effective = resolveEffectiveConfig(base, { cap: 400, floor: 2000 });
+    expect(effective.cap).toBe(400);
+    expect(effective.floor).toBe(2000);
+    expect(calculateCommissionAmount(10000, effective).amount).toBe(400); // plafonné
+  });
+
+  it('ne remplace que les champs fournis (override partiel)', () => {
+    const effective = resolveEffectiveConfig(base, { cap: 400 });
+    expect(effective.rate).toBe(0.05); // inchangé
+    expect(effective.cap).toBe(400);
+  });
+
+  it('ne surcharge pas les champs sémantiques non surchargeables', () => {
+    // calculationBasis / appliesToEventType ne font pas partie des clés surchargeables
+    const effective = resolveEffectiveConfig(base, {
+      calculationBasis: 'MARGIN',
+      appliesToEventType: 'MISSION_MONTH',
+    } as Partial<CommissionRuleConfig>);
+    expect(effective.calculationBasis).toBeUndefined();
+    expect(effective.appliesToEventType).toBeUndefined();
+  });
+
+  it('surcharge le forfait par consultant (fixedAmount)', () => {
+    const forfait: CommissionRuleConfig = {
+      type: CommissionRuleType.FIXED,
+      description: '100€/consultant',
+      fixedAmount: 100,
+      calculationBasis: 'PER_UNIT',
+      examples: [{ saleAmount: 1, commission: 100, explanation: 'x' }],
+    };
+    const effective = resolveEffectiveConfig(forfait, { fixedAmount: 150 });
+    expect(effective.fixedAmount).toBe(150);
+    expect(calculateCommissionAmount(2, effective).amount).toBe(300); // 2 × 150
   });
 });

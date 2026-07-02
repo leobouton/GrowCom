@@ -6,7 +6,7 @@ import { contestApiService } from '../../services/contest.service';
 import { Card } from '../../components/ui/Card';
 import { Badge, CommissionStatusBadge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import type { CommissionWithDetails, Objective, PublicUser, Contest, ContestLeaderboardEntry, AnonymousLeaderboardResult } from '@shared/types';
+import type { CommissionWithDetails, Objective, PublicUser, Contest, ContestLeaderboardEntry, AnonymousLeaderboardResult, RecurringProjection } from '@shared/types';
 import { ContestMetric } from '@shared/types';
 import type { LeaderboardResponse } from '../../services/contest.service';
 import { format } from 'date-fns';
@@ -121,6 +121,7 @@ interface DashboardData {
   deferredCommissions: DeferredCommission[];
   wonDeals: WonDealSummary[];
   adjustments: AdjustmentItem[];
+  recurring?: RecurringProjection;
 }
 
 function formatEur(amount: number) {
@@ -420,6 +421,7 @@ export function CommercialDashboard() {
   const total = (data?.totalMonthRevenue ?? 0) + totalBonuses;
   const allCommissions = data?.commissions ?? [];
   const wonDeals = data?.wonDeals ?? [];
+  const recurring = data?.recurring;
   // Chantier 4.1 : nombre de commissions PENDING pour les cartes objectifs
   const pendingCommissionCount = allCommissions.filter((c) => c.status === 'PENDING').length;
   const objectives: Objective[] = Array.isArray(user?.objectives) ? (user!.objectives as Objective[]) : [];
@@ -605,6 +607,63 @@ export function CommercialDashboard() {
             <p className="text-xs text-orange-500 mt-0.5">Versé automatiquement à la date prévue</p>
           </div>
         </div>
+      )}
+
+      {/* Récurrent ESN — missions en cours */}
+      {recurring && recurring.activeMissionCount > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+              <span className="text-lg">🔁</span>
+              Revenus récurrents — missions en cours
+            </h2>
+            <div className="text-right">
+              <p className="text-xs text-indigo-600 font-medium">Commission mensuelle</p>
+              <p className="text-xl font-bold text-indigo-700">{formatEur(recurring.monthlyTotal)}<span className="text-sm font-medium text-gray-400"> /mois</span></p>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mb-4">
+            Versé chaque mois tant que la mission est active dans le CRM.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Mission</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Client</th>
+                  <th className="text-right py-3 px-2 font-medium text-gray-500">Consultants</th>
+                  <th className="text-right py-3 px-2 font-medium text-gray-500">Commission / mois</th>
+                  <th className="text-left py-3 px-2 font-medium text-gray-500">Durée restante</th>
+                  <th className="text-right py-3 px-2 font-medium text-gray-500">Projeté restant</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recurring.missions.map((m) => (
+                  <tr key={m.missionId} className="border-b border-gray-50 last:border-0">
+                    <td className="py-3 px-2">
+                      <p className="font-medium text-gray-900 max-w-[200px] truncate">{m.dealTitle}</p>
+                    </td>
+                    <td className="py-3 px-2">
+                      {m.clientName
+                        ? <p className="text-gray-700 text-sm max-w-[150px] truncate">{m.clientName}</p>
+                        : <span className="text-gray-300 text-xs">—</span>}
+                    </td>
+                    <td className="py-3 px-2 text-right text-gray-600">{m.consultantCount}</td>
+                    <td className="py-3 px-2 text-right font-semibold text-indigo-700">{formatEur(m.monthlyCommission)}</td>
+                    <td className="py-3 px-2 text-gray-500 text-xs">
+                      {m.monthsRemaining === null
+                        ? 'En cours (sans terme)'
+                        : `${m.monthsRemaining} mois`}
+                    </td>
+                    <td className="py-3 px-2 text-right text-gray-600">
+                      {m.projectedRemaining !== null ? formatEur(m.projectedRemaining) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       {/* Section commissions différées */}

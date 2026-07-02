@@ -7,11 +7,27 @@ import { AppError } from '../middlewares/errorHandler';
 import { AuthenticatedRequest } from '../middlewares/auth';
 import { AssigneeType, UserRole } from '../../../shared/types';
 
+// Paramètres surchargeables par assignation (template + override).
+const overridesSchema = z
+  .object({
+    rate: z.number().min(0).max(1).optional(),
+    fixedAmount: z.number().min(0).optional(),
+    cap: z.number().min(0).optional(),
+    floor: z.number().min(0).optional(),
+    tiers: z
+      .array(z.object({ min: z.number().min(0), max: z.number().nullable(), rate: z.number().min(0).max(1) }))
+      .optional(),
+  })
+  .strict()
+  .optional()
+  .nullable();
+
 const assignSchema = z.object({
   ruleId: z.string().min(1, 'La règle est requise'),
   assignedToType: z.nativeEnum(AssigneeType),
   userId: z.string().optional().nullable(),
   teamName: z.string().max(100).optional().nullable(),
+  overrides: overridesSchema,
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional().nullable(),
 });
@@ -35,7 +51,7 @@ export const ruleAssignmentController = {
   async assign(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const { ruleId, assignedToType, userId, teamName, startDate, endDate } = assignSchema.parse(req.body);
+      const { ruleId, assignedToType, userId, teamName, overrides, startDate, endDate } = assignSchema.parse(req.body);
 
       const rule = await commissionRuleRepository.findById(ruleId, user.tenantId!);
       if (!rule) throw new AppError(404, 'RULE_NOT_FOUND', 'Règle introuvable');
@@ -59,6 +75,7 @@ export const ruleAssignmentController = {
         assignedToType,
         userId: userId ?? null,
         teamName: teamName ?? null,
+        overrides: overrides ?? null,
         startDate: startDate ? new Date(startDate) : new Date(),
         endDate: endDate ? new Date(endDate) : null,
       });

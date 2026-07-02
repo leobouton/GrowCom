@@ -3,7 +3,13 @@ import { payrollReportService } from '../../services/payrollReport.service';
 import { api } from '../../services/api';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import type { PayrollReportPreview, PublicUser } from '@shared/types';
+import { useAuth } from '../../hooks/useAuth';
+import type {
+  PayrollReportPreview,
+  PayrollReportPreviewItem,
+  PayrollExcludedCommission,
+  PublicUser,
+} from '@shared/types';
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -30,8 +36,14 @@ function formatEur(amount: number) {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
 }
 
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
 export function ReportsPage() {
   const now = new Date();
+  const { isManager, isSuperAdmin } = useAuth();
+  const canLock = isManager || isSuperAdmin;
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
@@ -45,6 +57,17 @@ export function ReportsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Nouveautés : drill-down, exclusions, exports, verrouillage
+  const [hideZero, setHideZero] = useState(false);
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [exportingFormat, setExportingFormat] = useState<string | null>(null);
+  const [showActions, setShowActions] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [confirmLock, setConfirmLock] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
+
+  const locked = preview?.locked ?? null;
 
   const yearOptions = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2];
 
@@ -72,6 +95,9 @@ export function ReportsPage() {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setShowDropdown(false);
       }
+      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
+        setShowActions(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -92,17 +118,64 @@ export function ReportsPage() {
     }
   }, [year, month, selectedUserIds]);
 
+  const selectedIds = () => (selectedUserIds.size > 0 ? Array.from(selectedUserIds) : undefined);
+
   const handleDownload = async () => {
     setPdfLoading(true);
     setError(null);
+    setShowActions(false);
     try {
-      const ids = selectedUserIds.size > 0 ? Array.from(selectedUserIds) : undefined;
-      await payrollReportService.downloadPdf(year, month, ids);
+      await payrollReportService.downloadPdf(year, month, selectedIds());
     } catch (err: unknown) {
       const e = err as { message?: string };
       setError(e?.message ?? 'Impossible de télécharger le PDF.');
     } finally {
       setPdfLoading(false);
+    }
+  };
+
+  const handleExport = async (format: 'csv' | 'xlsx') => {
+    setExportingFormat(format);
+    setError(null);
+    setShowActions(false);
+    try {
+      await payrollReportService.downloadExport(year, month, format, selectedIds());
+    } catch {
+      setError(`Impossible d'exporter le fichier ${format.toUpperCase()}.`);
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
+  const handleZip = async () => {
+    setExportingFormat('zip');
+    setError(null);
+    setShowActions(false);
+    try {
+      await payrollReportService.downloadPdfZip(year, month, selectedIds());
+    } catch {
+      setError('Impossible de générer les PDF individuels.');
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setError(null);
+    try {
+      await payrollReportService.generate(year, month);
+      setConfirmLock(false);
+      await handlePreview(); // recharge → la période apparaît verrouillée
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string; error?: { message?: string } } } };
+      setError(
+        e?.response?.data?.error?.message ??
+          e?.response?.data?.message ??
+          'Impossible de figer la période.',
+      );
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -181,26 +254,72 @@ export function ReportsPage() {
   const totalBonus = preview?.items.reduce((s, i) => s + i.bonusTotal, 0) ?? 0;
   const totalAdj = preview?.items.reduce((s, i) => s + i.adjustmentsTotal, 0) ?? 0;
 
+  const visibleItems = (preview?.items ?? []).filter((i) => !hideZero || i.variableTotal !== 0);
+  const zeroCount = (preview?.items ?? []).filter((i) => i.variableTotal === 0).length;
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Rapports de paie</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Rapport de paie</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Synthèse des rémunérations — {MONTHS[month - 1]} {year}
+            Éléments variables bruts — {MONTHS[month - 1]} {year}
           </p>
         </div>
-        <Button
-          loading={pdfLoading}
-          onClick={() => void handleDownload()}
-          disabled={!preview || preview.items.length === 0}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
-          Télécharger le PDF
-        </Button>
+
+        <div className="flex items-center gap-2">
+          {locked && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold border border-amber-200">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Verrouillé le {formatDate(locked.lockedAt)}
+            </span>
+          )}
+
+          {/* Menu Export / Téléchargement */}
+          <div ref={actionsRef} className="relative">
+            <Button
+              variant="secondary"
+              onClick={() => setShowActions((v) => !v)}
+              disabled={!preview || preview.items.length === 0}
+              loading={pdfLoading || exportingFormat !== null}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Exporter
+              <svg className={`w-3.5 h-3.5 transition-transform ${showActions ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </Button>
+            {showActions && (
+              <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-50 py-1.5">
+                <p className="px-3 py-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Fichier paie</p>
+                <ActionItem label="Export CSV" hint="email, nom, montants variables" onClick={() => void handleExport('csv')} />
+                <ActionItem label="Export Excel (XLSX)" hint="réimportable dans la paie" onClick={() => void handleExport('xlsx')} />
+                <div className="my-1 border-t border-gray-100" />
+                <p className="px-3 py-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Relevés PDF</p>
+                <ActionItem label="PDF combiné" hint="un document, une page / personne" onClick={() => void handleDownload()} />
+                <ActionItem label="PDF individuels (ZIP)" hint="un fichier par commercial" onClick={() => void handleZip()} />
+              </div>
+            )}
+          </div>
+
+          {/* Verrouillage */}
+          {canLock && !locked && (
+            <Button
+              onClick={() => setConfirmLock(true)}
+              disabled={!preview || preview.variableGrandTotal === 0}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Générer et figer
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filtres */}
@@ -545,6 +664,23 @@ export function ReportsPage() {
             </Card>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              {/* Barre d'outils du tableau */}
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50/40">
+                <p className="text-xs text-gray-500">
+                  Cliquez sur une ligne pour voir le détail (commissions et ajustements).
+                </p>
+                {zeroCount > 0 && (
+                  <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={hideZero}
+                      onChange={(e) => setHideZero(e.target.checked)}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    Masquer les {zeroCount} commercial{zeroCount > 1 ? 'aux' : ''} à 0
+                  </label>
+                )}
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -554,61 +690,36 @@ export function ReportsPage() {
                       <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wider">Commissions</th>
                       <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wider">Primes</th>
                       <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wider">Ajustements</th>
+                      <th className="text-right py-3 px-4 font-semibold text-primary-700 text-xs uppercase tracking-wider">Variable (paie)</th>
                       <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wider">Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {preview.items.map((item) => (
-                      <tr key={item.userId} className="hover:bg-gray-50/60 transition-colors">
-                        <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
-                              {item.user.firstName[0]}{item.user.lastName[0]}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-medium text-gray-900 truncate">{item.user.firstName} {item.user.lastName}</p>
-                              <p className="text-xs text-gray-400 truncate">{item.user.email}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-4 text-right text-gray-700 tabular-nums font-medium">
-                          {formatEur(item.fixedSalaryTotal)}
-                        </td>
-                        <td className="py-3.5 px-4 text-right tabular-nums">
-                          <span className={item.commissionsTotal > 0 ? 'text-green-700 font-medium' : 'text-gray-300'}>
-                            {item.commissionsTotal > 0 ? formatEur(item.commissionsTotal) : '—'}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-right tabular-nums">
-                          <span className={item.bonusTotal > 0 ? 'text-blue-700 font-medium' : 'text-gray-300'}>
-                            {item.bonusTotal > 0 ? formatEur(item.bonusTotal) : '—'}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-right tabular-nums">
-                          {item.adjustmentsTotal !== 0 ? (
-                            <span className={item.adjustmentsTotal < 0 ? 'text-red-600 font-medium' : 'text-blue-700 font-medium'}>
-                              {item.adjustmentsTotal > 0 ? '+' : ''}{formatEur(item.adjustmentsTotal)}
-                            </span>
-                          ) : (
-                            <span className="text-gray-300">—</span>
-                          )}
-                        </td>
-                        <td className="py-3.5 px-4 text-right">
-                          <span className="font-bold text-gray-900 tabular-nums">{formatEur(item.netTotal)}</span>
-                        </td>
-                      </tr>
-                    ))}
+                    {visibleItems.map((item) => {
+                      const expanded = expandedUserId === item.userId;
+                      const hasDetail = item.commissions.length > 0 || item.adjustments.length > 0;
+                      return (
+                        <PayrollRow
+                          key={item.userId}
+                          item={item}
+                          expanded={expanded}
+                          hasDetail={hasDetail}
+                          onToggle={() => setExpandedUserId(expanded ? null : item.userId)}
+                        />
+                      );
+                    })}
                   </tbody>
-                  {preview.items.length > 1 && (
+                  {visibleItems.length > 1 && (
                     <tfoot>
                       <tr className="border-t-2 border-gray-200 bg-gray-50/80 font-semibold">
                         <td className="py-3.5 px-4 text-gray-700 text-xs uppercase tracking-wider">
-                          Total ({preview.items.length})
+                          Total ({visibleItems.length})
                         </td>
                         <td className="py-3.5 px-4 text-right text-gray-700 tabular-nums">{formatEur(totalFixed)}</td>
                         <td className="py-3.5 px-4 text-right text-green-700 tabular-nums">{formatEur(totalCommissions)}</td>
                         <td className="py-3.5 px-4 text-right text-blue-700 tabular-nums">{formatEur(totalBonus)}</td>
                         <td className="py-3.5 px-4 text-right tabular-nums">{formatEur(totalAdj)}</td>
+                        <td className="py-3.5 px-4 text-right text-primary-700 tabular-nums">{formatEur(preview.variableGrandTotal)}</td>
                         <td className="py-3.5 px-4 text-right text-gray-900 tabular-nums">{formatEur(preview.grandTotal)}</td>
                       </tr>
                     </tfoot>
@@ -617,8 +728,306 @@ export function ReportsPage() {
               </div>
             </div>
           )}
+
+          {/* Section "exclu de cette paie" */}
+          {preview.excluded.length > 0 && <ExcludedSection excluded={preview.excluded} />}
         </div>
       )}
+
+      {/* Modale de confirmation du verrouillage */}
+      {confirmLock && preview && (
+        <ConfirmLockModal
+          period={`${MONTHS[month - 1]} ${year}`}
+          variableTotal={preview.variableGrandTotal}
+          userCount={preview.items.filter((i) => i.variableTotal !== 0).length}
+          loading={generating}
+          onCancel={() => setConfirmLock(false)}
+          onConfirm={() => void handleGenerate()}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Ligne de commercial avec drill-down ──────────────────────
+
+function PayrollRow({
+  item,
+  expanded,
+  hasDetail,
+  onToggle,
+}: {
+  item: PayrollReportPreviewItem;
+  expanded: boolean;
+  hasDetail: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <tr
+        className={`transition-colors ${hasDetail ? 'cursor-pointer hover:bg-gray-50/60' : ''} ${expanded ? 'bg-primary-50/40' : ''}`}
+        onClick={hasDetail ? onToggle : undefined}
+      >
+        <td className="py-3.5 px-4">
+          <div className="flex items-center gap-2.5">
+            {hasDetail ? (
+              <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            ) : (
+              <span className="w-3.5 h-3.5 flex-shrink-0" />
+            )}
+            <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
+              {item.user.firstName[0]}{item.user.lastName[0]}
+            </div>
+            <div className="min-w-0">
+              <p className="font-medium text-gray-900 truncate">{item.user.firstName} {item.user.lastName}</p>
+              <p className="text-xs text-gray-400 truncate">{item.user.email}</p>
+            </div>
+          </div>
+        </td>
+        <td className="py-3.5 px-4 text-right text-gray-700 tabular-nums font-medium">{formatEur(item.fixedSalaryTotal)}</td>
+        <td className="py-3.5 px-4 text-right tabular-nums">
+          <span className={item.commissionsTotal > 0 ? 'text-green-700 font-medium' : 'text-gray-300'}>
+            {item.commissionsTotal > 0 ? formatEur(item.commissionsTotal) : '—'}
+          </span>
+        </td>
+        <td className="py-3.5 px-4 text-right tabular-nums">
+          <span className={item.bonusTotal > 0 ? 'text-blue-700 font-medium' : 'text-gray-300'}>
+            {item.bonusTotal > 0 ? formatEur(item.bonusTotal) : '—'}
+          </span>
+        </td>
+        <td className="py-3.5 px-4 text-right tabular-nums">
+          {item.adjustmentsTotal !== 0 ? (
+            <span className={item.adjustmentsTotal < 0 ? 'text-red-600 font-medium' : 'text-blue-700 font-medium'}>
+              {item.adjustmentsTotal > 0 ? '+' : ''}{formatEur(item.adjustmentsTotal)}
+            </span>
+          ) : (
+            <span className="text-gray-300">—</span>
+          )}
+        </td>
+        <td className="py-3.5 px-4 text-right tabular-nums">
+          <span className={`font-semibold ${item.variableTotal < 0 ? 'text-red-600' : item.variableTotal > 0 ? 'text-primary-700' : 'text-gray-300'}`}>
+            {item.variableTotal !== 0 ? formatEur(item.variableTotal) : '—'}
+          </span>
+        </td>
+        <td className="py-3.5 px-4 text-right">
+          <span className="font-bold text-gray-900 tabular-nums">{formatEur(item.netTotal)}</span>
+        </td>
+      </tr>
+
+      {expanded && hasDetail && (
+        <tr className="bg-primary-50/20">
+          <td colSpan={7} className="px-4 py-4">
+            <DrillDown item={item} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function DrillDown({ item }: { item: PayrollReportPreviewItem }) {
+  return (
+    <div className="space-y-4 pl-6">
+      {item.commissions.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+            Commissions incluses ({item.commissions.length})
+          </p>
+          <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50 text-gray-500">
+                  <th className="text-left py-2 px-3 font-medium">Deal</th>
+                  <th className="text-left py-2 px-3 font-medium">Client</th>
+                  <th className="text-left py-2 px-3 font-medium">Règle</th>
+                  <th className="text-right py-2 px-3 font-medium">Vente</th>
+                  <th className="text-right py-2 px-3 font-medium">Commission</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {item.commissions.map((c) => (
+                  <tr key={c.commissionId}>
+                    <td className="py-2 px-3 text-gray-900 font-medium">{c.dealTitle}</td>
+                    <td className="py-2 px-3 text-gray-500">{c.clientName ?? '—'}</td>
+                    <td className="py-2 px-3 text-gray-500">{c.ruleName}</td>
+                    <td className="py-2 px-3 text-right text-gray-500 tabular-nums">{formatEur(c.dealAmount)}</td>
+                    <td className="py-2 px-3 text-right text-green-700 font-semibold tabular-nums">{formatEur(c.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {item.adjustments.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+            Ajustements / Régularisations ({item.adjustments.length})
+          </p>
+          <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50 text-gray-500">
+                  <th className="text-left py-2 px-3 font-medium">Date</th>
+                  <th className="text-left py-2 px-3 font-medium">Motif</th>
+                  <th className="text-right py-2 px-3 font-medium">Montant</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {item.adjustments.map((a) => (
+                  <tr key={a.adjustmentId}>
+                    <td className="py-2 px-3 text-gray-500 tabular-nums">{formatDate(a.createdAt)}</td>
+                    <td className="py-2 px-3 text-gray-900">{a.reason}</td>
+                    <td className={`py-2 px-3 text-right font-semibold tabular-nums ${a.amount < 0 ? 'text-red-600' : 'text-blue-700'}`}>
+                      {a.amount > 0 ? '+' : ''}{formatEur(a.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {item.bonusTotal > 0 && item.commissions.length === 0 && item.adjustments.length === 0 && (
+        <p className="text-xs text-gray-500">
+          Prime d'objectifs sur la période : <span className="font-semibold text-blue-700">{formatEur(item.bonusTotal)}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Section des commissions exclues ──────────────────────────
+
+const EXCLUSION_STYLES: Record<string, { bg: string; text: string }> = {
+  PENDING: { bg: 'bg-gray-100', text: 'text-gray-600' },
+  AWAITING_CLIENT_PAYMENT: { bg: 'bg-amber-50', text: 'text-amber-700' },
+  DISPUTED: { bg: 'bg-red-50', text: 'text-red-700' },
+};
+
+function ExcludedSection({ excluded }: { excluded: PayrollExcludedCommission[] }) {
+  const total = excluded.reduce((s, e) => s + e.amount, 0);
+  return (
+    <div className="bg-white rounded-xl border border-amber-200 overflow-hidden">
+      <div className="px-4 py-3 bg-amber-50/60 border-b border-amber-100 flex items-center gap-2">
+        <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5.07 19H19a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.26 16a2 2 0 001.74 3z" />
+        </svg>
+        <div>
+          <p className="text-sm font-semibold text-amber-800">Exclu de cette paie ({excluded.length})</p>
+          <p className="text-xs text-amber-700/80">
+            Ces commissions ne partent pas à la paie ({formatEur(total)} au total) — visibles pour transparence.
+          </p>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50/60 text-gray-500 text-xs uppercase tracking-wider">
+              <th className="text-left py-2.5 px-4 font-semibold">Commercial</th>
+              <th className="text-left py-2.5 px-4 font-semibold">Deal / Client</th>
+              <th className="text-right py-2.5 px-4 font-semibold">Montant</th>
+              <th className="text-left py-2.5 px-4 font-semibold">Raison</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {excluded.map((e) => {
+              const style = EXCLUSION_STYLES[e.reason] ?? EXCLUSION_STYLES.PENDING;
+              return (
+                <tr key={e.commissionId} className="hover:bg-gray-50/40">
+                  <td className="py-2.5 px-4 text-gray-700">{e.user.firstName} {e.user.lastName}</td>
+                  <td className="py-2.5 px-4">
+                    <span className="text-gray-900">{e.dealTitle}</span>
+                    {e.clientName && <span className="text-gray-400"> — {e.clientName}</span>}
+                  </td>
+                  <td className="py-2.5 px-4 text-right text-gray-600 tabular-nums">{formatEur(e.amount)}</td>
+                  <td className="py-2.5 px-4">
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}>
+                      {e.reasonLabel}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Menu d'action (item) ─────────────────────────────────────
+
+function ActionItem({ label, hint, onClick }: { label: string; hint: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors"
+    >
+      <p className="text-sm font-medium text-gray-800">{label}</p>
+      <p className="text-xs text-gray-400">{hint}</p>
+    </button>
+  );
+}
+
+// ─── Modale de confirmation du verrouillage ───────────────────
+
+function ConfirmLockModal({
+  period,
+  variableTotal,
+  userCount,
+  loading,
+  onCancel,
+  onConfirm,
+}: {
+  period: string;
+  variableTotal: number;
+  userCount: number;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">Figer la période {period} ?</h3>
+            <p className="text-xs text-gray-500">Cette action est définitive</p>
+          </div>
+        </div>
+
+        <div className="bg-gray-50 rounded-xl p-4 mb-4 space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-500">Total variable brut</span>
+            <span className="font-bold text-primary-700 tabular-nums">{formatEur(variableTotal)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Commerciaux concernés</span>
+            <span className="font-medium text-gray-800">{userCount}</span>
+          </div>
+        </div>
+
+        <ul className="text-xs text-gray-500 space-y-1.5 mb-5 list-disc pl-4">
+          <li>Les commissions incluses passeront au statut <strong>PAYÉ</strong>.</li>
+          <li>Un recalcul ultérieur ne modifiera plus cette période (régularisation sur le mois suivant).</li>
+          <li>La période deviendra <strong>en lecture seule</strong>.</li>
+        </ul>
+
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={onCancel} disabled={loading}>Annuler</Button>
+          <Button onClick={onConfirm} loading={loading}>Confirmer et figer</Button>
+        </div>
+      </div>
     </div>
   );
 }

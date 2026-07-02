@@ -108,6 +108,33 @@ enum ImportSource {
   XLSX
 }
 
+// --- Plan de variable (Session F) ---
+
+enum VariablePlanAggregation {
+  SUM
+}
+
+enum PlanComponentKind {
+  COMMISSION_RULE
+  OBJECTIVE
+}
+
+enum CommissionEventType {
+  DEAL_WON
+  MISSION_MONTH
+  MANUAL
+}
+
+enum MissionType {
+  MARGIN_MENSUELLE
+  FORFAIT_PAR_CONSULTANT
+}
+
+enum MissionStatus {
+  ACTIVE
+  ENDED
+}
+
 // --- Models ---
 
 model Tenant {
@@ -141,6 +168,12 @@ model Tenant {
   objectiveSnapshots    ObjectiveSnapshot[]
   commissionAdjustments CommissionAdjustment[]
   commissionDisputes    CommissionDispute[]
+  payrollPeriods        PayrollPeriod[]
+  variablePlans         VariablePlan[]
+  planComponents        PlanComponent[]
+  planAssignments       PlanAssignment[]
+  missions              Mission[]
+  commissionableEvents  CommissionableEvent[]
 
   @@index([status])
   @@index([slug])
@@ -200,6 +233,9 @@ model User {
   objectiveSnapshots    ObjectiveSnapshot[]
   commissionAdjustments CommissionAdjustment[]
   raisedDisputes        CommissionDispute[]    @relation("DisputeRaiser")
+  planAssignments       PlanAssignment[]
+  missions              Mission[]
+  commissionableEvents  CommissionableEvent[]
 
   @@index([tenantId])
   @@index([email])
@@ -241,6 +277,7 @@ model CommissionRule {
   creator     User             @relation("CreatedByUser", fields: [createdBy], references: [id])
   commissions Commission[]
   assignments RuleAssignment[]
+  planComponents PlanComponent[]
 
   @@index([tenantId])
   @@index([tenantId, isArchived])
@@ -253,6 +290,7 @@ model RuleAssignment {
   assignedToType AssigneeType
   userId         String?
   teamName       String?
+  overrides      Json?        // Session F — Partial<CommissionRuleConfig> surchargé par assignation (template + override)
   startDate      DateTime     @default(now())
   endDate        DateTime?
   isActive       Boolean      @default(true)
@@ -298,6 +336,8 @@ model Deal {
   importLog   ImportLog?       @relation(fields: [importLogId], references: [id], onDelete: SetNull)
   importBatch ImportBatch?     @relation("ImportBatchDeals", fields: [importBatchId], references: [id], onDelete: SetNull)
   assignments DealAssignment[]
+  missions             Mission[]
+  commissionableEvents CommissionableEvent[]
 
   @@unique([tenantId, odooId])
   @@unique([tenantId, hubspotId])
@@ -328,14 +368,23 @@ model Commission {
   awaitingClientPayment Boolean         @default(false)
   clientPaidAt         DateTime?
   clientPaidBy         String?          // userId du manager qui a marqué le paiement client
+  // Session F — Plan de variable / récurrent ESN.
+  // periodMonth = 1er jour du mois de rattachement pour les commissions de mission ;
+  // pour un deal WON (one-shot), valeur sentinelle 1970-01-01 (défaut BDD) afin de
+  // garder une contrainte unique fiable sans NULL.
+  eventId              String?          // CommissionableEvent source (audit/idempotence)
+  missionId            String?          // Mission source si commission récurrente
+  periodMonth          DateTime         @default(dbgenerated("'1970-01-01 00:00:00'::timestamp"))
 
   tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   deal     Deal           @relation(fields: [dealId], references: [id], onDelete: Cascade)
   rule     CommissionRule @relation(fields: [ruleId], references: [id])
   disputes CommissionDispute[]
+  event    CommissionableEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  mission  Mission?             @relation(fields: [missionId], references: [id], onDelete: SetNull)
 
-  @@unique([dealId, userId, ruleId])
+  @@unique([dealId, userId, ruleId, periodMonth])
   @@index([tenantId])
   @@index([userId])
   @@index([tenantId, status])
@@ -435,6 +484,27 @@ model ImportBatch {
   @@index([importedBy])
 }
 
+/// Verrouillage d'une période de paie : une fois figée, les éléments variables
+/// transmis à la paie ne doivent plus être modifiés par un recalcul rétroactif.
+/// On n'enregistre que les périodes effectivement verrouillées (status LOCKED).
+model PayrollPeriod {
+  id          String   @id @default(cuid())
+  tenantId    String
+  periodStart DateTime
+  periodEnd   DateTime
+  status      String   @default("LOCKED") // LOCKED (réservé pour évolutions futures : DRAFT, CANCELLED)
+  generatedAt DateTime @default(now())
+  generatedBy String                       // userId du manager ayant figé la période (référence souple)
+  totalAmount Float                         // total variable BRUT figé (commissions + ajustements + primes)
+  userCount   Int                           // nombre de commerciaux concernés
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, periodStart, periodEnd])
+  @@index([tenantId])
+  @@index([generatedAt])
+}
+
 model AuditLog {
   id        String   @id @default(cuid())
   tenantId  String
@@ -513,4 +583,142 @@ model CommissionDispute {
   @@index([commissionId])
   @@index([raisedBy])
   @@index([status])
+}
+
+// ============================================================
+// SESSION F — Plan de variable + récurrent ESN
+// ============================================================
+
+/// Conteneur agrégeant les composants de rémunération variable d'un commercial
+/// (règles de commission + objectifs). Peut être un template partageable.
+/// Les concours (Contest) restent totalement séparés.
+model VariablePlan {
+  id          String                  @id @default(cuid())
+  tenantId    String
+  name        String
+  description String                  @default("")
+  isTemplate  Boolean                 @default(false)
+  aggregation VariablePlanAggregation @default(SUM)
+  isActive    Boolean                 @default(true)
+  createdBy   String
+  createdAt   DateTime                @default(now())
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  components  PlanComponent[]
+  assignments PlanAssignment[]
+
+  @@index([tenantId])
+}
+
+/// Un composant d'un plan = une règle de commission OU un objectif.
+/// Pour les objectifs, la config est un snapshot JSON (les objectifs restent
+/// aujourd'hui la propriété de vérité dans User.objectives).
+model PlanComponent {
+  id                 String              @id @default(cuid())
+  tenantId           String
+  planId             String
+  kind               PlanComponentKind
+  ruleId             String?             // si kind = COMMISSION_RULE
+  objectiveConfig    Json?               // si kind = OBJECTIVE
+  appliesToEventType CommissionEventType @default(DEAL_WON)
+  sortOrder          Int                 @default(0)
+  createdAt          DateTime            @default(now())
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   VariablePlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  rule   CommissionRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([planId])
+  @@index([ruleId])
+}
+
+/// Assignation d'un plan à tous / une personne / une équipe.
+/// `overrides` porte les paramètres surchargeables par personne
+/// (ex: { "<componentId>": { "rate": 0.06 } }) — pattern template + override, pas de fork.
+model PlanAssignment {
+  id             String       @id @default(cuid())
+  tenantId       String
+  planId         String
+  assignedToType AssigneeType
+  userId         String?
+  teamName       String?
+  overrides      Json?
+  startDate      DateTime     @default(now())
+  endDate        DateTime?
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   VariablePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  user   User?        @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([planId])
+  @@index([userId])
+}
+
+/// Miroir enrichi d'une mission/abonnement récurrent du CRM, lié à un Deal.
+/// Tous les champs sont peuplés par le sync CRM (jamais de saisie manuelle).
+model Mission {
+  id              String        @id @default(cuid())
+  tenantId        String
+  dealId          String
+  userId          String?
+  type            MissionType
+  monthlyAmount   Float         @default(0) // marge mensuelle récurrente OU forfait mensuel
+  consultantCount Int           @default(1) // nb consultants placés
+  startDate       DateTime
+  expectedEndDate DateTime?                  // null = jusqu'à arrêt côté CRM
+  status          MissionStatus @default(ACTIVE)
+  source          DealSource    @default(ODOO)
+  odooId          String?       // identifiant de l'objet récurrent CRM (source ODOO)
+  hubspotId       String?       // identifiant de l'objet récurrent CRM (source HUBSPOT)
+  marginAmount    Float?
+  marginSource    String?       // 'ODOO' | 'HUBSPOT' | 'COMPUTED' | null
+  syncedAt        DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+
+  tenant Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deal   Deal                  @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  user   User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  events CommissionableEvent[]
+  commissions Commission[]
+
+  @@unique([tenantId, odooId])
+  @@unique([tenantId, hubspotId])
+  @@index([tenantId])
+  @@index([dealId])
+  @@index([userId])
+  @@index([tenantId, status])
+}
+
+/// Unité de calcul du moteur. Un deal WON génère 1 event ;
+/// une mission ACTIVE génère 1 event par mois (idempotent sur [missionId, periodMonth]).
+model CommissionableEvent {
+  id           String              @id @default(cuid())
+  tenantId     String
+  type         CommissionEventType
+  dealId       String?
+  missionId    String?
+  userId       String
+  periodMonth  DateTime?           // 1er jour du mois pour MISSION_MONTH
+  amount       Float               @default(0) // base CA/revenu
+  marginAmount Float?
+  unitCount    Int?                            // nb consultants (forfait)
+  marginSource String?
+  occurredAt   DateTime            @default(now())
+  createdAt    DateTime            @default(now())
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deal        Deal?        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  mission     Mission?     @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  commissions Commission[]
+
+  @@unique([missionId, periodMonth])
+  @@index([tenantId])
+  @@index([dealId])
+  @@index([missionId])
+  @@index([userId])
 }

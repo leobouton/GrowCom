@@ -27,6 +27,8 @@ import objectiveSnapshotRoutes from './routes/objectiveSnapshot.routes';
 import commissionDisputeRoutes from './routes/commissionDispute.routes';
 import payrollReportRoutes from './routes/payrollReport.routes';
 import importBatchRoutes from './routes/importBatch.routes';
+import variablePlanRoutes from './routes/variablePlan.routes';
+import missionRoutes from './routes/mission.routes';
 
 const app = express();
 
@@ -82,6 +84,8 @@ app.use('/api/objective-snapshots', objectiveSnapshotRoutes);
 app.use('/api/disputes', commissionDisputeRoutes);
 app.use('/api/reports/payroll', payrollReportRoutes);
 app.use('/api/imports', importBatchRoutes);
+app.use('/api/variable-plans', variablePlanRoutes);
+app.use('/api/missions', missionRoutes);
 
 // ─── Gestion des erreurs ─────────────────────────────────────
 app.use(notFoundHandler);

@@ -1,10 +1,58 @@
-import { Commission, CommissionStatus } from '@prisma/client';
+import { Commission, CommissionStatus, Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
+
+/**
+ * Valeur sentinelle de periodMonth pour les commissions one-shot (deal WON).
+ * Permet une contrainte unique (dealId, userId, ruleId, periodMonth) fiable sans NULL.
+ * Les commissions de mission portent leur vrai 1er jour de mois.
+ */
+export const PERIOD_MONTH_SENTINEL = new Date('1970-01-01T00:00:00.000Z');
 
 export interface CommissionWithRelations extends Commission {
   deal: { title: string; clientName: string | null; amount: number; status: string; closedAt: Date | null };
   rule: { name: string; config: unknown; paymentDelayDays: number | null };
   user: { firstName: string; lastName: string; email: string };
+}
+
+export interface PayrollCommissionRow extends Commission {
+  deal: { title: string; clientName: string | null; amount: number };
+  rule: { name: string };
+  user: { firstName: string; lastName: string; email: string };
+  disputes: { id: string }[];
+}
+
+/**
+ * Règles d'inclusion d'une commission dans une période de paie P (strictes) :
+ *   1. status === VALIDATED
+ *   2. condition de paiement levée : awaitingClientPayment === false OU clientPaidAt !== null
+ *   3. date de rattachement (scheduledPaymentAt, fallback validatedAt) dans P
+ *   4. aucun litige au statut OPEN
+ *
+ * Exporté pour être réutilisé à l'identique par la requête de lecture ET par
+ * le verrouillage (updateMany VALIDATED → PAID), afin qu'on fige exactement ce
+ * qui a été prévisualisé.
+ */
+export function buildPayrollIncludedWhere(
+  userIds: string[],
+  tenantId: string,
+  periodStart: Date,
+  periodEnd: Date,
+): Prisma.CommissionWhereInput {
+  return {
+    tenantId,
+    userId: { in: userIds },
+    status: CommissionStatus.VALIDATED,
+    AND: [
+      { OR: [{ awaitingClientPayment: false }, { clientPaidAt: { not: null } }] },
+      {
+        OR: [
+          { scheduledPaymentAt: { gte: periodStart, lte: periodEnd } },
+          { scheduledPaymentAt: null, validatedAt: { gte: periodStart, lte: periodEnd } },
+        ],
+      },
+      { disputes: { none: { status: 'OPEN' } } },
+    ],
+  };
 }
 
 export const commissionRepository = {
@@ -214,7 +262,11 @@ export const commissionRepository = {
     awaitingClientPayment?: boolean,
   ): Promise<Commission> {
     return prisma.commission.upsert({
-      where: { dealId_userId_ruleId: { dealId, userId, ruleId } },
+      where: {
+        dealId_userId_ruleId_periodMonth: {
+          dealId, userId, ruleId, periodMonth: PERIOD_MONTH_SENTINEL,
+        },
+      },
       update: {
         amount,
         calculatedAt: new Date(),
@@ -224,9 +276,45 @@ export const commissionRepository = {
       },
       create: {
         tenantId, userId, dealId, ruleId, amount,
+        periodMonth: PERIOD_MONTH_SENTINEL,
         calculationDetail: calculationDetail ?? null,
         scheduledPaymentAt: scheduledPaymentAt ?? null,
         awaitingClientPayment: awaitingClientPayment ?? false,
+      },
+    });
+  },
+
+  /**
+   * Upsert idempotent d'une commission de mission pour un mois donné.
+   * Clé unique (dealId, userId, ruleId, periodMonth) → jamais deux commissions
+   * pour le même (mission, mois, règle). Ne touche pas au statut d'une commission
+   * déjà validée/payée (met seulement à jour le montant et le détail de calcul).
+   */
+  async upsertForMissionMonth(params: {
+    tenantId: string;
+    userId: string;
+    dealId: string;
+    ruleId: string;
+    missionId: string;
+    eventId: string;
+    periodMonth: Date;
+    amount: number;
+    calculationDetail: string;
+  }): Promise<Commission> {
+    const { tenantId, userId, dealId, ruleId, missionId, eventId, periodMonth, amount, calculationDetail } = params;
+    return prisma.commission.upsert({
+      where: {
+        dealId_userId_ruleId_periodMonth: { dealId, userId, ruleId, periodMonth },
+      },
+      update: {
+        amount,
+        calculationDetail,
+        calculatedAt: new Date(),
+        eventId,
+        missionId,
+      },
+      create: {
+        tenantId, userId, dealId, ruleId, missionId, eventId, periodMonth, amount, calculationDetail,
       },
     });
   },
@@ -279,10 +367,99 @@ export const commissionRepository = {
     });
   },
 
+  /**
+   * Commissions INCLUSES dans la paie de la période (règles strictes).
+   * Utilisé pour construire le rapport et le total variable.
+   */
+  async findPayrollIncluded(
+    userIds: string[],
+    tenantId: string,
+    periodStart: Date,
+    periodEnd: Date,
+  ): Promise<PayrollCommissionRow[]> {
+    if (userIds.length === 0) return [];
+    return prisma.commission.findMany({
+      where: buildPayrollIncludedWhere(userIds, tenantId, periodStart, periodEnd),
+      include: {
+        deal: { select: { title: true, clientName: true, amount: true } },
+        rule: { select: { name: true } },
+        user: { select: { firstName: true, lastName: true, email: true } },
+        disputes: { where: { status: 'OPEN' }, select: { id: true } },
+      },
+      orderBy: { scheduledPaymentAt: 'asc' },
+    }) as Promise<PayrollCommissionRow[]>;
+  },
+
+  /**
+   * Commissions présentes sur la période mais EXCLUES de la paie, pour transparence :
+   * - PENDING (calculées/planifiées sur la période, non encore validées)
+   * - VALIDATED mais en attente de paiement client
+   * - en litige OPEN
+   * On sur-fetch (date sur scheduledPaymentAt / validatedAt / calculatedAt) puis le
+   * service classe précisément la raison d'exclusion.
+   */
+  async findPayrollExcludedCandidates(
+    userIds: string[],
+    tenantId: string,
+    periodStart: Date,
+    periodEnd: Date,
+  ): Promise<PayrollCommissionRow[]> {
+    if (userIds.length === 0) return [];
+    return prisma.commission.findMany({
+      where: {
+        tenantId,
+        userId: { in: userIds },
+        status: { in: [CommissionStatus.PENDING, CommissionStatus.VALIDATED] },
+        OR: [
+          { scheduledPaymentAt: { gte: periodStart, lte: periodEnd } },
+          { validatedAt: { gte: periodStart, lte: periodEnd } },
+          { calculatedAt: { gte: periodStart, lte: periodEnd } },
+        ],
+      },
+      include: {
+        deal: { select: { title: true, clientName: true, amount: true } },
+        rule: { select: { name: true } },
+        user: { select: { firstName: true, lastName: true, email: true } },
+        disputes: { where: { status: 'OPEN' }, select: { id: true } },
+      },
+      orderBy: { calculatedAt: 'desc' },
+    }) as Promise<PayrollCommissionRow[]>;
+  },
+
   async delete(id: string, tenantId: string): Promise<void> {
     // Verification du tenant avant suppression (id est le seul champ unique)
     const commission = await prisma.commission.findFirst({ where: { id, tenantId } });
     if (!commission) throw new Error('Commission introuvable');
     await prisma.commission.delete({ where: { id } });
+  },
+
+  /** Commissions récurrentes (issues de missions) d'un tenant, du mois le plus récent au plus ancien. */
+  async findRecurringByTenantId(tenantId: string): Promise<Array<Commission & {
+    deal: { title: string; clientName: string | null };
+    rule: { name: string };
+  }>> {
+    return prisma.commission.findMany({
+      where: { tenantId, missionId: { not: null } },
+      include: {
+        deal: { select: { title: true, clientName: true } },
+        rule: { select: { name: true } },
+      },
+      orderBy: [{ periodMonth: 'desc' }, { calculatedAt: 'desc' }],
+    });
+  },
+
+  /** Commissions récurrentes d'un commercial (pour ses projections/stats). */
+  async findRecurringByUserId(userId: string, tenantId: string): Promise<Array<Commission & {
+    deal: { title: string; clientName: string | null };
+    rule: { name: string };
+  }>> {
+    return prisma.commission.findMany({
+      where: { tenantId, userId, missionId: { not: null } },
+      include: {
+        deal: { select: { title: true, clientName: true } },
+        rule: { select: { name: true } },
+      },
+      orderBy: [{ periodMonth: 'desc' }, { calculatedAt: 'desc' }],
+    });
   },
 };

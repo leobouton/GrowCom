@@ -97,7 +97,8 @@ export enum ImportSource {
 
 // --- Moteur de règles avancé (Session B) ---
 
-export type CommissionCalculationBasis = 'REVENUE' | 'MARGIN';
+// 'PER_UNIT' (Session F) : forfait par unité = fixedAmount × nb consultants placés
+export type CommissionCalculationBasis = 'REVENUE' | 'MARGIN' | 'PER_UNIT';
 export type CommissionPaymentTrigger = 'DEAL_WON' | 'CLIENT_PAID';
 
 // --- Objectifs — modes bonus et récurrence (Session B) ---
@@ -209,6 +210,9 @@ export interface CommissionRuleConfig {
   paymentTrigger?: CommissionPaymentTrigger;      // Défaut: 'DEAL_WON'
   cap?: number;    // Plafond absolu en € (null = pas de plafond)
   floor?: number;  // Montant min du deal pour déclencher (null = pas de seuil)
+  // Champ Session F — type d'événement ciblé (défaut: 'DEAL_WON')
+  // 'MISSION_MONTH' = règle appliquée à chaque mois d'une mission ESN active
+  appliesToEventType?: CommissionEventType;
 }
 
 export interface CommissionRule {
@@ -235,12 +239,20 @@ export interface RuleAssignment {
   assignedToType: AssigneeType;
   userId: string | null;
   teamName: string | null;
+  // Session F — paramètres surchargés pour cette assignation (template + override)
+  overrides: Partial<CommissionRuleConfig> | null;
   startDate: string;
   endDate: string | null;
   isActive: boolean;
   createdAt: string;
   rule: Pick<CommissionRule, 'id' | 'name' | 'type' | 'dealType' | 'scope'>;
 }
+
+/** Sous-ensemble des paramètres d'une règle qui peuvent être surchargés par assignation. */
+export type OverridableRuleParams = Pick<
+  CommissionRuleConfig,
+  'rate' | 'fixedAmount' | 'cap' | 'floor' | 'tiers'
+>;
 
 // --- Deal ---
 
@@ -637,21 +649,94 @@ export interface FileImportConfirmResult {
 
 // --- Payroll Report Preview ---
 
+/** Détail d'une commission incluse dans la paie (drill-down auditabilité). */
+export interface PayrollCommissionLine {
+  commissionId: string;
+  dealTitle: string;
+  clientName: string | null;
+  dealAmount: number;
+  amount: number;
+  ruleName: string;
+  scheduledPaymentAt: string | null;
+  validatedAt: string | null;
+}
+
+/** Détail d'un ajustement inclus dans la paie (clawback ou bonus exceptionnel). */
+export interface PayrollAdjustmentLine {
+  adjustmentId: string;
+  reason: string;
+  amount: number;
+  createdAt: string;
+}
+
 export interface PayrollReportPreviewItem {
   userId: string;
   user: Pick<User, 'firstName' | 'lastName' | 'email'>;
+  role: string;
   fixedSalaryTotal: number;
   commissionsTotal: number;
   adjustmentsTotal: number;
   bonusTotal: number;
+  /** Ce qui part réellement à la paie : commissions + ajustements + primes. */
+  variableTotal: number;
+  /** Affichage écran uniquement (fixe + variable). Jamais dans l'export paie. */
   netTotal: number;
+  commissions: PayrollCommissionLine[];
+  adjustments: PayrollAdjustmentLine[];
+}
+
+/** Raison d'exclusion d'une commission de la paie de la période. */
+export type PayrollExclusionReason =
+  | 'PENDING'
+  | 'AWAITING_CLIENT_PAYMENT'
+  | 'DISPUTED';
+
+/** Commission présente sur la période mais exclue de la paie (transparence). */
+export interface PayrollExcludedCommission {
+  commissionId: string;
+  userId: string;
+  user: Pick<User, 'firstName' | 'lastName' | 'email'>;
+  dealTitle: string;
+  clientName: string | null;
+  amount: number;
+  status: string;
+  reason: PayrollExclusionReason;
+  reasonLabel: string;
+}
+
+/** Informations de verrouillage d'une période figée. */
+export interface PayrollLockInfo {
+  lockedAt: string;
+  lockedBy: string;
+  lockedByName: string | null;
+  totalAmount: number;
+  userCount: number;
 }
 
 export interface PayrollReportPreview {
   periodStart: string;
   periodEnd: string;
   items: PayrollReportPreviewItem[];
+  /** Commissions PENDING / en litige / en attente de paiement client, exclues. */
+  excluded: PayrollExcludedCommission[];
+  /** Total écran (fixe + variable) — conservé pour la vue d'ensemble. */
   grandTotal: number;
+  /** Total qui part réellement à la paie (somme des variableTotal). */
+  variableGrandTotal: number;
+  /** Non nul si la période est déjà figée (lecture seule). */
+  locked: PayrollLockInfo | null;
+}
+
+/** Entrée d'historique des périodes de paie figées. */
+export interface PayrollPeriodHistoryItem {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  generatedAt: string;
+  generatedBy: string;
+  generatedByName: string | null;
+  totalAmount: number;
+  userCount: number;
 }
 
 // --- Objective Snapshot (Session B - Chantier 7) ---
@@ -666,6 +751,179 @@ export interface ObjectiveSnapshot {
   actualValue: number;
   bonusEarned: number;
   snapshotAt: string;
+}
+
+// --- Plan de variable + récurrent ESN (Session F) ---
+
+export type VariablePlanAggregation = 'SUM';
+export type PlanComponentKind = 'COMMISSION_RULE' | 'OBJECTIVE';
+export type CommissionEventType = 'DEAL_WON' | 'MISSION_MONTH' | 'MANUAL';
+export type MissionType = 'MARGIN_MENSUELLE' | 'FORFAIT_PAR_CONSULTANT';
+export type MissionStatus = 'ACTIVE' | 'ENDED';
+
+/** Un composant d'un plan = une règle de commission OU un objectif. */
+export interface PlanComponent {
+  id: string;
+  tenantId: string;
+  planId: string;
+  kind: PlanComponentKind;
+  ruleId: string | null;              // si kind = COMMISSION_RULE
+  objectiveConfig: Objective | null;  // si kind = OBJECTIVE (snapshot config)
+  appliesToEventType: CommissionEventType;
+  sortOrder: number;
+  createdAt: string;
+}
+
+/** Conteneur agrégeant les composants de rémunération variable d'un commercial. */
+export interface VariablePlan {
+  id: string;
+  tenantId: string;
+  name: string;
+  description: string;
+  isTemplate: boolean;
+  aggregation: VariablePlanAggregation;
+  isActive: boolean;
+  createdBy: string;
+  createdAt: string;
+  components?: PlanComponent[];
+}
+
+/** Paramètres surchargeables par personne pour un composant donné. */
+export type PlanComponentOverrides = Record<string, Partial<CommissionRuleConfig>>;
+
+export interface PlanAssignment {
+  id: string;
+  tenantId: string;
+  planId: string;
+  assignedToType: AssigneeType;
+  userId: string | null;
+  teamName: string | null;
+  overrides: PlanComponentOverrides | null;
+  startDate: string;
+  endDate: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+/** Miroir enrichi d'une mission/abonnement récurrent du CRM. Alimenté par le sync CRM. */
+export interface Mission {
+  id: string;
+  tenantId: string;
+  dealId: string;
+  userId: string | null;
+  type: MissionType;
+  monthlyAmount: number;      // marge mensuelle récurrente OU forfait mensuel
+  consultantCount: number;    // nb consultants placés
+  startDate: string;
+  expectedEndDate: string | null;  // null = jusqu'à arrêt côté CRM
+  status: MissionStatus;
+  source: DealSource;
+  odooId: string | null;
+  hubspotId: string | null;
+  marginAmount: number | null;
+  marginSource: 'ODOO' | 'HUBSPOT' | 'COMPUTED' | null;
+  syncedAt: string;
+  createdAt: string;
+}
+
+/** Unité de calcul du moteur (deal WON, mois de mission, ou manuel). */
+export interface CommissionableEvent {
+  id: string;
+  tenantId: string;
+  type: CommissionEventType;
+  dealId: string | null;
+  missionId: string | null;
+  userId: string;
+  periodMonth: string | null;   // 1er jour du mois pour MISSION_MONTH
+  amount: number;               // base CA/revenu
+  marginAmount: number | null;
+  unitCount: number | null;     // nb consultants (forfait)
+  marginSource: string | null;
+  occurredAt: string;
+  createdAt: string;
+}
+
+// --- DTO IA : brouillon de plan multi-composants (non persisté) ---
+
+/** Objectif tel que proposé par l'IA (sous-ensemble d'Objective, sans id/occurrences). */
+export interface PlanObjectiveInput {
+  label: string;
+  target: number;
+  unit: string;
+  periodType: ObjectivePeriodType;
+  month?: number;
+  quarter?: number;
+  semester?: number;
+  year?: number;
+  bonus?: ObjectiveBonus;
+  bonusMode?: ObjectiveBonusMode;
+  bonusTiers?: ObjectiveBonusTier[];
+  recurrence?: ObjectiveRecurrence;
+}
+
+export interface GeneratedPlanCommissionComponent {
+  kind: 'COMMISSION_RULE';
+  name: string;
+  config: CommissionRuleConfig;
+}
+
+export interface GeneratedPlanObjectiveComponent {
+  kind: 'OBJECTIVE';
+  objective: PlanObjectiveInput;
+}
+
+export type GeneratedPlanComponentDraft =
+  | GeneratedPlanCommissionComponent
+  | GeneratedPlanObjectiveComponent;
+
+/** Sortie de l'IA : plan de variable multi-composants prêt à alimenter le futur wizard. */
+export interface GeneratedPlanDraft {
+  name: string;
+  description: string;
+  components: GeneratedPlanComponentDraft[];
+}
+
+// --- DTO Mission enrichie (endpoints manager) ---
+
+export interface MissionWithDetails extends Mission {
+  deal: Pick<Deal, 'title' | 'clientName'>;
+  commercial: Pick<User, 'firstName' | 'lastName' | 'email'> | null;
+}
+
+/** Projection d'une mission active : commission mensuelle et mois restants. */
+export interface RecurringProjectionMission {
+  missionId: string;
+  dealId: string;
+  dealTitle: string;
+  clientName: string | null;
+  monthlyCommission: number;      // commission récurrente estimée par mois
+  monthlyAmount: number;          // MRR de la mission (base)
+  consultantCount: number;
+  startDate: string;
+  expectedEndDate: string | null;
+  monthsRemaining: number | null; // null = tant que la mission tourne
+  projectedRemaining: number | null; // monthlyCommission × mois restants (null si indéterminé)
+}
+
+/** Récurrent d'un commercial : total mensuel + détail des missions actives. */
+export interface RecurringProjection {
+  monthlyTotal: number;
+  activeMissionCount: number;
+  missions: RecurringProjectionMission[];
+}
+
+/** Commission récurrente (issue d'une mission) exposée côté endpoints/UX. */
+export interface RecurringCommissionDTO {
+  id: string;
+  userId: string;
+  missionId: string | null;
+  periodMonth: string;
+  amount: number;
+  status: CommissionStatus;
+  calculationDetail: string | null;
+  dealTitle: string;
+  clientName: string | null;
+  ruleName: string;
 }
 
 // --- Stripe ---

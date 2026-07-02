@@ -731,3 +731,325 @@ ALTER TABLE "Tenant" ADD COLUMN IF NOT EXISTS "hubspotPortalId" TEXT;
 -- Identifiant HubSpot du deal + unicité multi-tenant
 ALTER TABLE "Deal" ADD COLUMN IF NOT EXISTS "hubspotId" TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS "Deal_tenantId_hubspotId_key" ON "Deal"("tenantId", "hubspotId");
+
+
+-- ============================================================
+-- RAPPORT DE PAIE — Verrouillage des périodes
+-- ============================================================
+
+-- Table de verrouillage d'une période de paie. Une fois une période figée,
+-- les éléments variables transmis à la paie ne sont plus modifiés par un
+-- recalcul rétroactif (régularisation sur la période suivante).
+CREATE TABLE IF NOT EXISTS "PayrollPeriod" (
+    "id"          TEXT NOT NULL,
+    "tenantId"    TEXT NOT NULL,
+    "periodStart" TIMESTAMP(3) NOT NULL,
+    "periodEnd"   TIMESTAMP(3) NOT NULL,
+    "status"      TEXT NOT NULL DEFAULT 'LOCKED',
+    "generatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "generatedBy" TEXT NOT NULL,
+    "totalAmount" DOUBLE PRECISION NOT NULL,
+    "userCount"   INTEGER NOT NULL,
+    CONSTRAINT "PayrollPeriod_pkey" PRIMARY KEY ("id")
+);
+
+-- Unicité : une seule période figée par tenant + bornes de période
+CREATE UNIQUE INDEX IF NOT EXISTS "PayrollPeriod_tenantId_periodStart_periodEnd_key"
+    ON "PayrollPeriod" ("tenantId", "periodStart", "periodEnd");
+CREATE INDEX IF NOT EXISTS "PayrollPeriod_tenantId_idx" ON "PayrollPeriod" ("tenantId");
+CREATE INDEX IF NOT EXISTS "PayrollPeriod_generatedAt_idx" ON "PayrollPeriod" ("generatedAt");
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'PayrollPeriod_tenantId_fkey') THEN
+        ALTER TABLE "PayrollPeriod"
+            ADD CONSTRAINT "PayrollPeriod_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+-- RLS deny-by-default sur PayrollPeriod (accès uniquement via le backend, jamais l'API publique).
+-- Même pattern que ImportBatch : Prisma contourne RLS, anon/authenticated sont bloqués.
+ALTER TABLE "PayrollPeriod" ENABLE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE "PayrollPeriod" FROM anon, authenticated;
+
+
+-- ============================================================
+-- SESSION F — PLAN DE VARIABLE + RÉCURRENT ESN
+-- ============================================================
+-- À exécuter dans Supabase AVANT de redémarrer le backend.
+-- Bloc entièrement idempotent (réexécutable sans effet de bord).
+
+-- --- Enums ---
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'VariablePlanAggregation') THEN
+        CREATE TYPE "VariablePlanAggregation" AS ENUM ('SUM');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'PlanComponentKind') THEN
+        CREATE TYPE "PlanComponentKind" AS ENUM ('COMMISSION_RULE', 'OBJECTIVE');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'CommissionEventType') THEN
+        CREATE TYPE "CommissionEventType" AS ENUM ('DEAL_WON', 'MISSION_MONTH', 'MANUAL');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'MissionType') THEN
+        CREATE TYPE "MissionType" AS ENUM ('MARGIN_MENSUELLE', 'FORFAIT_PAR_CONSULTANT');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'MissionStatus') THEN
+        CREATE TYPE "MissionStatus" AS ENUM ('ACTIVE', 'ENDED');
+    END IF;
+END $$;
+
+-- --- VariablePlan ---
+CREATE TABLE IF NOT EXISTS "VariablePlan" (
+    "id"          TEXT NOT NULL,
+    "tenantId"    TEXT NOT NULL,
+    "name"        TEXT NOT NULL,
+    "description" TEXT NOT NULL DEFAULT '',
+    "isTemplate"  BOOLEAN NOT NULL DEFAULT false,
+    "aggregation" "VariablePlanAggregation" NOT NULL DEFAULT 'SUM',
+    "isActive"    BOOLEAN NOT NULL DEFAULT true,
+    "createdBy"   TEXT NOT NULL,
+    "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "VariablePlan_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "VariablePlan_tenantId_idx" ON "VariablePlan" ("tenantId");
+
+-- --- PlanComponent ---
+CREATE TABLE IF NOT EXISTS "PlanComponent" (
+    "id"                 TEXT NOT NULL,
+    "tenantId"           TEXT NOT NULL,
+    "planId"             TEXT NOT NULL,
+    "kind"               "PlanComponentKind" NOT NULL,
+    "ruleId"             TEXT,
+    "objectiveConfig"    JSONB,
+    "appliesToEventType" "CommissionEventType" NOT NULL DEFAULT 'DEAL_WON',
+    "sortOrder"          INTEGER NOT NULL DEFAULT 0,
+    "createdAt"          TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "PlanComponent_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "PlanComponent_tenantId_idx" ON "PlanComponent" ("tenantId");
+CREATE INDEX IF NOT EXISTS "PlanComponent_planId_idx" ON "PlanComponent" ("planId");
+CREATE INDEX IF NOT EXISTS "PlanComponent_ruleId_idx" ON "PlanComponent" ("ruleId");
+
+-- --- PlanAssignment ---
+CREATE TABLE IF NOT EXISTS "PlanAssignment" (
+    "id"             TEXT NOT NULL,
+    "tenantId"       TEXT NOT NULL,
+    "planId"         TEXT NOT NULL,
+    "assignedToType" "AssigneeType" NOT NULL,
+    "userId"         TEXT,
+    "teamName"       TEXT,
+    "overrides"      JSONB,
+    "startDate"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "endDate"        TIMESTAMP(3),
+    "isActive"       BOOLEAN NOT NULL DEFAULT true,
+    "createdAt"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "PlanAssignment_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "PlanAssignment_tenantId_idx" ON "PlanAssignment" ("tenantId");
+CREATE INDEX IF NOT EXISTS "PlanAssignment_planId_idx" ON "PlanAssignment" ("planId");
+CREATE INDEX IF NOT EXISTS "PlanAssignment_userId_idx" ON "PlanAssignment" ("userId");
+
+-- --- Mission ---
+CREATE TABLE IF NOT EXISTS "Mission" (
+    "id"              TEXT NOT NULL,
+    "tenantId"        TEXT NOT NULL,
+    "dealId"          TEXT NOT NULL,
+    "userId"          TEXT,
+    "type"            "MissionType" NOT NULL,
+    "monthlyAmount"   DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "consultantCount" INTEGER NOT NULL DEFAULT 1,
+    "startDate"       TIMESTAMP(3) NOT NULL,
+    "expectedEndDate" TIMESTAMP(3),
+    "status"          "MissionStatus" NOT NULL DEFAULT 'ACTIVE',
+    "source"          "DealSource" NOT NULL DEFAULT 'ODOO',
+    "odooId"          TEXT,
+    "hubspotId"       TEXT,
+    "marginAmount"    DOUBLE PRECISION,
+    "marginSource"    TEXT,
+    "syncedAt"        TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Mission_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "Mission_tenantId_odooId_key" ON "Mission" ("tenantId", "odooId");
+CREATE UNIQUE INDEX IF NOT EXISTS "Mission_tenantId_hubspotId_key" ON "Mission" ("tenantId", "hubspotId");
+CREATE INDEX IF NOT EXISTS "Mission_tenantId_idx" ON "Mission" ("tenantId");
+CREATE INDEX IF NOT EXISTS "Mission_dealId_idx" ON "Mission" ("dealId");
+CREATE INDEX IF NOT EXISTS "Mission_userId_idx" ON "Mission" ("userId");
+CREATE INDEX IF NOT EXISTS "Mission_tenantId_status_idx" ON "Mission" ("tenantId", "status");
+
+-- --- CommissionableEvent ---
+CREATE TABLE IF NOT EXISTS "CommissionableEvent" (
+    "id"           TEXT NOT NULL,
+    "tenantId"     TEXT NOT NULL,
+    "type"         "CommissionEventType" NOT NULL,
+    "dealId"       TEXT,
+    "missionId"    TEXT,
+    "userId"       TEXT NOT NULL,
+    "periodMonth"  TIMESTAMP(3),
+    "amount"       DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "marginAmount" DOUBLE PRECISION,
+    "unitCount"    INTEGER,
+    "marginSource" TEXT,
+    "occurredAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt"    TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "CommissionableEvent_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "CommissionableEvent_missionId_periodMonth_key"
+    ON "CommissionableEvent" ("missionId", "periodMonth");
+CREATE INDEX IF NOT EXISTS "CommissionableEvent_tenantId_idx" ON "CommissionableEvent" ("tenantId");
+CREATE INDEX IF NOT EXISTS "CommissionableEvent_dealId_idx" ON "CommissionableEvent" ("dealId");
+CREATE INDEX IF NOT EXISTS "CommissionableEvent_missionId_idx" ON "CommissionableEvent" ("missionId");
+CREATE INDEX IF NOT EXISTS "CommissionableEvent_userId_idx" ON "CommissionableEvent" ("userId");
+
+-- --- Commission : nouvelles colonnes (inertes en Lot 1) ---
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "eventId" TEXT;
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "missionId" TEXT;
+ALTER TABLE "Commission" ADD COLUMN IF NOT EXISTS "periodMonth" TIMESTAMP(3);
+
+-- --- Clés étrangères (idempotentes) ---
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'VariablePlan_tenantId_fkey') THEN
+        ALTER TABLE "VariablePlan" ADD CONSTRAINT "VariablePlan_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'PlanComponent_tenantId_fkey') THEN
+        ALTER TABLE "PlanComponent" ADD CONSTRAINT "PlanComponent_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'PlanComponent_planId_fkey') THEN
+        ALTER TABLE "PlanComponent" ADD CONSTRAINT "PlanComponent_planId_fkey"
+            FOREIGN KEY ("planId") REFERENCES "VariablePlan"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'PlanComponent_ruleId_fkey') THEN
+        ALTER TABLE "PlanComponent" ADD CONSTRAINT "PlanComponent_ruleId_fkey"
+            FOREIGN KEY ("ruleId") REFERENCES "CommissionRule"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'PlanAssignment_tenantId_fkey') THEN
+        ALTER TABLE "PlanAssignment" ADD CONSTRAINT "PlanAssignment_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'PlanAssignment_planId_fkey') THEN
+        ALTER TABLE "PlanAssignment" ADD CONSTRAINT "PlanAssignment_planId_fkey"
+            FOREIGN KEY ("planId") REFERENCES "VariablePlan"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'PlanAssignment_userId_fkey') THEN
+        ALTER TABLE "PlanAssignment" ADD CONSTRAINT "PlanAssignment_userId_fkey"
+            FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Mission_tenantId_fkey') THEN
+        ALTER TABLE "Mission" ADD CONSTRAINT "Mission_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Mission_dealId_fkey') THEN
+        ALTER TABLE "Mission" ADD CONSTRAINT "Mission_dealId_fkey"
+            FOREIGN KEY ("dealId") REFERENCES "Deal"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Mission_userId_fkey') THEN
+        ALTER TABLE "Mission" ADD CONSTRAINT "Mission_userId_fkey"
+            FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CommissionableEvent_tenantId_fkey') THEN
+        ALTER TABLE "CommissionableEvent" ADD CONSTRAINT "CommissionableEvent_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CommissionableEvent_dealId_fkey') THEN
+        ALTER TABLE "CommissionableEvent" ADD CONSTRAINT "CommissionableEvent_dealId_fkey"
+            FOREIGN KEY ("dealId") REFERENCES "Deal"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CommissionableEvent_missionId_fkey') THEN
+        ALTER TABLE "CommissionableEvent" ADD CONSTRAINT "CommissionableEvent_missionId_fkey"
+            FOREIGN KEY ("missionId") REFERENCES "Mission"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CommissionableEvent_userId_fkey') THEN
+        ALTER TABLE "CommissionableEvent" ADD CONSTRAINT "CommissionableEvent_userId_fkey"
+            FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Commission_eventId_fkey') THEN
+        ALTER TABLE "Commission" ADD CONSTRAINT "Commission_eventId_fkey"
+            FOREIGN KEY ("eventId") REFERENCES "CommissionableEvent"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Commission_missionId_fkey') THEN
+        ALTER TABLE "Commission" ADD CONSTRAINT "Commission_missionId_fkey"
+            FOREIGN KEY ("missionId") REFERENCES "Mission"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
+
+-- --- Migration de données : chaque CommissionRule -> 1 VariablePlan + 1 PlanComponent ---
+-- Les objectifs (User.objectives JSON) ne sont PAS migres (restent la source de verite).
+-- Idempotent : ignore les regles deja migrees et la regle systeme placeholder.
+DO $$
+DECLARE
+    r RECORD;
+    new_plan_id TEXT;
+BEGIN
+    FOR r IN
+        SELECT cr.* FROM "CommissionRule" cr
+        WHERE cr.name <> '__SYSTEM_TEAM_LEAD_PLACEHOLDER__'
+          AND NOT EXISTS (SELECT 1 FROM "PlanComponent" pc WHERE pc."ruleId" = cr.id)
+    LOOP
+        new_plan_id := gen_random_uuid()::text;
+        INSERT INTO "VariablePlan" ("id", "tenantId", "name", "description", "isTemplate", "aggregation", "isActive", "createdBy", "createdAt")
+        VALUES (new_plan_id, r."tenantId", r.name, r.description, false, 'SUM', true, r."createdBy", CURRENT_TIMESTAMP);
+
+        INSERT INTO "PlanComponent" ("id", "tenantId", "planId", "kind", "ruleId", "appliesToEventType", "sortOrder", "createdAt")
+        VALUES (gen_random_uuid()::text, r."tenantId", new_plan_id, 'COMMISSION_RULE', r.id, 'DEAL_WON', 0, CURRENT_TIMESTAMP);
+    END LOOP;
+END $$;
+
+-- --- RLS deny-by-default sur les nouvelles tables (acces backend uniquement) ---
+ALTER TABLE "VariablePlan"        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "PlanComponent"       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "PlanAssignment"      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Mission"             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "CommissionableEvent" ENABLE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE "VariablePlan"        FROM anon, authenticated;
+REVOKE ALL PRIVILEGES ON TABLE "PlanComponent"       FROM anon, authenticated;
+REVOKE ALL PRIVILEGES ON TABLE "PlanAssignment"      FROM anon, authenticated;
+REVOKE ALL PRIVILEGES ON TABLE "Mission"             FROM anon, authenticated;
+REVOKE ALL PRIVILEGES ON TABLE "CommissionableEvent" FROM anon, authenticated;
+
+
+-- ============================================================
+-- SESSION F (Lot 4) — Bascule contrainte unique Commission (periodMonth)
+-- ============================================================
+-- À exécuter dans Supabase AVANT de redémarrer le backend. Idempotent.
+-- Les commissions one-shot (deal WON) portent la sentinelle 1970-01-01 ;
+-- les commissions de mission portent leur vrai 1er jour de mois.
+
+-- Backfill : les commissions existantes reçoivent la sentinelle
+UPDATE "Commission" SET "periodMonth" = '1970-01-01 00:00:00' WHERE "periodMonth" IS NULL;
+
+-- periodMonth devient NOT NULL avec défaut sentinelle
+ALTER TABLE "Commission" ALTER COLUMN "periodMonth" SET DEFAULT '1970-01-01 00:00:00';
+ALTER TABLE "Commission" ALTER COLUMN "periodMonth" SET NOT NULL;
+
+-- Remplacement de la contrainte unique (dealId,userId,ruleId) -> (+periodMonth)
+ALTER TABLE "Commission" DROP CONSTRAINT IF EXISTS "Commission_dealId_userId_ruleId_key";
+DROP INDEX IF EXISTS "Commission_dealId_userId_ruleId_key";
+CREATE UNIQUE INDEX IF NOT EXISTS "Commission_dealId_userId_ruleId_periodMonth_key"
+    ON "Commission" ("dealId", "userId", "ruleId", "periodMonth");
+
+
+-- ============================================================
+-- SESSION F (Lot 7) — Assignation avec overrides surchargeables
+-- ============================================================
+-- À exécuter dans Supabase AVANT de redémarrer le backend. Idempotent.
+-- overrides = Partial<CommissionRuleConfig> surchargé par assignation (template + override).
+
+ALTER TABLE "RuleAssignment" ADD COLUMN IF NOT EXISTS "overrides" JSONB;
+
+
+-- ============================================================
+-- SESSION F (Correctif) — Ancien index unique 2-champs sur Commission
+-- ============================================================
+-- Commission_dealId_userId_key est un UNIQUE INDEX (pas une CONSTRAINT) :
+-- le "DROP CONSTRAINT IF EXISTS" d'une migration antérieure l'avait manqué.
+-- Il interdit à tort plusieurs commissions par (deal, commercial) — or le modèle
+-- l'autorise (plusieurs règles + un mois de mission). On le supprime ; l'unicité
+-- correcte est portée par Commission_dealId_userId_ruleId_periodMonth_key.
+DROP INDEX IF EXISTS "Commission_dealId_userId_key";

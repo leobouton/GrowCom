@@ -57,4 +57,25 @@ export const objectiveSnapshotRepository = {
     });
     return count > 0;
   },
+
+  /**
+   * Snapshots d'objectifs dont la date (snapshotAt) tombe dans la période,
+   * pour sommer les primes d'objectifs (bonusEarned) par commercial.
+   */
+  async findByUserIdsInPeriod(
+    userIds: string[],
+    tenantId: string,
+    periodStart: Date,
+    periodEnd: Date,
+  ): Promise<Pick<ObjectiveSnapshot, 'userId' | 'bonusEarned' | 'periodLabel'>[]> {
+    if (userIds.length === 0) return [];
+    return prisma.objectiveSnapshot.findMany({
+      where: {
+        userId: { in: userIds },
+        tenantId,
+        snapshotAt: { gte: periodStart, lte: periodEnd },
+      },
+      select: { userId: true, bonusEarned: true, periodLabel: true },
+    });
+  },
 };

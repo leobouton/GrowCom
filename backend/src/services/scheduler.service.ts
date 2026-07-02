@@ -8,6 +8,7 @@ import { decrypt } from '../utils/encryption';
 import { UserRole } from '@prisma/client';
 import { generateOccurrencesForAllTenants } from './objectiveRecurrence.service';
 import { snapshotEndedObjectives } from './objectiveSnapshot.service';
+import { generateRecurringMissionCommissions } from './missionRecurrence.service';
 
 /**
  * Synchronise tous les tenants qui ont Odoo configuré.
@@ -166,6 +167,10 @@ export function startScheduler(): void {
     generateOccurrencesForAllTenants().catch((err) =>
       logger.error('[Scheduler] Erreur lors de la génération initiale des occurrences', { error: err }),
     );
+    // Rattrapage des commissions récurrentes de mission du mois en cours (idempotent)
+    generateRecurringMissionCommissions().catch((err) =>
+      logger.error('[Scheduler] Erreur lors de la génération initiale des commissions récurrentes', { error: err }),
+    );
   }, 10_000);
 
   // Sync toutes les heures, à la minute 0
@@ -200,11 +205,20 @@ export function startScheduler(): void {
     );
   });
 
+  // Commissions récurrentes de mission — le 1er de chaque mois à 5h00 (heure de Paris).
+  // Idempotent : réexécutable sans doublon (upserts sur clés uniques).
+  cron.schedule('0 5 1 * *', () => {
+    generateRecurringMissionCommissions().catch((err) =>
+      logger.error('[Scheduler] Erreur lors de la génération des commissions récurrentes', { error: err }),
+    );
+  }, { timezone: 'Europe/Paris' });
+
   const cronJobs = [
     'Odoo + HubSpot sync: toutes les heures (0 * * * *)',
     'Commissions différées: tous les jours à 8h (0 8 * * *)',
     'Occurrences récurrentes: tous les jours à 6h (0 6 * * *)',
     'Snapshot objectifs: tous les jours à 7h (0 7 * * *)',
+    'Commissions récurrentes mission: le 1er du mois à 5h Paris (0 5 1 * *)',
   ];
   logger.info('[Scheduler] Cron jobs initialized:', { jobs: cronJobs });
 }

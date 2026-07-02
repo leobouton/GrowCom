@@ -3,12 +3,13 @@ import { commissionRepository } from '../repositories/commission.repository';
 import { ruleAssignmentRepository } from '../repositories/ruleAssignment.repository';
 import { dealAssignmentRepository } from '../repositories/dealAssignment.repository';
 import { dealRepository } from '../repositories/deal.repository';
+import { missionRepository } from '../repositories/mission.repository';
 import { userRepository } from '../repositories/user.repository';
 import { commissionAdjustmentRepository } from '../repositories/commissionAdjustment.repository';
 import { commissionDisputeRepository } from '../repositories/commissionDispute.repository';
 import { auditLogRepository } from '../repositories/auditLog.repository';
 import { AppError } from '../middlewares/errorHandler';
-import { CommissionStatus, CommissionRuleConfig, CommissionRuleType, UserRole } from '../../../shared/types';
+import { CommissionStatus, CommissionRuleConfig, CommissionRuleType, UserRole, RecurringProjection } from '../../../shared/types';
 // CommissionCalculationBasis importé via CommissionRuleConfig (optionnel)
 import { CommissionStatus as PrismaCommissionStatus, UserRole as PrismaUserRole, DealStatus as PrismaDealStatus } from '@prisma/client';
 
@@ -23,13 +24,17 @@ export function calculateCommissionAmount(
   basisAmount: number,
   config: CommissionRuleConfig,
 ): { amount: number; explanation: string; skippedReason?: string } {
-  const basisLabel = config.calculationBasis === 'MARGIN' ? 'Marge' : 'CA';
+  const basisLabel =
+    config.calculationBasis === 'MARGIN' ? 'Marge'
+    : config.calculationBasis === 'PER_UNIT' ? 'Forfait'
+    : 'CA';
 
-  // 1. Floor — seuil minimum du deal pour déclencher la règle
+  // 1. Floor — seuil minimum pour déclencher la règle
+  // (pour PER_UNIT, basisAmount = nb de consultants ; le floor devient un nb minimum)
   if (config.floor !== undefined && config.floor !== null && basisAmount < config.floor) {
     return {
       amount: 0,
-      explanation: `Sous le seuil minimum (${config.floor.toFixed(2)}€) : ${basisLabel} ${basisAmount.toFixed(2)}€`,
+      explanation: `Sous le seuil minimum (${config.floor.toFixed(2)}) : ${basisLabel} ${basisAmount.toFixed(2)}`,
       skippedReason: 'BELOW_FLOOR',
     };
   }
@@ -38,7 +43,13 @@ export function calculateCommissionAmount(
   let amount = 0;
   let explanation = '';
 
-  if (config.type === CommissionRuleType.FIXED) {
+  // Base "forfait par unité" (Session F) : montant fixe × nb de consultants placés.
+  // basisAmount porte ici le nb de consultants. Prioritaire sur le type de règle.
+  if (config.calculationBasis === 'PER_UNIT') {
+    const unit = config.fixedAmount ?? 0;
+    amount = unit * basisAmount;
+    explanation = `${basisAmount} consultant${basisAmount > 1 ? 's' : ''} × ${unit.toFixed(2)}€ = ${amount.toFixed(2)}€`;
+  } else if (config.type === CommissionRuleType.FIXED) {
     amount = config.fixedAmount ?? 0;
     explanation = `Commission fixe : ${amount.toFixed(2)}€`;
   } else if (config.type === CommissionRuleType.PERCENTAGE) {
@@ -78,6 +89,161 @@ export function calculateCommissionAmount(
   }
 
   return { amount, explanation };
+}
+
+// ─── Résolution de la base de calcul (event deal OU mission) ─────────────────
+
+/**
+ * Entrée générique du moteur : facts d'un CommissionableEvent, qu'il vienne d'un
+ * deal WON (amount/margin) ou d'un mois de mission (monthlyAmount/margin/consultants).
+ */
+export interface CommissionBasisInput {
+  amount: number;             // base CA/revenu (deal.amount ou mission.monthlyAmount)
+  marginAmount?: number | null;
+  costAmount?: number | null;
+  unitCount?: number | null;  // nb de consultants placés (forfait)
+}
+
+/**
+ * Résout la base de calcul selon config.calculationBasis.
+ * - PER_UNIT : nb de consultants placés
+ * - MARGIN   : marge fournie, sinon amount - coût, sinon amount (comportement deal existant)
+ * - REVENUE  : amount
+ */
+export function resolveBasisAmount(
+  config: CommissionRuleConfig,
+  input: CommissionBasisInput,
+): { basisAmount: number; basisLabel: string } {
+  if (config.calculationBasis === 'PER_UNIT') {
+    return { basisAmount: input.unitCount ?? 0, basisLabel: 'consultants' };
+  }
+  if (config.calculationBasis === 'MARGIN') {
+    let margin: number;
+    if (input.marginAmount !== null && input.marginAmount !== undefined) {
+      margin = input.marginAmount;
+    } else if (input.costAmount !== null && input.costAmount !== undefined) {
+      margin = input.amount - input.costAmount;
+    } else {
+      margin = input.amount;
+    }
+    return { basisAmount: margin, basisLabel: 'marge' };
+  }
+  return { basisAmount: input.amount, basisLabel: 'CA' };
+}
+
+/**
+ * Agrégation d'un plan = SOMME de ses composants (v1). L'opérateur est isolé ici
+ * pour rester extensible (max, moyenne pondérée…) sans toucher aux appelants.
+ * Chaque composant est calculé sur la base résolue puis multiplié par la part (share).
+ * Cap appliqué par composant avant le share (Option A, cohérent avec l'existant).
+ */
+export function computePlanComponentsAmount(
+  configs: CommissionRuleConfig[],
+  input: CommissionBasisInput,
+  share = 1,
+): { total: number; breakdown: Array<{ amount: number; explanation: string; skippedReason?: string }> } {
+  let total = 0;
+  const breakdown: Array<{ amount: number; explanation: string; skippedReason?: string }> = [];
+  for (const config of configs) {
+    const { basisAmount } = resolveBasisAmount(config, input);
+    const res = calculateCommissionAmount(basisAmount, config);
+    const amount = res.amount * share;
+    total += amount;
+    breakdown.push({ amount, explanation: res.explanation, skippedReason: res.skippedReason });
+  }
+  return { total, breakdown };
+}
+
+// ─── Résolution template + override (assignation) ────────────────────────────
+
+/**
+ * Paramètres surchargeables par assignation. Les champs sémantiques (type,
+ * calculationBasis, appliesToEventType, description, examples) ne le sont PAS :
+ * un override ne change que les valeurs numériques du barème.
+ */
+const OVERRIDABLE_KEYS = ['rate', 'fixedAmount', 'cap', 'floor', 'tiers'] as const;
+
+/**
+ * Applique un override d'assignation sur la config de base d'une règle.
+ * Retourne une NOUVELLE config (ne mute pas la base). Seuls les champs surchargeables
+ * présents dans l'override sont remplacés.
+ */
+export function resolveEffectiveConfig(
+  baseConfig: CommissionRuleConfig,
+  overrides?: Partial<CommissionRuleConfig> | null,
+): CommissionRuleConfig {
+  if (!overrides) return baseConfig;
+  const effective: CommissionRuleConfig = { ...baseConfig };
+  for (const key of OVERRIDABLE_KEYS) {
+    const value = overrides[key];
+    if (value !== undefined && value !== null) {
+      // Réaffectation champ à champ ; les clés sont contraintes à OVERRIDABLE_KEYS
+      (effective as unknown as Record<string, unknown>)[key] = value;
+    }
+  }
+  return effective;
+}
+
+/** Lit et type l'override d'une assignation (colonne JSON Prisma). */
+function readOverrides(overrides: unknown): Partial<CommissionRuleConfig> | null {
+  return (overrides as Partial<CommissionRuleConfig> | null) ?? null;
+}
+
+// ─── Projection du récurrent (missions actives d'un commercial) ─────────────
+
+/** Nombre de mois restants (arrondi au supérieur) avant la fin prévue, ou null si indéterminée. */
+function monthsRemaining(now: Date, end: Date | null): number | null {
+  if (!end) return null;
+  const ms = end.getTime() - now.getTime();
+  if (ms <= 0) return 0;
+  return Math.ceil(ms / (1000 * 60 * 60 * 24 * 30.44));
+}
+
+/**
+ * Calcule le récurrent projeté d'un commercial : pour chaque mission active, la commission
+ * mensuelle estimée (règles MISSION_MONTH assignées) et les mois restants tant que la
+ * mission tourne. Réutilise le moteur généralisé (computePlanComponentsAmount).
+ */
+export async function getRecurringProjectionForUser(
+  userId: string,
+  tenantId: string,
+  now: Date = new Date(),
+): Promise<RecurringProjection> {
+  const missions = await missionRepository.findActiveWithDealByUserId(userId, tenantId);
+  if (missions.length === 0) {
+    return { monthlyTotal: 0, activeMissionCount: 0, missions: [] };
+  }
+
+  const assignments = await ruleAssignmentRepository.findActiveForUser(userId, tenantId);
+  const missionConfigs = assignments
+    .map((a) => resolveEffectiveConfig(a.rule.config as unknown as CommissionRuleConfig, readOverrides(a.overrides)))
+    .filter((c) => c.appliesToEventType === 'MISSION_MONTH');
+
+  let monthlyTotal = 0;
+  const list = missions.map((m) => {
+    const { total } = computePlanComponentsAmount(missionConfigs, {
+      amount: m.monthlyAmount,
+      marginAmount: m.marginAmount,
+      unitCount: m.consultantCount,
+    });
+    monthlyTotal += total;
+    const remaining = monthsRemaining(now, m.expectedEndDate);
+    return {
+      missionId: m.id,
+      dealId: m.dealId,
+      dealTitle: m.deal.title,
+      clientName: m.deal.clientName,
+      monthlyCommission: total,
+      monthlyAmount: m.monthlyAmount,
+      consultantCount: m.consultantCount,
+      startDate: m.startDate.toISOString(),
+      expectedEndDate: m.expectedEndDate ? m.expectedEndDate.toISOString() : null,
+      monthsRemaining: remaining,
+      projectedRemaining: remaining !== null ? total * remaining : null,
+    };
+  });
+
+  return { monthlyTotal, activeMissionCount: missions.length, missions: list };
 }
 
 // ─── Helpers d'isolation par équipe ──────────────────────────────────────────
@@ -475,9 +641,15 @@ export const commissionService = {
       .filter((c) => c.status === CommissionStatus.PENDING && (!c.scheduledPaymentAt || new Date(c.scheduledPaymentAt) <= now))
       .reduce((sum, c) => sum + c.amount, 0);
 
+    // Projections des deals ouverts : seules les règles DEAL_WON s'appliquent (pas le récurrent).
+    const dealWonAssignments = activeAssignments.filter((a) => {
+      const cfg = a.rule.config as unknown as CommissionRuleConfig;
+      return (cfg.appliesToEventType ?? 'DEAL_WON') === 'DEAL_WON';
+    });
+
     let projectedCommissions = 0;
     const projections = openDeals.map((deal) => {
-      if (activeAssignments.length === 0) {
+      if (dealWonAssignments.length === 0) {
         return {
           deal: { id: deal.id, title: deal.title, clientName: deal.clientName ?? null, amount: deal.amount, probability: deal.probability },
           projectedCommission: 0,
@@ -488,8 +660,11 @@ export const commissionService = {
       let projected = 0;
       const ruleBreakdown: string[] = [];
 
-      for (const assignment of activeAssignments) {
-        const config = assignment.rule.config as unknown as CommissionRuleConfig;
+      for (const assignment of dealWonAssignments) {
+        const config = resolveEffectiveConfig(
+          assignment.rule.config as unknown as CommissionRuleConfig,
+          readOverrides(assignment.overrides),
+        );
         const result = calculateCommissionAmount(deal.amount, config);
         projected += result.amount;
         ruleBreakdown.push(`${assignment.rule.name} : ${result.explanation}`);
@@ -531,6 +706,9 @@ export const commissionService = {
       };
     });
 
+    // Récurrent ESN : commissions mensuelles projetées des missions actives
+    const recurring = await getRecurringProjectionForUser(userId, tenantId, now);
+
     return {
       fixedSalary,
       totalEarnedThisMonth: totalEarned,
@@ -540,6 +718,7 @@ export const commissionService = {
       deferredCommissions,
       projectedCommissions,
       projections,
+      recurring,
       commissions: commissionsWithDispute,
       adjustments: adjustments.map((a) => ({
         id: a.id,
@@ -802,7 +981,11 @@ export const commissionService = {
     const awaitingClientPayment = pendingCommissions.filter((c) => c.awaitingClientPayment);
     const standardPending = pendingCommissions.filter((c) => !c.awaitingClientPayment);
 
+    // Récurrent ESN : projections des mois à venir tant que les missions tournent
+    const recurring = await getRecurringProjectionForUser(userId, tenantId);
+
     return {
+      recurring,
       totalAmount,
       count: pendingCommissions.length,
       byStatus: {
@@ -864,10 +1047,16 @@ export const commissionService = {
     const allResults = [];
 
     for (const target of assignmentTargets) {
-      const activeAssignments = await ruleAssignmentRepository.findActiveForUser(
+      const allAssignments = await ruleAssignmentRepository.findActiveForUser(
         target.userId,
         tenantId,
       );
+      // Un event DEAL_WON n'applique que les règles ciblant DEAL_WON (défaut).
+      // Les règles récurrentes (MISSION_MONTH) sont réservées au job de mission.
+      const activeAssignments = allAssignments.filter((a) => {
+        const cfg = a.rule.config as unknown as CommissionRuleConfig;
+        return (cfg.appliesToEventType ?? 'DEAL_WON') === 'DEAL_WON';
+      });
 
       if (activeAssignments.length === 0) {
         // Pas de règle de commission → normalement on ignore.
@@ -886,28 +1075,18 @@ export const commissionService = {
       }
 
       for (const assignment of activeAssignments) {
-        const config = assignment.rule.config as unknown as CommissionRuleConfig;
+        const config = resolveEffectiveConfig(
+          assignment.rule.config as unknown as CommissionRuleConfig,
+          readOverrides(assignment.overrides),
+        );
 
         // ── Choisir la base de calcul AVANT split (Option A : cap sur total) ──
-        let fullBasisAmount: number;
-        let basisLabel: string;
-
-        if (config.calculationBasis === 'MARGIN') {
-          if (deal.marginAmount !== null && deal.marginAmount !== undefined) {
-            fullBasisAmount = deal.marginAmount;
-          } else if (deal.costAmount !== null && deal.costAmount !== undefined) {
-            // Fallback : marge = CA - coût
-            fullBasisAmount = deal.amount - deal.costAmount;
-          } else {
-            // Ni marge ni coût renseignés → utilise le CA
-            fullBasisAmount = deal.amount;
-          }
-          basisLabel = 'marge';
-        } else {
-          // REVENUE ou non défini — comportement historique
-          fullBasisAmount = deal.amount;
-          basisLabel = 'CA';
-        }
+        // Généralisé via resolveBasisAmount (deal WON = 1 CommissionableEvent).
+        const { basisAmount: fullBasisAmount, basisLabel } = resolveBasisAmount(config, {
+          amount: deal.amount,
+          marginAmount: deal.marginAmount,
+          costAmount: deal.costAmount,
+        });
 
         // ── Calcul sur le total (floor/cap appliqués sur le total) ──
         const { amount: totalAmount, explanation, skippedReason } = calculateCommissionAmount(

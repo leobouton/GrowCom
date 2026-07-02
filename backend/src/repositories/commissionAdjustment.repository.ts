@@ -88,4 +88,29 @@ export const commissionAdjustmentRepository = {
       orderBy: { createdAt: 'desc' },
     });
   },
+
+  /**
+   * Ajustements éligibles à la paie d'une période : non encore payés (paidAt null)
+   * et créés dans la période. Inclut clawbacks (négatifs) et bonus exceptionnels.
+   */
+  async findUnpaidByUserIdsInPeriod(
+    userIds: string[],
+    tenantId: string,
+    periodStart: Date,
+    periodEnd: Date,
+  ): Promise<CommissionAdjustment[]> {
+    if (userIds.length === 0) return [];
+    return prisma.commissionAdjustment.findMany({
+      where: {
+        userId: { in: userIds },
+        tenantId,
+        paidAt: null,
+        createdAt: { gte: periodStart, lte: periodEnd },
+        // Exclut les primes d'objectifs auto-générées (déjà comptées via ObjectiveSnapshot),
+        // pour éviter un double comptage.
+        NOT: { createdBy: 'SYSTEM', reason: { startsWith: 'Prime objectif' } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  },
 };

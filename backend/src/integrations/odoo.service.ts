@@ -1,6 +1,7 @@
 import { logger } from '../config/logger';
 import { dealRepository } from '../repositories/deal.repository';
 import { dealAssignmentRepository } from '../repositories/dealAssignment.repository';
+import { missionRepository } from '../repositories/mission.repository';
 import { userRepository } from '../repositories/user.repository';
 import { tenantRepository } from '../repositories/tenant.repository';
 import { auditLogRepository } from '../repositories/auditLog.repository';
@@ -9,6 +10,7 @@ import { emailService } from './email.service';
 import { AppError } from '../middlewares/errorHandler';
 import { DealStatus as PrismaDealStatus, CommissionStatus as PrismaCommissionStatus, UserRole } from '@prisma/client';
 import { prisma } from '../config/prisma';
+import { OdooSubscriptionOrder, mapOdooSubscriptionToMission } from './crmMission.mapping';
 
 const ODOO_DEAL_LIMIT = 1000;
 const ODOO_DEAL_WARN_THRESHOLD = 950;
@@ -27,6 +29,9 @@ interface OdooCrmLead {
   planned_cost: number;        // Coût prévu (champ Odoo, absent sur certaines versions)
   margin: number;              // Marge calculée par Odoo (absent sur certaines versions)
 }
+
+// Abonnement récurrent (sale.order) enrichi de l'opportunité liée (crm.lead) pour l'ancrage.
+type OdooSubscriptionRecord = OdooSubscriptionOrder & { opportunityId: string | null };
 
 // ─── XML-RPC builder ─────────────────────────────────────────────────────────
 
@@ -394,6 +399,154 @@ export const odooService = {
     return map;
   },
 
+  /**
+   * Récupère les abonnements récurrents (sale.order) + le nb de consultants (somme des
+   * quantités de lignes). Détection via fields_get : si le module abonnements n'est pas
+   * installé (champs is_subscription/recurring_monthly absents), retourne vide + log propre.
+   */
+  async fetchSubscriptions(
+    odooUrl: string,
+    odooDatabase: string,
+    uid: number,
+    odooApiKey: string,
+  ): Promise<{ orders: OdooSubscriptionRecord[]; qtyByOrder: Map<number, number> }> {
+    const subFields = [
+      'is_subscription', 'subscription_state', 'recurring_monthly',
+      'start_date', 'next_invoice_date', 'end_date', 'opportunity_id',
+    ];
+
+    // Détection des champs disponibles sur sale.order
+    let available: string[] = [];
+    try {
+      const fieldsResult = await xmlRpcCall(
+        `${odooUrl}/xmlrpc/2/object`,
+        'execute_kw',
+        [odooDatabase, uid, odooApiKey, 'sale.order', 'fields_get', [subFields], { attributes: ['string'] }],
+      );
+      const fieldsMap = fieldsResult as Record<string, unknown>;
+      available = subFields.filter((f) => f in fieldsMap);
+    } catch {
+      logger.info('[Odoo] Modèle sale.order/abonnements indisponible — aucune mission', {});
+      return { orders: [], qtyByOrder: new Map() };
+    }
+
+    if (!available.includes('is_subscription') || !available.includes('recurring_monthly')) {
+      logger.info('[Odoo] Module abonnements non détecté (is_subscription/recurring_monthly absents) — aucune mission');
+      return { orders: [], qtyByOrder: new Map() };
+    }
+
+    const dateOrNull = (v: unknown): string | null =>
+      typeof v === 'string' && v ? v : null;
+
+    const result = await xmlRpcCall(
+      `${odooUrl}/xmlrpc/2/object`,
+      'execute_kw',
+      [
+        odooDatabase, uid, odooApiKey, 'sale.order', 'search_read',
+        [[['is_subscription', '=', true]]],
+        { fields: ['id', ...available], limit: ODOO_DEAL_LIMIT },
+      ],
+    );
+
+    const records = result as Record<string, unknown>[];
+    const orders: OdooSubscriptionRecord[] = records.map((r) => ({
+      id: r['id'] as number,
+      recurringMonthly: Number(r['recurring_monthly'] ?? 0),
+      subscriptionState:
+        typeof r['subscription_state'] === 'string' && r['subscription_state']
+          ? (r['subscription_state'] as string)
+          : null,
+      startDate: dateOrNull(r['start_date']),
+      nextInvoiceDate: dateOrNull(r['next_invoice_date']),
+      endDate: dateOrNull(r['end_date']),
+      opportunityId: Array.isArray(r['opportunity_id'])
+        ? String((r['opportunity_id'] as [number, string])[0])
+        : null,
+    }));
+
+    // Somme des quantités de lignes par commande = nb de consultants placés
+    const qtyByOrder = new Map<number, number>();
+    const orderIds = orders.map((o) => o.id);
+    if (orderIds.length > 0) {
+      try {
+        const linesResult = await xmlRpcCall(
+          `${odooUrl}/xmlrpc/2/object`,
+          'execute_kw',
+          [
+            odooDatabase, uid, odooApiKey, 'sale.order.line', 'search_read',
+            [[['order_id', 'in', orderIds]]],
+            { fields: ['order_id', 'product_uom_qty'] },
+          ],
+        );
+        for (const l of linesResult as Record<string, unknown>[]) {
+          const oid = Array.isArray(l['order_id']) ? (l['order_id'] as [number, string])[0] : null;
+          if (oid == null) continue;
+          qtyByOrder.set(oid, (qtyByOrder.get(oid) ?? 0) + Number(l['product_uom_qty'] ?? 0));
+        }
+      } catch (lineErr) {
+        logger.warn('[Odoo] Lecture sale.order.line échouée — consultantCount par défaut', {
+          error: lineErr instanceof Error ? lineErr.message : String(lineErr),
+        });
+      }
+    }
+
+    return { orders, qtyByOrder };
+  },
+
+  /**
+   * Phase ADDITIONNELLE : synchronise les missions récurrentes ESN depuis les abonnements.
+   * Ancre chaque mission sur le Deal (crm.lead) lié via opportunity_id ; sinon skip + log.
+   * Appelée en try/catch dans sync() : n'impacte jamais le sync deal one-shot.
+   */
+  async syncMissions(
+    tenantId: string,
+    odooUrl: string,
+    odooDatabase: string,
+    uid: number,
+    odooApiKey: string,
+  ): Promise<{ missionsSynced: number; missionsSkipped: number }> {
+    const { orders, qtyByOrder } = await odooService.fetchSubscriptions(odooUrl, odooDatabase, uid, odooApiKey);
+
+    let missionsSynced = 0;
+    let missionsSkipped = 0;
+
+    for (const order of orders) {
+      if (!order.opportunityId) {
+        missionsSkipped++;
+        logger.info('[Odoo] Mission ignorée : abonnement sans opportunité liée', { tenantId, orderId: order.id });
+        continue;
+      }
+
+      const deal = await dealRepository.findByOdooId(order.opportunityId, tenantId);
+      if (!deal) {
+        missionsSkipped++;
+        logger.info('[Odoo] Mission ignorée : deal (crm.lead) non synchronisé', {
+          tenantId, opportunityId: order.opportunityId,
+        });
+        continue;
+      }
+
+      const consultantCount = qtyByOrder.get(order.id) ?? 1;
+      const mapping = mapOdooSubscriptionToMission(order, consultantCount);
+
+      await missionRepository.upsertOdoo({
+        tenantId,
+        odooId: String(order.id),
+        dealId: deal.id,
+        userId: deal.assignedToId,
+        source: 'ODOO',
+        ...mapping,
+      });
+      missionsSynced++;
+    }
+
+    if (orders.length === 0) {
+      logger.info('[Odoo] Aucun abonnement récurrent détecté — aucune mission', { tenantId });
+    }
+
+    return { missionsSynced, missionsSkipped };
+  },
+
   async sync(
     tenantId: string,
     userId: string,
@@ -580,12 +733,30 @@ export const odooService = {
       throw new AppError(502, 'ODOO_SYNC_FAILED', `Échec de la synchronisation : ${message}`);
     }
 
+    // Phase ADDITIONNELLE : missions récurrentes ESN. Isolée en try/catch pour ne jamais
+    // faire échouer le sync deal one-shot. Réauthentifie pour disposer de l'uid.
+    let missionsSynced = 0;
+    let missionsSkipped = 0;
+    try {
+      const uid = await odooService.authenticate(odooUrl, odooDatabase, odooLogin, odooApiKey);
+      const missionResult = await odooService.syncMissions(tenantId, odooUrl, odooDatabase, uid, odooApiKey);
+      missionsSynced = missionResult.missionsSynced;
+      missionsSkipped = missionResult.missionsSkipped;
+    } catch (missionErr) {
+      logger.warn('[Odoo] Sync des missions récurrentes échouée (sync deals non impactée)', {
+        tenantId,
+        error: missionErr instanceof Error ? missionErr.message : String(missionErr),
+      });
+    }
+
     const result = {
       synced,
       created,
       updated,
       deleted,
       errors,
+      missionsSynced,
+      missionsSkipped,
       syncedAt: new Date().toISOString(),
       limitWarning: dealsCount >= ODOO_DEAL_WARN_THRESHOLD,
       limitReached: dealsCount === ODOO_DEAL_LIMIT,
