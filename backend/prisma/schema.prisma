@@ -384,7 +384,11 @@ model Commission {
   event    CommissionableEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
   mission  Mission?             @relation(fields: [missionId], references: [id], onDelete: SetNull)
 
-  @@unique([dealId, userId, ruleId, periodMonth])
+  // Unicité incluant missionId : un commercial peut avoir PLUSIEURS missions
+  // (une par consultant placé) ancrées sur le même deal, chacune avec sa
+  // commission mensuelle. Les commissions de deal (missionId NULL) sont
+  // protégées par un index unique partiel côté SQL (voir migration.sql).
+  @@unique([dealId, userId, ruleId, missionId, periodMonth])
   @@index([tenantId])
   @@index([userId])
   @@index([tenantId, status])

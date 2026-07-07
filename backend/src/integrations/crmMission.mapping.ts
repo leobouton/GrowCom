@@ -138,6 +138,58 @@ export function mapHubspotLineItemsToMission(
   };
 }
 
+/**
+ * Éclate un line item récurrent HubSpot en UNE MISSION PAR CONSULTANT placé.
+ * Un line item de quantité N (N consultants du même profil) produit N missions
+ * de 1 consultant chacune, avec revenu/marge mensuels divisés par N.
+ * Retourne [] si le line item n'est pas récurrent.
+ *
+ * `missionKey` sert de hubspotId de mission (stable et idempotent) :
+ * l'id du line item, suffixé -cN si la quantité dépasse 1.
+ */
+export function mapHubspotLineItemToConsultantMissions(
+  li: HubspotLineItem,
+  deal: { closeDate: string | null },
+  now: Date = new Date(),
+): Array<MissionMapping & { missionKey: string }> {
+  if (!li.recurringBillingFrequency || li.recurringBillingFrequency.trim() === '') return [];
+
+  const months = hubspotFreqToMonths(li.recurringBillingFrequency);
+  const qty = Math.max(1, Math.round(Number.isFinite(li.quantity) && li.quantity > 0 ? li.quantity : 1));
+
+  // Revenu mensuel de la ligne : hs_mrr si présent, sinon (prix × quantité) normalisé
+  const lineMrr = li.hsMrr != null
+    ? li.hsMrr
+    : ((li.price ?? li.amount ?? 0) * qty) / months;
+  const perConsultantMrr = lineMrr / qty;
+
+  // costOfGoodsSold est un coût UNITAIRE par période de facturation
+  const perConsultantCost = li.costOfGoodsSold != null ? li.costOfGoodsSold / months : null;
+  const marginAmount = perConsultantCost != null ? round2(perConsultantMrr - perConsultantCost) : null;
+
+  let startDate: Date | null = li.billingStartDate ? new Date(li.billingStartDate) : null;
+  if (startDate === null || Number.isNaN(startDate.getTime())) {
+    startDate = deal.closeDate ? new Date(deal.closeDate) : new Date(now);
+    if (Number.isNaN(startDate.getTime())) startDate = new Date(now);
+  }
+
+  const term = parseIso8601Months(li.recurringBillingPeriod);
+  const expectedEndDate = term != null ? addMonths(startDate, term) : null;
+  const status = expectedEndDate != null && expectedEndDate < now ? MissionStatus.ENDED : MissionStatus.ACTIVE;
+
+  return Array.from({ length: qty }, (_, i) => ({
+    missionKey: qty > 1 ? `${li.id}-c${i + 1}` : li.id,
+    monthlyAmount: round2(perConsultantMrr),
+    consultantCount: 1,
+    startDate: startDate!,
+    expectedEndDate,
+    status,
+    marginAmount,
+    marginSource: perConsultantCost != null ? 'HUBSPOT' : null,
+    type: MissionType.MARGIN_MENSUELLE,
+  }));
+}
+
 // ─── Odoo ────────────────────────────────────────────────────────────────────
 
 export interface OdooSubscriptionOrder {
@@ -169,7 +221,9 @@ export function mapOdooSubscriptionStatus(
  * Mappe un abonnement Odoo (sale.order) + nb de consultants (somme des quantités
  * de lignes) en Mission. `consultantCount` est fourni par l'appelant (lecture des
  * sale.order.line). La marge mensuelle Odoo n'étant pas fiable au niveau mensuel,
- * marginAmount reste null (le moteur retombe alors sur monthlyAmount, comme pour les deals).
+ * marginAmount reste null → une règle « % de marge » donne 0 € sur ces missions
+ * (décision Léo 2026-07-06 : marge inconnue = commission à 0, pas de repli CA).
+ * Les règles sur CA (REVENUE) et forfait/consultant (PER_UNIT) ne sont pas affectées.
  */
 export function mapOdooSubscriptionToMission(
   order: OdooSubscriptionOrder,
@@ -196,6 +250,30 @@ export function mapOdooSubscriptionToMission(
     marginSource: null,
     type: MissionType.MARGIN_MENSUELLE,
   };
+}
+
+/**
+ * Éclate un abonnement Odoo en UNE MISSION PAR CONSULTANT placé (une ligne par
+ * consultant dans le dashboard). Le MRR de la commande est réparti à parts égales
+ * entre les consultants (somme des quantités de lignes, minimum 1).
+ * `missionKey` sert d'odooId de mission : l'id de la commande, suffixé -cN si
+ * plusieurs consultants.
+ */
+export function mapOdooSubscriptionToConsultantMissions(
+  order: OdooSubscriptionOrder,
+  consultantCount: number,
+  now: Date = new Date(),
+): Array<MissionMapping & { missionKey: string }> {
+  const count = Math.max(1, Math.round(consultantCount));
+  const base = mapOdooSubscriptionToMission(order, count, now);
+  const perConsultantAmount = round2(base.monthlyAmount / count);
+
+  return Array.from({ length: count }, (_, i) => ({
+    ...base,
+    missionKey: count > 1 ? `${order.id}-c${i + 1}` : String(order.id),
+    monthlyAmount: perConsultantAmount,
+    consultantCount: 1,
+  }));
 }
 
 function round2(n: number): number {

@@ -3,6 +3,7 @@ import { commissionRuleApiService, type CommissionRuleWithCount } from '../../se
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
+import { TruncatedText } from '../../components/ui/TruncatedText';
 import type { CommissionRuleConfig } from '@shared/types';
 import { CommissionRuleType } from '@shared/types';
 import { format } from 'date-fns';
@@ -198,7 +199,7 @@ export function CommissionRulesPage() {
                   <div className="space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 text-sm truncate">{rule.name}</p>
+                        <TruncatedText text={rule.name} className="font-medium text-gray-900 text-sm" />
                         <p className="text-xs text-gray-400 mt-0.5">
                           {format(new Date(rule.createdAt), 'dd MMM yyyy', { locale: fr })}
                         </p>

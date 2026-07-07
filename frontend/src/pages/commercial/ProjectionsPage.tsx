@@ -3,6 +3,7 @@ import { commissionApiService } from '../../services/commission.service';
 import type { ProjectionsData, ProjectionCommission } from '../../services/commission.service';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
+import { TruncatedText } from '../../components/ui/TruncatedText';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -173,11 +174,11 @@ export function ProjectionsPage() {
                 {filteredCommissions.map((commission) => (
                   <tr key={commission.id} className="border-b border-gray-50 last:border-0">
                     <td className="py-3 px-2">
-                      <p className="font-medium text-gray-900 max-w-[180px] truncate">{commission.dealTitle}</p>
+                      <TruncatedText text={commission.dealTitle} className="font-medium text-gray-900 max-w-[180px]" />
                     </td>
                     <td className="py-3 px-2">
                       {commission.clientName
-                        ? <p className="text-gray-700 text-sm max-w-[150px] truncate">{commission.clientName}</p>
+                        ? <TruncatedText text={commission.clientName} className="text-gray-700 text-sm max-w-[150px]" />
                         : <span className="text-gray-300 text-xs">—</span>}
                     </td>
                     <td className="py-3 px-2 text-right text-gray-600">

@@ -60,11 +60,11 @@ export const missionRepository = {
   },
 
   async findActiveWithDealByUserId(userId: string, tenantId: string): Promise<Array<Mission & {
-    deal: { title: string; clientName: string | null };
+    deal: { title: string; clientName: string | null; dealType: string | null };
   }>> {
     return prisma.mission.findMany({
       where: { tenantId, userId, status: MissionStatus.ACTIVE },
-      include: { deal: { select: { title: true, clientName: true } } },
+      include: { deal: { select: { title: true, clientName: true, dealType: true } } },
       orderBy: { startDate: 'desc' },
     });
   },

@@ -9,6 +9,7 @@ import {
   resolveBasisAmount,
   computePlanComponentsAmount,
   resolveEffectiveConfig,
+  filterAssignmentsForDealType,
 } from './commission.service';
 import { CommissionRuleType } from '../../../shared/types';
 import type { CommissionRuleConfig } from '../../../shared/types';
@@ -284,13 +285,33 @@ describe('resolveBasisAmount', () => {
     expect(basisAmount).toBe(4000);
   });
 
-  it('MARGIN → fallback amount si ni marge ni coût', () => {
+  it('MARGIN → base 0 si ni marge ni coût (marge inconnue = commission à 0, jamais de repli CA)', () => {
     const config: CommissionRuleConfig = {
       type: CommissionRuleType.PERCENTAGE, description: 'Marge', rate: 0.1, calculationBasis: 'MARGIN',
       examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
     };
     const { basisAmount } = resolveBasisAmount(config, { amount: 10000 });
+    expect(basisAmount).toBe(0);
+    expect(calculateCommissionAmount(basisAmount, config).amount).toBe(0);
+  });
+
+  it('MARGIN → marge à 0 explicite = commission à 0 (pas confondue avec « inconnue »)', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: 'Marge', rate: 0.1, calculationBasis: 'MARGIN',
+      examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
+    };
+    const { basisAmount } = resolveBasisAmount(config, { amount: 10000, marginAmount: 0 });
+    expect(basisAmount).toBe(0);
+  });
+
+  it('REVENUE → toujours le CA, même sans marge (une règle sur CA reste sur CA)', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: 'CA', rate: 0.1,
+      examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
+    };
+    const { basisAmount } = resolveBasisAmount(config, { amount: 10000, marginAmount: null, costAmount: null });
     expect(basisAmount).toBe(10000);
+    expect(calculateCommissionAmount(basisAmount, config).amount).toBe(1000);
   });
 
   it('PER_UNIT → utilise unitCount', () => {
@@ -430,5 +451,198 @@ describe('resolveEffectiveConfig', () => {
     const effective = resolveEffectiveConfig(forfait, { fixedAmount: 150 });
     expect(effective.fixedAmount).toBe(150);
     expect(calculateCommissionAmount(2, effective).amount).toBe(300); // 2 × 150
+  });
+
+  it('surcharge les paliers (tiers) sans toucher au reste', () => {
+    const tiered: CommissionRuleConfig = {
+      type: CommissionRuleType.TIERED,
+      description: 'Paliers',
+      tiers: [{ min: 0, max: null, rate: 0.05 }],
+      examples: [{ saleAmount: 10000, commission: 500, explanation: 'x' }],
+    };
+    const effective = resolveEffectiveConfig(tiered, {
+      tiers: [{ min: 0, max: null, rate: 0.08 }],
+    });
+    expect(calculateCommissionAmount(10000, effective).amount).toBe(800);
+    expect(calculateCommissionAmount(10000, tiered).amount).toBe(500); // base intacte
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUDIT — bases négatives (marge négative = affaire à perte)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('calculateCommissionAmount — base négative (jamais de commission négative)', () => {
+  it('PERCENTAGE sur marge négative → 0€, jamais une retenue', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: '10% marge', rate: 0.1, calculationBasis: 'MARGIN',
+      examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
+    };
+    const result = calculateCommissionAmount(-4000, config);
+    expect(result.amount).toBe(0);
+    expect(result.explanation).toContain('borné à 0€');
+  });
+
+  it('TIERED sur base négative → 0€ (aucun palier atteint)', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.TIERED, description: 'Paliers',
+      tiers: [{ min: 0, max: 10000, rate: 0.05 }, { min: 10000, max: null, rate: 0.1 }],
+      examples: [{ saleAmount: 1, commission: 0, explanation: 'x' }],
+    };
+    const result = calculateCommissionAmount(-500, config);
+    expect(result.amount).toBe(0);
+  });
+
+  it('PER_UNIT avec compteur négatif (donnée corrompue) → 0€', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.FIXED, description: 'Forfait', fixedAmount: 100, calculationBasis: 'PER_UNIT',
+      examples: [{ saleAmount: 1, commission: 100, explanation: 'x' }],
+    };
+    const result = calculateCommissionAmount(-2, config);
+    expect(result.amount).toBe(0);
+  });
+
+  it('FIXED reste dû même si la base est négative (déclenché par la vente, pas la marge)', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.FIXED, description: 'Fixe 500€', fixedAmount: 500,
+      examples: [{ saleAmount: 1, commission: 500, explanation: 'x' }],
+    };
+    expect(calculateCommissionAmount(-1000, config).amount).toBe(500);
+  });
+
+  it('marge négative via amount - costAmount (coût > CA) → 0€', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: '10% marge', rate: 0.1, calculationBasis: 'MARGIN',
+      examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
+    };
+    const { basisAmount } = resolveBasisAmount(config, { amount: 5000, marginAmount: null, costAmount: 8000 });
+    expect(basisAmount).toBe(-3000);
+    expect(calculateCommissionAmount(basisAmount, config).amount).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUDIT — matching des règles par type de vente (dealType)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('filterAssignmentsForDealType', () => {
+  const rule = (dealType: string | null) => ({ rule: { dealType } });
+
+  it('la règle spécifique gagne sur la générique', () => {
+    const assignments = [rule('Recrutement'), rule(null), rule('Formation')];
+    const result = filterAssignmentsForDealType(assignments, 'Recrutement');
+    expect(result).toHaveLength(1);
+    expect(result[0].rule.dealType).toBe('Recrutement');
+  });
+
+  it('sans règle spécifique correspondante → repli sur les génériques', () => {
+    const assignments = [rule('Recrutement'), rule(null)];
+    const result = filterAssignmentsForDealType(assignments, 'Portage');
+    expect(result).toHaveLength(1);
+    expect(result[0].rule.dealType).toBeNull();
+  });
+
+  it('deal sans type → uniquement les règles génériques', () => {
+    const assignments = [rule('Recrutement'), rule(null)];
+    expect(filterAssignmentsForDealType(assignments, null)).toHaveLength(1);
+    expect(filterAssignmentsForDealType(assignments, undefined)).toHaveLength(1);
+    expect(filterAssignmentsForDealType(assignments, '')).toHaveLength(1);
+  });
+
+  it('matching insensible à la casse et aux espaces', () => {
+    const assignments = [rule('  Recrutement ')];
+    const result = filterAssignmentsForDealType(assignments, 'recrutement');
+    expect(result).toHaveLength(1);
+  });
+
+  it('que des règles spécifiques non correspondantes → aucune règle (pas de commission parasite)', () => {
+    const assignments = [rule('Recrutement'), rule('Formation')];
+    expect(filterAssignmentsForDealType(assignments, 'Portage')).toHaveLength(0);
+  });
+
+  it('plusieurs règles spécifiques du même type → toutes appliquées', () => {
+    const assignments = [rule('Formation'), rule('Formation'), rule(null)];
+    expect(filterAssignmentsForDealType(assignments, 'Formation')).toHaveLength(2);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUDIT — paliers : bornes exactes et configs mal saisies
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('calculateCommissionAmount — TIERED bornes et robustesse', () => {
+  const config: CommissionRuleConfig = {
+    type: CommissionRuleType.TIERED,
+    description: 'Paliers',
+    tiers: [
+      { min: 0, max: 10000, rate: 0.05 },
+      { min: 10000, max: 50000, rate: 0.10 },
+    ],
+    examples: [{ saleAmount: 1, commission: 0, explanation: 'x' }],
+  };
+
+  it('pile sur la frontière (10 000€) : pas de double comptage', () => {
+    // Palier 1 : 10 000 × 5% = 500 ; palier 2 : 0€ au-delà de 10 000
+    expect(calculateCommissionAmount(10000, config).amount).toBeCloseTo(500, 2);
+  });
+
+  it('au-delà du dernier max (60 000 > 50 000) : la tranche s\'arrête au max', () => {
+    // Palier 1 : 500 ; palier 2 : 40 000 × 10% = 4 000 ; au-delà : rien (pas de palier ouvert)
+    expect(calculateCommissionAmount(60000, config).amount).toBeCloseTo(4500, 2);
+  });
+
+  it('paliers saisis dans le désordre : triés avant calcul', () => {
+    const shuffled: CommissionRuleConfig = {
+      ...config,
+      tiers: [
+        { min: 10000, max: 50000, rate: 0.10 },
+        { min: 0, max: 10000, rate: 0.05 },
+      ],
+    };
+    expect(calculateCommissionAmount(15000, shuffled).amount).toBeCloseTo(1000, 2);
+  });
+
+  it('TIERED sans tiers défini → 0€ et « règle non reconnue »', () => {
+    const broken: CommissionRuleConfig = { ...config, tiers: undefined };
+    const result = calculateCommissionAmount(15000, broken);
+    expect(result.amount).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUDIT — Option A : cap appliqué sur le TOTAL, puis part (share)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('cap avant part (Option A, split multi-commerciaux)', () => {
+  it('le cap s\'applique sur le total avant le share de chaque commercial', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: '10% cap 2000', rate: 0.1, cap: 2000,
+      examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
+    };
+    // Deal 50 000€ → 10% = 5 000 → cap 2 000 → 50/50 = 1 000 chacun
+    const total = calculateCommissionAmount(50000, config).amount;
+    expect(total).toBe(2000);
+    expect(total * 0.5).toBe(1000);
+  });
+
+  it('computePlanComponentsAmount applique cap par composant puis share', () => {
+    const capped: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: '10% cap 300', rate: 0.1, cap: 300, calculationBasis: 'MARGIN',
+      examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
+    };
+    const { total } = computePlanComponentsAmount([capped], { amount: 9000, marginAmount: 5000 }, 0.5);
+    // 10% de 5000 = 500 → cap 300 → × 0.5 = 150
+    expect(total).toBe(150);
+  });
+
+  it('la somme des parts vaut le total cappé (pas de perte ni de création d\'argent)', () => {
+    const config: CommissionRuleConfig = {
+      type: CommissionRuleType.PERCENTAGE, description: '10% cap 2000', rate: 0.1, cap: 2000,
+      examples: [{ saleAmount: 1, commission: 0.1, explanation: 'x' }],
+    };
+    const total = calculateCommissionAmount(50000, config).amount;
+    const shares = [0.5, 0.3, 0.2];
+    const sum = shares.reduce((s, share) => s + total * share, 0);
+    expect(sum).toBeCloseTo(total, 6);
   });
 });

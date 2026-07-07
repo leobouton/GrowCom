@@ -3,6 +3,7 @@ import { payrollReportService } from '../../services/payrollReport.service';
 import { api } from '../../services/api';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { TruncatedText } from '../../components/ui/TruncatedText';
 import { useAuth } from '../../hooks/useAuth';
 import type {
   PayrollReportPreview,
@@ -384,7 +385,7 @@ export function ReportsPage() {
                       <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary-600 text-white text-xs font-bold flex-shrink-0">
                         {selectedUserIds.size}
                       </span>
-                      <span className="text-sm font-medium text-gray-700 truncate">{selectionLabel}</span>
+                      <TruncatedText text={selectionLabel} className="text-sm font-medium text-gray-700" as="span" />
                     </div>
                   )}
                 </div>
@@ -781,8 +782,8 @@ function PayrollRow({
               {item.user.firstName[0]}{item.user.lastName[0]}
             </div>
             <div className="min-w-0">
-              <p className="font-medium text-gray-900 truncate">{item.user.firstName} {item.user.lastName}</p>
-              <p className="text-xs text-gray-400 truncate">{item.user.email}</p>
+              <TruncatedText text={`${item.user.firstName} ${item.user.lastName}`} className="font-medium text-gray-900" />
+              <TruncatedText text={item.user.email} className="text-xs text-gray-400" />
             </div>
           </div>
         </td>
@@ -1064,14 +1065,15 @@ function MemberCheckbox({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="font-medium text-gray-900 truncate">{member.firstName} {member.lastName}</span>
+          <TruncatedText text={`${member.firstName} ${member.lastName}`} className="font-medium text-gray-900" as="span" />
           {isLead && (
             <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full flex-shrink-0">LEAD</span>
           )}
         </div>
-        <p className="text-xs text-gray-400 truncate">
-          {ROLE_LABELS[member.role] ?? member.role} — {member.email}
-        </p>
+        <TruncatedText
+          text={`${ROLE_LABELS[member.role] ?? member.role} — ${member.email}`}
+          className="text-xs text-gray-400"
+        />
       </div>
     </button>
   );

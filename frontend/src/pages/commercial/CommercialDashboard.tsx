@@ -6,13 +6,14 @@ import { contestApiService } from '../../services/contest.service';
 import { Card } from '../../components/ui/Card';
 import { Badge, CommissionStatusBadge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import type { CommissionWithDetails, Objective, PublicUser, Contest, ContestLeaderboardEntry, AnonymousLeaderboardResult, RecurringProjection } from '@shared/types';
+import { TruncatedText } from '../../components/ui/TruncatedText';
+import type { CommissionWithDetails, Objective, PublicUser, Contest, ContestLeaderboardEntry, AnonymousLeaderboardResult, RecurringProjection, ObjectiveProgressItem } from '@shared/types';
 import { ContestMetric } from '@shared/types';
 import type { LeaderboardResponse } from '../../services/contest.service';
 import { format } from 'date-fns';
 import {
   isObjectiveCurrent, isObjectiveFuture, getObjectiveDateRange,
-  formatObjectivePeriod, computeProgress, computeBonus, countDealsWithoutMargin,
+  formatObjectivePeriod,
 } from '../../utils/objectives';
 import { fr } from 'date-fns/locale';
 
@@ -110,6 +111,13 @@ interface AdjustmentItem {
   paidAt: string | null;
 }
 
+interface MissionRevenueItem {
+  missionId: string;
+  amount: number;
+  marginAmount: number | null;
+  periodMonth: string;
+}
+
 interface DashboardData {
   fixedSalary: number;
   totalMonthRevenue: number;
@@ -122,6 +130,9 @@ interface DashboardData {
   wonDeals: WonDealSummary[];
   adjustments: AdjustmentItem[];
   recurring?: RecurringProjection;
+  missionRevenues?: MissionRevenueItem[];
+  // Lot 1 : progression et primes calculées par le moteur backend (jamais côté front)
+  objectivesProgress?: ObjectiveProgressItem[];
 }
 
 function formatEur(amount: number) {
@@ -139,24 +150,26 @@ function formatContestValue(metric: ContestMetric, value: number): string {
   return formatEur(value);
 }
 
-// Les fonctions utilitaires (getObjectiveDateRange, computeProgress, computeBonus,
-// formatObjectivePeriod, isObjectiveCurrent, isObjectiveFuture) sont dans utils/objectives.ts
+// Les fonctions utilitaires d'AFFICHAGE (getObjectiveDateRange, formatObjectivePeriod,
+// isObjectiveCurrent, isObjectiveFuture) sont dans utils/objectives.ts.
+// Lot 1 : la progression et la prime viennent du moteur backend (objectivesProgress),
+// le front ne calcule jamais un montant variable.
 
 // ============================================================
 // Composant barre de progression d'un objectif
 // ============================================================
-function ObjectiveProgressCard({ obj, wonDeals, pendingCommissionCount }: { obj: Objective; wonDeals: WonDealSummary[]; pendingCommissionCount?: number }) {
-  const current = computeProgress(obj, wonDeals);
-  const pct = obj.target > 0 ? (current / obj.target) * 100 : 0;
+function ObjectiveProgressCard({ obj, progress, pendingCommissionCount }: { obj: Objective; progress?: ObjectiveProgressItem; pendingCommissionCount?: number }) {
+  const current = progress?.actualValue ?? 0;
+  const pct = progress?.pct ?? 0;
   const isCurrent = isObjectiveCurrent(obj);
   const isFuture = isObjectiveFuture(obj);
   const isDone = pct >= 100;
-  const { amount: bonusEarned } = computeBonus(obj, current);
+  const bonusEarned = progress?.bonusProjected ?? 0;
   const effectiveBonusMode = obj.bonusMode ?? (obj.bonus?.enabled ? 'simple' : 'none');
   const hasBonusRule = effectiveBonusMode !== 'none';
   const isTiered = effectiveBonusMode === 'tiered';
   const isRecurrent = !!obj.parentObjectiveId;
-  const missingMarginCount = countDealsWithoutMargin(obj, wonDeals);
+  const missingMarginCount = progress?.dealsWithoutMargin ?? 0;
 
   const formatValue = (v: number) => {
     if (obj.unit === '€' || obj.unit === 'marge') return formatEur(v);
@@ -209,6 +222,13 @@ function ObjectiveProgressCard({ obj, wonDeals, pendingCommissionCount }: { obj:
           <span className="text-lg font-bold text-gray-900">{formatValue(current)}</span>
           <span className="text-xs text-gray-400">sur {formatValue(obj.target)}</span>
         </div>
+        {/* Transparence : décomposition ventes / CA récurrent des missions */}
+        {(progress?.recurringValue ?? 0) > 0 && (
+          <p className="text-xs text-gray-400 mb-1.5" title="Le CA facturé chaque mois par vos missions en cours (portage, prestation récurrente) compte dans cet objectif — détail dans « Revenus récurrents »">
+            = {formatValue(current - (progress?.recurringValue ?? 0))} de ventes
+            {' + '}<span className="text-indigo-500 font-medium">🔁 {formatValue(progress?.recurringValue ?? 0)} de CA récurrent</span>
+          </p>
+        )}
         {/* Barre avec jalons — l'échelle s'adapte aux paliers au-delà de 100% */}
         <div className="relative w-full">
           <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
@@ -330,7 +350,7 @@ function ObjectiveProgressCard({ obj, wonDeals, pendingCommissionCount }: { obj:
           href="/dashboard/projections"
           className="block text-xs text-primary-600 hover:text-primary-700 px-1 pt-1"
         >
-          Inclut {pendingCommissionCount} vente{(pendingCommissionCount ?? 0) > 1 ? 's' : ''} dont la commission est encore en attente.{' '}
+          {pendingCommissionCount} vente{(pendingCommissionCount ?? 0) > 1 ? 's' : ''} en attente de validation — comptée{(pendingCommissionCount ?? 0) > 1 ? 's' : ''} dans l'objectif après validation par votre manager.{' '}
           <span className="underline">Voir mes projections →</span>
         </a>
       )}
@@ -484,13 +504,14 @@ export function CommercialDashboard() {
     return aScore - bScore;
   });
 
-  // Primes confirmées : objectifs EN COURS déjà atteints → bonus garanti, versé en fin de période
+  // Primes confirmées : objectifs EN COURS déjà atteints → bonus garanti, versé en fin de période.
+  // Montants issus du moteur backend (objectivesProgress), aucun calcul côté front.
+  const progressById = new Map((data?.objectivesProgress ?? []).map((p) => [p.objectiveId, p]));
   const confirmedBonuses = visibleObjectives
     .filter((o) => isObjectiveCurrent(o))
     .map((o) => {
-      const current = computeProgress(o, wonDeals);
-      const { amount } = computeBonus(o, current);
-      return { objective: o, current, amount };
+      const progress = progressById.get(o.id);
+      return { objective: o, current: progress?.actualValue ?? 0, amount: progress?.bonusProjected ?? 0 };
     })
     .filter((b) => b.amount > 0);
   const totalConfirmedBonuses = confirmedBonuses.reduce((sum, b) => sum + b.amount, 0);
@@ -617,13 +638,22 @@ export function CommercialDashboard() {
               <span className="text-lg">🔁</span>
               Revenus récurrents — missions en cours
             </h2>
-            <div className="text-right">
-              <p className="text-xs text-indigo-600 font-medium">Commission mensuelle</p>
-              <p className="text-xl font-bold text-indigo-700">{formatEur(recurring.monthlyTotal)}<span className="text-sm font-medium text-gray-400"> /mois</span></p>
+            <div className="flex items-center gap-6 text-right">
+              <div>
+                <p className="text-xs text-gray-500 font-medium">CA facturé au client</p>
+                <p className="text-xl font-bold text-gray-900">
+                  {formatEur(recurring.missions.reduce((s, m) => s + m.monthlyAmount, 0))}
+                  <span className="text-sm font-medium text-gray-400"> /mois</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-indigo-600 font-medium">Ma commission</p>
+                <p className="text-xl font-bold text-indigo-700">{formatEur(recurring.monthlyTotal)}<span className="text-sm font-medium text-gray-400"> /mois</span></p>
+              </div>
             </div>
           </div>
           <p className="text-xs text-gray-400 mb-4">
-            Versé chaque mois tant que la mission est active dans le CRM.
+            Versé chaque mois tant que la mission est active dans le CRM. Le CA facturé compte dans vos objectifs de CA.
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -632,6 +662,7 @@ export function CommercialDashboard() {
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Mission</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Client</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Consultants</th>
+                  <th className="text-right py-3 px-2 font-medium text-gray-500">CA / mois</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Commission / mois</th>
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Durée restante</th>
                   <th className="text-right py-3 px-2 font-medium text-gray-500">Projeté restant</th>
@@ -641,14 +672,15 @@ export function CommercialDashboard() {
                 {recurring.missions.map((m) => (
                   <tr key={m.missionId} className="border-b border-gray-50 last:border-0">
                     <td className="py-3 px-2">
-                      <p className="font-medium text-gray-900 max-w-[200px] truncate">{m.dealTitle}</p>
+                      <TruncatedText text={m.dealTitle} className="font-medium text-gray-900 max-w-[200px]" />
                     </td>
                     <td className="py-3 px-2">
                       {m.clientName
-                        ? <p className="text-gray-700 text-sm max-w-[150px] truncate">{m.clientName}</p>
+                        ? <TruncatedText text={m.clientName} className="text-gray-700 text-sm max-w-[150px]" />
                         : <span className="text-gray-300 text-xs">—</span>}
                     </td>
                     <td className="py-3 px-2 text-right text-gray-600">{m.consultantCount}</td>
+                    <td className="py-3 px-2 text-right text-gray-700">{formatEur(m.monthlyAmount)}</td>
                     <td className="py-3 px-2 text-right font-semibold text-indigo-700">{formatEur(m.monthlyCommission)}</td>
                     <td className="py-3 px-2 text-gray-500 text-xs">
                       {m.monthsRemaining === null
@@ -691,7 +723,7 @@ export function CommercialDashboard() {
                 {data!.deferredCommissions.map((commission) => (
                   <tr key={commission.id} className="border-b border-gray-50 last:border-0">
                     <td className="py-3 px-2">
-                      <p className="font-medium text-gray-900 max-w-[220px] truncate">{commission.deal.title}</p>
+                      <TruncatedText text={commission.deal.title} className="font-medium text-gray-900 max-w-[220px]" />
                       {commission.deal.clientName && (
                         <p className="text-xs text-gray-400">{commission.deal.clientName}</p>
                       )}
@@ -770,17 +802,40 @@ export function CommercialDashboard() {
           };
           const isCurrentMonth = selectedMonth === now.getMonth() && selectedYear === now.getFullYear();
 
-          // Commissions filtrées par mois
+          // Commissions filtrées par mois.
+          // Les commissions PENDING (en attente de validation manager, paiement client,
+          // versement différé) restent dans « Mes projections » : seules les commissions
+          // validées, payées ou annulées apparaissent dans le détail des ventes.
+          // Une commission validée/payée est rattachée au mois de sa VALIDATION —
+          // la même date que celle utilisée par le total « gains du mois » du backend.
           const monthCommissions = allCommissions.filter((c) => {
-            if (c.awaitingClientPayment && c.status === 'PENDING') return isCurrentMonth;
-            if (c.clientPaidAt && (c.status === 'PAID' || c.status === 'VALIDATED')) {
-              return isInMonth(c.paidAt ?? c.validatedAt);
+            // Les commissions récurrentes de mission ont leur ligne récap 🔁 dédiée :
+            // le contrat de prestation n'apparaît ici que le mois où il a été gagné.
+            if (c.missionId) return false;
+            if (c.status === 'PENDING') return false;
+            if (c.status === 'PAID' || c.status === 'VALIDATED') {
+              return isInMonth(c.validatedAt ?? c.paidAt ?? c.calculatedAt);
             }
-            return isInMonth(c.deal.closedAt ?? c.validatedAt ?? c.calculatedAt);
+            // CANCELLED : rattachée au mois de la vente
+            return isInMonth(c.deal.closedAt ?? c.calculatedAt);
           });
 
-          // Ventes du mois sans aucune commission (pas de règle assignée)
-          const dealIdsWithCommission = new Set(allCommissions.map((c) => c.dealId));
+          // Commissions récurrentes (missions) rattachées au mois sélectionné —
+          // agrégées en UNE ligne récapitulative dans le tableau.
+          const monthRecurring = allCommissions.filter((c) => {
+            if (!c.missionId || c.status === 'CANCELLED' || c.status === 'PENDING') return false;
+            if (!c.periodMonth) return false;
+            const pm = new Date(c.periodMonth);
+            return pm.getUTCFullYear() === selectedYear && pm.getUTCMonth() === selectedMonth;
+          });
+          const monthRecurringTotal = monthRecurring.reduce((sum, c) => sum + c.amount, 0);
+
+          // Ventes du mois sans aucune commission one-shot (pas de règle assignée).
+          // Les commissions de mission ne comptent pas : le contrat d'ancrage doit
+          // bien apparaître comme vente le mois de sa signature.
+          const dealIdsWithCommission = new Set(
+            allCommissions.filter((c) => !c.missionId).map((c) => c.dealId),
+          );
           const monthDealsWithoutCommission = wonDeals
             .filter((d) => !dealIdsWithCommission.has(d.id))
             .filter((d) => isInMonth(d.closedAt));
@@ -792,13 +847,16 @@ export function CommercialDashboard() {
           const activeMonth = monthCommissions.filter((c) => c.status !== 'CANCELLED');
           const monthPaidTotal = activeMonth
             .filter((c) => c.status === 'PAID' || c.status === 'VALIDATED')
-            .reduce((sum, c) => sum + c.amount, 0);
-          const monthPendingTotal = activeMonth
+            .reduce((sum, c) => sum + c.amount, 0)
+            + monthRecurringTotal;
+          // Total des commissions en attente (validation manager, paiement client…)
+          // — visibles en détail sur la page « Mes projections »
+          const projectionsTotal = allCommissions
             .filter((c) => c.status === 'PENDING')
             .reduce((sum, c) => sum + c.amount, 0);
           const monthBonusTotal = monthBonuses.reduce((sum, a) => sum + a.amount, 0);
 
-          const hasRows = totalSalesCount > 0 || monthBonuses.length > 0;
+          const hasRows = totalSalesCount > 0 || monthBonuses.length > 0 || monthRecurring.length > 0;
 
           return (
             <>
@@ -812,9 +870,9 @@ export function CommercialDashboard() {
                   <p className="text-xs text-green-600 mb-0.5">Commissions versées</p>
                   <p className="text-lg font-bold text-green-700">{formatEur(monthPaidTotal)}</p>
                 </div>
-                <div className="bg-yellow-50 rounded-lg px-3 py-2.5 text-center">
-                  <p className="text-xs text-yellow-600 mb-0.5">En attente</p>
-                  <p className="text-lg font-bold text-yellow-700">{formatEur(monthPendingTotal)}</p>
+                <div className="bg-yellow-50 rounded-lg px-3 py-2.5 text-center" title="Commissions en attente de validation ou de paiement client — détail dans « Mes projections »">
+                  <p className="text-xs text-yellow-600 mb-0.5">En projection</p>
+                  <p className="text-lg font-bold text-yellow-700">{formatEur(projectionsTotal)}</p>
                 </div>
                 <div className="bg-emerald-50 rounded-lg px-3 py-2.5 text-center">
                   <p className="text-xs text-emerald-600 mb-0.5">Primes</p>
@@ -850,13 +908,44 @@ export function CommercialDashboard() {
                       </tr>
                     </thead>
                     <tbody>
+                      {/* Rémunération récurrente du mois — une seule ligne récap */}
+                      {monthRecurring.length > 0 && (
+                        <tr className="border-b border-gray-50 last:border-0 bg-indigo-50/30">
+                          <td className="py-3 px-2" colSpan={2}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm">🔁</span>
+                              <p className="font-medium text-gray-900">
+                                Rémunération récurrente — {monthRecurring.length} mission{monthRecurring.length > 1 ? 's' : ''}
+                              </p>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-0.5 ml-6">Détail dans « Revenus récurrents » ci-dessus</p>
+                          </td>
+                          <td className="py-3 px-2 text-right text-gray-600">
+                            {isCurrentMonth && recurring
+                              ? formatEur(recurring.missions.reduce((s, m) => s + m.monthlyAmount, 0))
+                              : <span className="text-gray-400 text-xs">—</span>}
+                          </td>
+                          <td className="py-3 px-2 text-right font-semibold text-indigo-700">
+                            +{formatEur(monthRecurringTotal)}
+                          </td>
+                          <td className="py-3 px-2 text-gray-500 text-xs">Commission mensuelle de mission</td>
+                          <td className="py-3 px-2">
+                            <Badge variant="green">Validée</Badge>
+                          </td>
+                          <td className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap capitalize">
+                            {format(new Date(selectedYear, selectedMonth, 1), 'MMMM yyyy', { locale: fr })}
+                          </td>
+                          <td className="py-3 px-2" />
+                        </tr>
+                      )}
+
                       {/* Primes d'objectifs du mois */}
                       {monthBonuses.map((adj) => (
                         <tr key={`adj-${adj.id}`} className="border-b border-gray-50 last:border-0 bg-emerald-50/30">
                           <td className="py-3 px-2" colSpan={2}>
                             <div className="flex items-center gap-2">
                               <span className="text-sm">🎯</span>
-                              <p className="font-medium text-gray-900 max-w-[300px] truncate">{adj.reason}</p>
+                              <TruncatedText text={adj.reason} className="font-medium text-gray-900 max-w-[300px]" />
                             </div>
                           </td>
                           <td className="py-3 px-2 text-right text-gray-400 text-xs">—</td>
@@ -884,7 +973,7 @@ export function CommercialDashboard() {
                         return (
                         <tr key={commission.id} className={`border-b border-gray-50 last:border-0 ${isCancelled ? 'opacity-60' : ''}`}>
                           <td className="py-3 px-2">
-                            <p className="font-medium text-gray-900 max-w-[180px] truncate">{commission.deal.title}</p>
+                            <TruncatedText text={commission.deal.title} className="font-medium text-gray-900 max-w-[180px]" />
                             {hasResolvedDispute && commission.dispute?.managerResponse && (
                               <div className={`mt-1.5 rounded-lg px-2.5 py-1.5 text-xs border ${
                                 isAccepted
@@ -903,7 +992,7 @@ export function CommercialDashboard() {
                           </td>
                           <td className="py-3 px-2">
                             {commission.deal.clientName
-                              ? <p className="text-gray-700 text-sm max-w-[150px] truncate">{commission.deal.clientName}</p>
+                              ? <TruncatedText text={commission.deal.clientName} className="text-gray-700 text-sm max-w-[150px]" />
                               : <span className="text-gray-300 text-xs">—</span>}
                           </td>
                           <td className="py-3 px-2 text-right text-gray-600">{formatEur(commission.deal.amount)}</td>
@@ -981,14 +1070,14 @@ export function CommercialDashboard() {
                       {monthDealsWithoutCommission.map((deal) => (
                         <tr key={`deal-${deal.id}`} className="border-b border-gray-50 last:border-0">
                           <td className="py-3 px-2">
-                            <p className="font-medium text-gray-900 max-w-[180px] truncate">{deal.title}</p>
+                            <TruncatedText text={deal.title} className="font-medium text-gray-900 max-w-[180px]" />
                             {deal.userShare < 1 && (
                               <p className="text-xs text-gray-400">Part : {(deal.userShare * 100).toFixed(0)}%</p>
                             )}
                           </td>
                           <td className="py-3 px-2">
                             {deal.clientName
-                              ? <p className="text-gray-700 text-sm max-w-[150px] truncate">{deal.clientName}</p>
+                              ? <TruncatedText text={deal.clientName} className="text-gray-700 text-sm max-w-[150px]" />
                               : <span className="text-gray-300 text-xs">—</span>}
                           </td>
                           <td className="py-3 px-2 text-right text-gray-600">{formatEur(deal.amount * deal.userShare)}</td>
@@ -1037,7 +1126,7 @@ export function CommercialDashboard() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {sortedObjectives.map((obj) => (
-                <ObjectiveProgressCard key={obj.id} obj={obj} wonDeals={wonDeals} pendingCommissionCount={pendingCommissionCount} />
+                <ObjectiveProgressCard key={obj.id} obj={obj} progress={progressById.get(obj.id)} pendingCommissionCount={pendingCommissionCount} />
               ))}
             </div>
           )}
@@ -1179,9 +1268,10 @@ export function CommercialDashboard() {
                             <span className="w-7 text-center font-bold text-sm flex-shrink-0">
                               {rankIcon ?? <span className="text-gray-400">#{entry.rank}</span>}
                             </span>
-                            <p className={`flex-1 text-sm truncate ${isMe ? 'font-bold text-primary-700' : 'text-gray-700'}`}>
-                              {entry.user.firstName} {entry.user.lastName}{isMe ? ' (moi)' : ''}
-                            </p>
+                            <TruncatedText
+                              text={`${entry.user.firstName} ${entry.user.lastName}${isMe ? ' (moi)' : ''}`}
+                              className={`flex-1 text-sm ${isMe ? 'font-bold text-primary-700' : 'text-gray-700'}`}
+                            />
                             <span className={`text-sm font-semibold flex-shrink-0 ${entry.value > 0 ? 'text-gray-800' : 'text-gray-400'}`}>
                               {entry.value > 0 ? formatContestValue(contest.metric, entry.value) : '—'}
                             </span>

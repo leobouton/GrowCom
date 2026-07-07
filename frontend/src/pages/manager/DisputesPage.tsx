@@ -3,6 +3,7 @@ import { commissionDisputeService } from '../../services/commissionDispute.servi
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { TruncatedText } from '../../components/ui/TruncatedText';
 import type { CommissionDispute, DisputeStatus } from '@shared/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -372,9 +373,7 @@ function DisputeRow({
           </div>
         </td>
         <td className="py-3 px-2 text-gray-600 max-w-xs">
-          <p className="truncate max-w-[220px]" title={dispute.reason}>
-            {dispute.reason}
-          </p>
+          <TruncatedText text={dispute.reason} className="max-w-[220px]" />
         </td>
         <td className="py-3 px-2">
           <Badge variant={STATUS_BADGE_VARIANT[dispute.status]}>
@@ -387,7 +386,7 @@ function DisputeRow({
         {showResponse && (
           <td className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
             {dispute.managerResponse
-              ? <span title={dispute.managerResponse} className="truncate block max-w-[180px]">{dispute.managerResponse}</span>
+              ? <TruncatedText text={dispute.managerResponse} className="block max-w-[180px]" as="span" />
               : <span className="text-gray-300">&mdash;</span>}
           </td>
         )}

@@ -151,134 +151,61 @@ export const teamController = {
       if (lastName !== undefined) updateData.lastName = lastName.trim();
       if (fixedSalary !== undefined) updateData.fixedSalary = fixedSalary;
 
-      // ── Logique template vs occurrence pour objectifs récurrents ──
+      // ── Objectifs : la liste envoyée par le client est la SOURCE DE VÉRITÉ ──
+      // Les suppressions faites dans l'interface sont respectées telles quelles
+      // (on ne ressuscite plus les occurrences depuis la base — ancien bug :
+      // impossible de supprimer un objectif récurrent depuis la fiche membre).
+      // Seule garantie ajoutée : chaque template récurrent CONSERVÉ possède une
+      // occurrence pour la période en cours (sinon elle est générée).
       if (objectives !== undefined) {
-        const existingObjectives = Array.isArray((member as Record<string, unknown>).objectives)
-          ? ((member as Record<string, unknown>).objectives as Objective[])
-          : [];
+        const input = objectives as Objective[];
+        const newObjectives: Objective[] = [...input];
 
-        const newObjectives: Objective[] = [];
-        // Tracker les IDs des occurrences déjà ajoutées pour éviter les doublons
-        const addedOccurrenceIds = new Set<string>();
-        // Collecter les IDs de templates pour filtrer les occurrences envoyées par le frontend
-        const templateIds = new Set<string>();
+        const now = new Date();
+        const currentMonth = now.getMonth() + 1;
+        const currentYear = now.getFullYear();
+        const currentQuarter = Math.ceil(currentMonth / 3);
+        const currentSemester = currentMonth <= 6 ? 1 : 2;
 
-        // Première passe : identifier les templates
-        for (const obj of objectives as Objective[]) {
-          if (obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId) {
-            templateIds.add(obj.id);
-          }
-        }
-
-        for (const obj of objectives as Objective[]) {
+        for (const obj of input) {
           const isTemplate = obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId;
+          if (!isTemplate) continue;
 
-          if (isTemplate) {
-            // C'est un template récurrent → conserver les occurrences passées/en cours, régénérer les futures
-            const existingTemplate = existingObjectives.find((e) => e.id === obj.id);
-            newObjectives.push(obj);
+          const freq = obj.recurrence!;
+          let hasCurrentPeriod = false;
+          if (freq === 'monthly') {
+            hasCurrentPeriod = newObjectives.some(
+              (o) => o.parentObjectiveId === obj.id && o.month === currentMonth && o.year === currentYear,
+            );
+          } else if (freq === 'quarterly') {
+            hasCurrentPeriod = newObjectives.some(
+              (o) => o.parentObjectiveId === obj.id && o.quarter === currentQuarter && o.year === currentYear,
+            );
+          } else if (freq === 'semester') {
+            hasCurrentPeriod = newObjectives.some(
+              (o) => o.parentObjectiveId === obj.id && o.semester === currentSemester && o.year === currentYear,
+            );
+          } else if (freq === 'annual') {
+            hasCurrentPeriod = newObjectives.some(
+              (o) => o.parentObjectiveId === obj.id && o.year === currentYear,
+            );
+          }
 
-            const now = new Date();
-            const currentMonth = now.getMonth() + 1;
-            const currentYear = now.getFullYear();
-            const currentQuarter = Math.ceil(currentMonth / 3);
+          if (!hasCurrentPeriod) {
+            let periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'semester' | 'year'>> = {};
+            if (freq === 'monthly') periodOverride = { periodType: 'monthly', month: currentMonth, year: currentYear };
+            else if (freq === 'quarterly') periodOverride = { periodType: 'quarterly', quarter: currentQuarter, year: currentYear };
+            else if (freq === 'semester') periodOverride = { periodType: 'semester', semester: currentSemester, year: currentYear };
+            else if (freq === 'annual') periodOverride = { periodType: 'annual', year: currentYear };
 
-            if (existingTemplate) {
-              // Conserver les occurrences passées et en cours (dont la période a commencé)
-              const existingOccurrences = existingObjectives.filter((e) => e.parentObjectiveId === obj.id);
-              for (const occ of existingOccurrences) {
-                if (addedOccurrenceIds.has(occ.id)) continue;
-                const occStart = getOccurrenceStartDate(occ);
-                if (occStart && occStart <= now) {
-                  // Occurrence passée ou en cours → on la conserve telle quelle
-                  newObjectives.push(occ);
-                  addedOccurrenceIds.add(occ.id);
-                }
-                // Les occurrences futures sont supprimées — elles seront régénérées par le cron
-              }
-
-              // Vérifier qu'une occurrence du mois courant existe, sinon la générer
-              const freq = obj.recurrence!;
-              let hasCurrentPeriod = false;
-              if (freq === 'monthly') {
-                hasCurrentPeriod = newObjectives.some(
-                  (o) => o.parentObjectiveId === obj.id && o.month === currentMonth && o.year === currentYear,
-                );
-              } else if (freq === 'quarterly') {
-                hasCurrentPeriod = newObjectives.some(
-                  (o) => o.parentObjectiveId === obj.id && o.quarter === currentQuarter && o.year === currentYear,
-                );
-              } else if (freq === 'semester') {
-                const currentSemester = currentMonth <= 6 ? 1 : 2;
-                hasCurrentPeriod = newObjectives.some(
-                  (o) => o.parentObjectiveId === obj.id && o.semester === currentSemester && o.year === currentYear,
-                );
-              } else if (freq === 'annual') {
-                hasCurrentPeriod = newObjectives.some(
-                  (o) => o.parentObjectiveId === obj.id && o.year === currentYear,
-                );
-              }
-
-              if (!hasCurrentPeriod) {
-                let periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'semester' | 'year'>> = {};
-                if (freq === 'monthly') periodOverride = { periodType: 'monthly', month: currentMonth, year: currentYear };
-                else if (freq === 'quarterly') periodOverride = { periodType: 'quarterly', quarter: currentQuarter, year: currentYear };
-                else if (freq === 'semester') { const cs = currentMonth <= 6 ? 1 : 2; periodOverride = { periodType: 'semester', semester: cs, year: currentYear }; }
-                else if (freq === 'annual') periodOverride = { periodType: 'annual', year: currentYear };
-
-                const newOcc = buildOccurrence(obj, periodOverride);
-                newObjectives.push(newOcc);
-                addedOccurrenceIds.add(newOcc.id);
-                logger.info('OBJECTIVE_OCCURRENCE_AUTO_GENERATED', {
-                  userId: memberId,
-                  tenantId: manager.tenantId,
-                  templateId: obj.id,
-                  period: periodOverride,
-                });
-              }
-
-              logger.info('OBJECTIVE_TEMPLATE_UPDATED', {
-                userId: memberId,
-                tenantId: manager.tenantId,
-                objectiveId: obj.id,
-                keptOccurrences: newObjectives.filter((o) => o.parentObjectiveId === obj.id).length,
-              });
-            } else {
-              // Nouveau template → générer immédiatement l'occurrence de la période en cours
-              const freq = obj.recurrence!;
-              let periodOverride: Partial<Pick<Objective, 'periodType' | 'month' | 'quarter' | 'semester' | 'year'>> = {};
-
-              if (freq === 'monthly') {
-                periodOverride = { periodType: 'monthly', month: currentMonth, year: currentYear };
-              } else if (freq === 'quarterly') {
-                periodOverride = { periodType: 'quarterly', quarter: currentQuarter, year: currentYear };
-              } else if (freq === 'semester') {
-                const cs = currentMonth <= 6 ? 1 : 2;
-                periodOverride = { periodType: 'semester', semester: cs, year: currentYear };
-              } else if (freq === 'annual') {
-                periodOverride = { periodType: 'annual', year: currentYear };
-              }
-
-              const newOcc = buildOccurrence(obj, periodOverride);
-              newObjectives.push(newOcc);
-              addedOccurrenceIds.add(newOcc.id);
-              logger.info('OBJECTIVE_OCCURRENCE_AUTO_GENERATED', {
-                userId: memberId,
-                tenantId: manager.tenantId,
-                templateId: obj.id,
-                period: periodOverride,
-              });
-            }
-          } else if (obj.parentObjectiveId && templateIds.has(obj.parentObjectiveId)) {
-            // Occurrence d'un template présent dans l'input → déjà traitée ci-dessus, ignorer
-            // pour éviter les doublons
-            if (!addedOccurrenceIds.has(obj.id)) {
-              newObjectives.push(obj);
-              addedOccurrenceIds.add(obj.id);
-            }
-          } else {
-            // Objectif non-récurrent → simple update
-            newObjectives.push(obj);
+            const newOcc = buildOccurrence(obj, periodOverride);
+            newObjectives.push(newOcc);
+            logger.info('OBJECTIVE_OCCURRENCE_AUTO_GENERATED', {
+              userId: memberId,
+              tenantId: manager.tenantId,
+              templateId: obj.id,
+              period: periodOverride,
+            });
           }
         }
 
@@ -345,23 +272,3 @@ export const teamController = {
   },
 };
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-/** Retourne la date de début d'une occurrence d'objectif. */
-function getOccurrenceStartDate(obj: Objective): Date | null {
-  if (obj.startDate) return new Date(obj.startDate);
-  const year = obj.year ?? new Date().getFullYear();
-  if (obj.periodType === 'monthly' && obj.month) {
-    return new Date(year, obj.month - 1, 1);
-  }
-  if (obj.periodType === 'quarterly' && obj.quarter) {
-    return new Date(year, (obj.quarter - 1) * 3, 1);
-  }
-  if (obj.periodType === 'semester' && obj.semester) {
-    return new Date(year, (obj.semester - 1) * 6, 1);
-  }
-  if (obj.periodType === 'annual') {
-    return new Date(year, 0, 1);
-  }
-  return null;
-}

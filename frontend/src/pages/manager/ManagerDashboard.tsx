@@ -3,11 +3,35 @@ import { commissionApiService } from '../../services/commission.service';
 import { dealAssignmentApiService } from '../../services/dealAssignment.service';
 import { StatCard, Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { TruncatedText } from '../../components/ui/TruncatedText';
 import { Badge, CommissionStatusBadge } from '../../components/ui/Badge';
 import { DealAssignmentModal } from '../../components/DealAssignmentModal';
 import type { CommissionWithDetails, DealAssignment } from '@shared/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+
+// periodMonth sentinelle (1970-01-01) = commission de deal one-shot
+const PERIOD_MONTH_SENTINEL = new Date('1971-01-01').getTime();
+
+/**
+ * Date affichée pour une commission :
+ * - commission récurrente de mission : le MOIS de rattachement (pas la date du
+ *   contrat d'origine, qui peut dater de plusieurs mois) ;
+ * - commission de deal : date de vente (closedAt), repli sur la date de calcul.
+ */
+function commissionSaleDateLabel(commission: CommissionWithDetails): string {
+  if (
+    commission.missionId &&
+    commission.periodMonth &&
+    new Date(commission.periodMonth).getTime() > PERIOD_MONTH_SENTINEL
+  ) {
+    return `🔁 ${format(new Date(commission.periodMonth), 'MMMM yyyy', { locale: fr })}`;
+  }
+  if (commission.deal.closedAt) {
+    return format(new Date(commission.deal.closedAt), 'dd MMM yyyy', { locale: fr });
+  }
+  return format(new Date(commission.calculatedAt), 'dd MMM yyyy', { locale: fr });
+}
 
 // ─── Modal d'annulation ──────────────────────────────────────────────────────
 function CancelCommissionModal({
@@ -259,9 +283,7 @@ function SearchProcessedModal({
                   {/* Infos */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <p className="text-sm font-medium text-gray-900 truncate">
-                        {c.deal.title}
-                      </p>
+                      <TruncatedText text={c.deal.title} className="text-sm font-medium text-gray-900" />
                       <CommissionStatusBadge status={c.status} />
                     </div>
                     <p className="text-xs text-gray-500">
@@ -692,19 +714,17 @@ export function ManagerDashboard() {
                     <td className="py-3 px-2 font-medium text-gray-900">
                       {commission.user.firstName} {commission.user.lastName}
                     </td>
-                    <td className="py-3 px-2 text-gray-600 max-w-xs truncate">
-                      {commission.deal.title}
+                    <td className="py-3 px-2 max-w-xs">
+                      <TruncatedText text={commission.deal.title} className="text-gray-600" />
                     </td>
-                    <td className="py-3 px-2 text-gray-600 max-w-xs truncate">
-                      {commission.deal.clientName || '—'}
+                    <td className="py-3 px-2 max-w-xs">
+                      <TruncatedText text={commission.deal.clientName || '—'} className="text-gray-600" />
                     </td>
                     <td className="py-3 px-2 text-right font-semibold text-gray-900">
                       {formatEur(commission.amount)}
                     </td>
                     <td className="py-3 px-2 text-xs text-gray-500 whitespace-nowrap">
-                      {commission.deal.closedAt
-                        ? format(new Date(commission.deal.closedAt), 'dd MMM yyyy', { locale: fr })
-                        : format(new Date(commission.calculatedAt), 'dd MMM yyyy', { locale: fr })}
+                      {commissionSaleDateLabel(commission)}
                     </td>
                     <td className="py-3 px-2">
                       <span className="inline-flex items-center gap-1.5 text-orange-700 font-medium">
@@ -788,19 +808,17 @@ export function ManagerDashboard() {
                     <td className="py-3 px-2 font-medium text-gray-900">
                       {commission.user.firstName} {commission.user.lastName}
                     </td>
-                    <td className="py-3 px-2 text-gray-600 max-w-xs truncate">
-                      {commission.deal.title}
+                    <td className="py-3 px-2 max-w-xs">
+                      <TruncatedText text={commission.deal.title} className="text-gray-600" />
                     </td>
-                    <td className="py-3 px-2 text-gray-600 max-w-xs truncate">
-                      {commission.deal.clientName || '—'}
+                    <td className="py-3 px-2 max-w-xs">
+                      <TruncatedText text={commission.deal.clientName || '—'} className="text-gray-600" />
                     </td>
                     <td className="py-3 px-2 text-right font-semibold text-gray-900">
                       {formatEur(commission.amount)}
                     </td>
                     <td className="py-3 px-2 text-xs text-gray-500 whitespace-nowrap">
-                      {commission.deal.closedAt
-                        ? format(new Date(commission.deal.closedAt), 'dd MMM yyyy', { locale: fr })
-                        : format(new Date(commission.calculatedAt), 'dd MMM yyyy', { locale: fr })}
+                      {commissionSaleDateLabel(commission)}
                     </td>
                     <td className="py-3 px-2 text-xs whitespace-nowrap">
                       {commission.validatedAt ? (

@@ -245,7 +245,7 @@ export interface RuleAssignment {
   endDate: string | null;
   isActive: boolean;
   createdAt: string;
-  rule: Pick<CommissionRule, 'id' | 'name' | 'type' | 'dealType' | 'scope'>;
+  rule: Pick<CommissionRule, 'id' | 'name' | 'type' | 'dealType' | 'scope' | 'config'>;
 }
 
 /** Sous-ensemble des paramètres d'une règle qui peuvent être surchargés par assignation. */
@@ -315,6 +315,11 @@ export interface Commission {
   awaitingClientPayment: boolean;
   clientPaidAt: string | null;
   clientPaidBy: string | null;
+  // Récurrent ESN : mission source et mois de rattachement de la commission.
+  // periodMonth = 1er jour du mois pour une commission de mission ;
+  // sentinelle 1970-01-01 pour une commission de deal one-shot.
+  missionId?: string | null;
+  periodMonth?: string;
 }
 
 export interface CommissionWithDetails extends Commission {
@@ -791,6 +796,42 @@ export interface VariablePlan {
 /** Paramètres surchargeables par personne pour un composant donné. */
 export type PlanComponentOverrides = Record<string, Partial<CommissionRuleConfig>>;
 
+// ─── Plan de variable — simulation (refonte page unifiée) ───
+// Les types du brouillon IA (GeneratedPlanDraft, GeneratedPlanComponentDraft,
+// PlanObjectiveInput) sont définis plus bas dans ce fichier.
+
+/** Scénario paramétrable du dashboard de simulation (tout recalcul passe par l'API). */
+export interface PlanSimulationScenario {
+  dealAmount: number;                  // montant d'un deal one-shot simulé
+  dealMargin: number | null;           // marge du deal (null = inconnue → repli moteur)
+  missionMonthlyAmount: number;        // CA mensuel d'une mission récurrente simulée
+  missionMonthlyMargin: number | null; // marge mensuelle de la mission
+  consultantCount: number;             // consultants placés (forfait PER_UNIT)
+  missionMonths: number;               // durée simulée de la mission (mois)
+  objectiveAchievementPct: number;     // % d'atteinte des objectifs (100 = pile la cible)
+}
+
+/** Une ligne de décomposition de la simulation (un composant du plan). */
+export interface PlanSimulationLine {
+  componentIndex: number;
+  componentName: string;
+  kind: 'ONE_SHOT' | 'RECURRING' | 'OBJECTIVE_BONUS';
+  amount: number;           // one-shot : montant ; récurrent : montant MENSUEL ; bonus : prime
+  monthlyAmount?: number;   // récurrent uniquement
+  months?: number;          // récurrent uniquement
+  projectedTotal?: number;  // récurrent : mensuel × durée simulée
+  explanation: string;      // explication moteur, lisible
+}
+
+/** Résultat de POST /variable-plans/simulate (calculé par le moteur réel, jamais côté front). */
+export interface PlanSimulationResult {
+  totalOneShot: number;
+  totalMonthly: number;         // somme des composants récurrents, par mois
+  totalObjectiveBonus: number;
+  grandTotal: number;           // one-shot + mensuel × durée + primes, sur la durée simulée
+  lines: PlanSimulationLine[];
+}
+
 export interface PlanAssignment {
   id: string;
   tenantId: string;
@@ -865,6 +906,8 @@ export interface GeneratedPlanCommissionComponent {
   kind: 'COMMISSION_RULE';
   name: string;
   config: CommissionRuleConfig;
+  /** Présent en mode ÉDITION d'un plan sauvegardé : la règle réelle à mettre à jour. */
+  ruleId?: string;
 }
 
 export interface GeneratedPlanObjectiveComponent {
@@ -881,6 +924,26 @@ export interface GeneratedPlanDraft {
   name: string;
   description: string;
   components: GeneratedPlanComponentDraft[];
+}
+
+// --- Progression d'objectif calculée par le moteur backend (Lot 1) ---
+
+/**
+ * Progression et prime d'un objectif, calculées par le POINT D'ENTRÉE UNIQUE
+ * du moteur (objectiveProgress.service). Le front affiche ces nombres, il ne
+ * recalcule jamais. source = SNAPSHOT pour un objectif terminé déjà figé
+ * (valeurs lues depuis ObjectiveSnapshot, pas recalculées).
+ */
+export interface ObjectiveProgressItem {
+  objectiveId: string;
+  actualValue: number;
+  pct: number;
+  bonusProjected: number;
+  dealsWithoutMargin: number;
+  source: 'LIVE' | 'SNAPSHOT';
+  // Transparence : part de l'actualValue venant du CA récurrent des missions
+  // (0 pour les objectifs en nb de deals ; absent pour les snapshots historiques)
+  recurringValue?: number;
 }
 
 // --- DTO Mission enrichie (endpoints manager) ---

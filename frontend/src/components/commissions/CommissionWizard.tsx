@@ -240,6 +240,15 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
       const config = buildConfig(state);
       const description = buildDescription(state);
 
+      // En édition : préserver le type d'événement (one-shot vs récurrent mensuel)
+      // que le wizard ne gère pas — sinon une règle récurrente redeviendrait one-shot.
+      if (isEdit && existingRule) {
+        const previousConfig = existingRule.config as unknown as CommissionRuleConfig;
+        if (previousConfig.appliesToEventType) {
+          config.appliesToEventType = previousConfig.appliesToEventType;
+        }
+      }
+
       if (isEdit && existingRule) {
         const updated = await commissionRuleApiService.update(existingRule.id, {
           name: state.name,
@@ -333,15 +342,18 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Type de deal (optionnel)</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Type de vente (optionnel)</label>
             <input
               type="text"
-              placeholder="ex : CDI, CDD, Interim..."
+              placeholder="ex : Recrutement, Formation, Portage…"
               value={state.dealType}
               onChange={(e) => update({ dealType: e.target.value })}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
             />
-            <p className="mt-1 text-xs text-gray-400">Laissez vide pour une règle applicable à tous les deals</p>
+            <p className="mt-1 text-xs text-gray-400">
+              Doit correspondre au type renvoyé par votre CRM (étiquette Odoo ou type de deal HubSpot).
+              La règle ne s'appliquera qu'aux ventes de ce type — laissez vide pour une règle générale.
+            </p>
           </div>
 
           <div className="flex justify-end gap-3 pt-2">

@@ -8,7 +8,7 @@ import { commissionService } from '../services/commission.service';
 import { AppError } from '../middlewares/errorHandler';
 import { DealStatus as PrismaDealStatus, CommissionStatus as PrismaCommissionStatus } from '@prisma/client';
 import { prisma } from '../config/prisma';
-import { HubspotLineItem, mapHubspotLineItemsToMission } from './crmMission.mapping';
+import { HubspotLineItem, mapHubspotLineItemToConsultantMissions } from './crmMission.mapping';
 
 const HUBSPOT_API = 'https://api.hubapi.com';
 const HUBSPOT_PAGE_SIZE = 100;
@@ -25,6 +25,8 @@ const DEAL_PROPERTIES = [
   'hubspot_owner_id',
   'pipeline',
   'growcom_margin',
+  'dealtype',        // Type de vente natif HubSpot (ou valeurs custom : Recrutement, Formation, Portage…)
+  'growcom_dealtype', // Propriété custom optionnelle, prioritaire sur dealtype si présente
 ];
 
 // ─── Types HubSpot ──────────────────────────────────────────────────────────
@@ -60,6 +62,7 @@ interface NormalizedHubspotDeal {
   ownerId: string | null;
   companyId: string | null;
   margin: number | null;
+  dealType: string | null; // growcom_dealtype > dealtype (type de vente pour le moteur de règles)
 }
 
 // ─── Appels HTTP ──────────────────────────────────────────────────────────────
@@ -191,6 +194,8 @@ export const hubspotService = {
         const rawMargin = p['growcom_margin'];
         const margin = rawMargin != null && rawMargin !== '' ? Number(rawMargin) : null;
 
+        const rawDealType = p['growcom_dealtype'] || p['dealtype'];
+
         deals.push({
           id: d.id,
           name: p['dealname'] ?? '(Sans nom)',
@@ -200,6 +205,7 @@ export const hubspotService = {
           ownerId: p['hubspot_owner_id'] && p['hubspot_owner_id'] !== '' ? p['hubspot_owner_id'] : null,
           companyId,
           margin: margin != null && !Number.isNaN(margin) ? margin : null,
+          dealType: rawDealType && rawDealType.trim() !== '' ? rawDealType.trim() : null,
         });
       }
 
@@ -344,10 +350,15 @@ export const hubspotService = {
         continue;
       }
 
-      const mapping = mapHubspotLineItemsToMission(items, {
-        closeDate: deal.closedAt ? deal.closedAt.toISOString() : null,
-      });
-      if (!mapping) continue; // aucun line item récurrent sur ce deal
+      // UNE MISSION PAR CONSULTANT PLACÉ : chaque line item récurrent (et chaque
+      // unité de quantité) devient sa propre mission → une ligne par consultant
+      // dans le dashboard, même client / même contrat ou pas.
+      const missions = items.flatMap((li) =>
+        mapHubspotLineItemToConsultantMissions(li, {
+          closeDate: deal.closedAt ? deal.closedAt.toISOString() : null,
+        }),
+      );
+      if (missions.length === 0) continue; // aucun line item récurrent sur ce deal
 
       // Une mission active suppose un deal gagné (revenu récurrent effectif)
       if (deal.status !== PrismaDealStatus.WON) {
@@ -355,15 +366,38 @@ export const hubspotService = {
         continue;
       }
 
-      await missionRepository.upsertHubspot({
-        tenantId,
-        hubspotId: hubspotDealId,
-        dealId: deal.id,
-        userId: deal.assignedToId,
-        source: 'HUBSPOT',
-        ...mapping,
+      for (const { missionKey, ...mapping } of missions) {
+        await missionRepository.upsertHubspot({
+          tenantId,
+          hubspotId: missionKey,
+          dealId: deal.id,
+          userId: deal.assignedToId,
+          source: 'HUBSPOT',
+          ...mapping,
+        });
+        missionsSynced++;
+      }
+
+      // Nettoyage des missions obsolètes de ce deal (ancien format agrégé keyé sur
+      // le deal, ou line item disparu du CRM) : purge du PENDING puis suppression,
+      // avec repli en ENDED si un historique payé y est encore rattaché.
+      const currentKeys = missions.map((m) => m.missionKey);
+      const staleMissions = await prisma.mission.findMany({
+        where: { tenantId, dealId: deal.id, source: 'HUBSPOT', hubspotId: { notIn: currentKeys } },
+        select: { id: true },
       });
-      missionsSynced++;
+      for (const stale of staleMissions) {
+        await prisma.commission.deleteMany({
+          where: { missionId: stale.id, tenantId, status: PrismaCommissionStatus.PENDING },
+        });
+        try {
+          await prisma.commissionableEvent.deleteMany({ where: { missionId: stale.id, tenantId } });
+          await prisma.mission.delete({ where: { id: stale.id } });
+        } catch {
+          // Historique validé/payé encore rattaché → on termine la mission au lieu de la supprimer
+          await prisma.mission.update({ where: { id: stale.id }, data: { status: 'ENDED' } });
+        }
+      }
     }
 
     if (missionsSynced === 0 && missionsSkipped === 0) {
@@ -441,6 +475,7 @@ export const hubspotService = {
             costAmount,
             marginAmount,
             marginSource,
+            ...(deal.dealType !== null ? { dealType: deal.dealType } : {}),
           });
 
           // DealAssignment : créer une assignation 100% si aucune n'existe encore

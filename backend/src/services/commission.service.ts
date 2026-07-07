@@ -6,10 +6,13 @@ import { dealRepository } from '../repositories/deal.repository';
 import { missionRepository } from '../repositories/mission.repository';
 import { userRepository } from '../repositories/user.repository';
 import { commissionAdjustmentRepository } from '../repositories/commissionAdjustment.repository';
+import { commissionableEventRepository } from '../repositories/commissionableEvent.repository';
 import { commissionDisputeRepository } from '../repositories/commissionDispute.repository';
 import { auditLogRepository } from '../repositories/auditLog.repository';
+import { objectiveSnapshotRepository } from '../repositories/objectiveSnapshot.repository';
+import { buildObjectivesProgress } from './objectiveProgress.service';
 import { AppError } from '../middlewares/errorHandler';
-import { CommissionStatus, CommissionRuleConfig, CommissionRuleType, UserRole, RecurringProjection } from '../../../shared/types';
+import { CommissionStatus, CommissionRuleConfig, CommissionRuleType, UserRole, RecurringProjection, Objective } from '../../../shared/types';
 // CommissionCalculationBasis importé via CommissionRuleConfig (optionnel)
 import { CommissionStatus as PrismaCommissionStatus, UserRole as PrismaUserRole, DealStatus as PrismaDealStatus } from '@prisma/client';
 
@@ -88,6 +91,13 @@ export function calculateCommissionAmount(
     amount = config.cap;
   }
 
+  // 4. Une commission n'est jamais négative : une base négative (ex. marge
+  // négative sur une affaire à perte) donne 0 €, jamais une retenue.
+  if (amount < 0) {
+    explanation = `${explanation} → borné à 0€ (base négative)`;
+    amount = 0;
+  }
+
   return { amount, explanation };
 }
 
@@ -107,7 +117,9 @@ export interface CommissionBasisInput {
 /**
  * Résout la base de calcul selon config.calculationBasis.
  * - PER_UNIT : nb de consultants placés
- * - MARGIN   : marge fournie, sinon amount - coût, sinon amount (comportement deal existant)
+ * - MARGIN   : marge fournie, sinon amount - coût, sinon 0 (décision Léo
+ *   2026-07-06 : marge inconnue = commission à 0, JAMAIS de repli sur le CA —
+ *   un % de marge calculé sur le CA entier surpayait systématiquement)
  * - REVENUE  : amount
  */
 export function resolveBasisAmount(
@@ -124,7 +136,7 @@ export function resolveBasisAmount(
     } else if (input.costAmount !== null && input.costAmount !== undefined) {
       margin = input.amount - input.costAmount;
     } else {
-      margin = input.amount;
+      margin = 0;
     }
     return { basisAmount: margin, basisLabel: 'marge' };
   }
@@ -189,6 +201,34 @@ function readOverrides(overrides: unknown): Partial<CommissionRuleConfig> | null
   return (overrides as Partial<CommissionRuleConfig> | null) ?? null;
 }
 
+// ─── Filtrage des règles par type de vente (dealType) ────────────────────────
+
+/** Normalise un type de vente pour comparaison (insensible à la casse et aux espaces). */
+function normalizeDealType(value: string | null | undefined): string | null {
+  const v = (value ?? '').trim().toLowerCase();
+  return v === '' ? null : v;
+}
+
+/**
+ * Sélectionne les règles applicables à un deal selon son type de vente.
+ * - Une règle avec un dealType défini ne s'applique QU'AUX deals du même type.
+ * - Une règle générique (dealType null) sert de repli : elle ne s'applique
+ *   que si AUCUNE règle spécifique ne correspond au type du deal.
+ * Évite qu'une prime de recrutement se déclenche sur une vente de formation.
+ */
+export function filterAssignmentsForDealType<T extends { rule: { dealType: string | null } }>(
+  assignments: T[],
+  dealDealType: string | null | undefined,
+): T[] {
+  const dealType = normalizeDealType(dealDealType);
+  const specific = assignments.filter((a) => {
+    const ruleType = normalizeDealType(a.rule.dealType);
+    return ruleType !== null && dealType !== null && ruleType === dealType;
+  });
+  if (specific.length > 0) return specific;
+  return assignments.filter((a) => normalizeDealType(a.rule.dealType) === null);
+}
+
 // ─── Projection du récurrent (missions actives d'un commercial) ─────────────
 
 /** Nombre de mois restants (arrondi au supérieur) avant la fin prévue, ou null si indéterminée. */
@@ -215,12 +255,16 @@ export async function getRecurringProjectionForUser(
   }
 
   const assignments = await ruleAssignmentRepository.findActiveForUser(userId, tenantId);
-  const missionConfigs = assignments
-    .map((a) => resolveEffectiveConfig(a.rule.config as unknown as CommissionRuleConfig, readOverrides(a.overrides)))
-    .filter((c) => c.appliesToEventType === 'MISSION_MONTH');
+  const missionAssignments = assignments.filter((a) => {
+    const cfg = a.rule.config as unknown as CommissionRuleConfig;
+    return cfg.appliesToEventType === 'MISSION_MONTH';
+  });
 
   let monthlyTotal = 0;
   const list = missions.map((m) => {
+    // Filtre par type de vente du deal d'ancrage (même logique que le job de récurrence)
+    const missionConfigs = filterAssignmentsForDealType(missionAssignments, m.deal.dealType)
+      .map((a) => resolveEffectiveConfig(a.rule.config as unknown as CommissionRuleConfig, readOverrides(a.overrides)));
     const { total } = computePlanComponentsAmount(missionConfigs, {
       amount: m.monthlyAmount,
       marginAmount: m.marginAmount,
@@ -325,6 +369,29 @@ async function assertInScope(
   if (!teamIds.includes(targetUserId)) {
     throw new AppError(403, 'FORBIDDEN', 'Ce commercial n\'appartient pas à votre équipe');
   }
+}
+
+/**
+ * Règle métier : c'est le responsable de l'équipe qui valide les ventes de ses
+ * commerciaux/recruteurs. Le manager général ne doit donc PAS retrouver dans sa
+ * file de validation les ventes des équipes qui ont leur propre responsable —
+ * il ne valide que : les responsables d'équipe eux-mêmes, les équipes dont il
+ * est directement responsable, et les commerciaux sans équipe (ou sans responsable).
+ * Retourne les userIds dont la validation est déléguée à un responsable d'équipe.
+ */
+async function getUserIdsValidatedByTeamLeads(callerId: string, tenantId: string): Promise<Set<string>> {
+  const groups = await prisma.group.findMany({
+    where: { tenantId, leadId: { not: null }, NOT: { leadId: callerId } },
+    include: { members: { where: { isActive: true }, select: { id: true } } },
+  });
+  const delegated = new Set<string>();
+  for (const g of groups) {
+    for (const m of g.members) {
+      // Le responsable lui-même reste validé par le manager général
+      if (m.id !== g.leadId) delegated.add(m.id);
+    }
+  }
+  return delegated;
 }
 
 /**
@@ -562,9 +629,32 @@ export const commissionService = {
     commercialsSummary.sort((a, b) => b.totalRevenue - a.totalRevenue);
 
     // Commissions en attente dans le périmètre
-    const allPending = teamIds !== null
+    let allPending = teamIds !== null
       ? await commissionRepository.findPendingByUserIds(teamIds, tenantId)
       : await commissionRepository.findPendingByTenantId(tenantId);
+
+    // Manager général : les ventes des équipes ayant leur propre responsable sont
+    // validées par ce responsable — on les retire de la file de validation du manager.
+    if (teamIds === null && callerRole === UserRole.MANAGER) {
+      const delegated = await getUserIdsValidatedByTeamLeads(callerId, tenantId);
+      if (delegated.size > 0) {
+        allPending = allPending.filter((c) => !delegated.has(c.userId));
+      }
+    }
+
+    // Responsable d'équipe : ses propres ventes (et celles d'autres TEAM_LEAD) sont
+    // validées par le manager général — inutile de les afficher dans SA file.
+    if (callerRole === UserRole.TEAM_LEAD || callerRole === UserRole.BU_MANAGER) {
+      const pendingUserIds = [...new Set(allPending.map((c) => c.userId))];
+      const teamLeadUsers = pendingUserIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: pendingUserIds }, role: PrismaUserRole.TEAM_LEAD },
+            select: { id: true },
+          })
+        : [];
+      const teamLeadIds = new Set(teamLeadUsers.map((u) => u.id));
+      allPending = allPending.filter((c) => !teamLeadIds.has(c.userId));
+    }
 
     // Commissions normales à valider manuellement (pas de paiement différé ou délai déjà dépassé)
     const pendingCommissions = allPending.filter(
@@ -620,7 +710,7 @@ export const commissionService = {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
-    const [totalEarned, allCommissions, openDeals, user, activeAssignments, wonDealsForObjectives, adjustments] = await Promise.all([
+    const [totalEarned, allCommissions, openDeals, user, activeAssignments, wonDealsForObjectives, adjustments, missionMonthEvents, objectiveSnapshots] = await Promise.all([
       commissionRepository.sumByUserAndMonth(userId, tenantId, startOfMonth, endOfMonth),
       commissionRepository.findByUserId(userId, tenantId),
       dealRepository.findOpenByUserId(userId, tenantId),
@@ -630,6 +720,10 @@ export const commissionService = {
       // et récupérer le share du DealAssignment pour les splits
       dealRepository.findWonForObjectives(userId, tenantId),
       commissionAdjustmentRepository.findByUserId(userId, tenantId),
+      // CA récurrent des missions : facturé au client → compte dans les objectifs
+      commissionableEventRepository.findMissionMonthsByUserId(userId, tenantId),
+      // Objectifs passés déjà figés : servis depuis le snapshot, jamais recalculés
+      objectiveSnapshotRepository.findByUserId(userId, tenantId, 200),
     ]);
 
     const deferredCommissions = allCommissions.filter(
@@ -649,7 +743,10 @@ export const commissionService = {
 
     let projectedCommissions = 0;
     const projections = openDeals.map((deal) => {
-      if (dealWonAssignments.length === 0) {
+      // Même filtrage que le calcul réel : type de vente du deal vs dealType de la règle
+      const applicableAssignments = filterAssignmentsForDealType(dealWonAssignments, deal.dealType);
+
+      if (applicableAssignments.length === 0) {
         return {
           deal: { id: deal.id, title: deal.title, clientName: deal.clientName ?? null, amount: deal.amount, probability: deal.probability },
           projectedCommission: 0,
@@ -660,7 +757,7 @@ export const commissionService = {
       let projected = 0;
       const ruleBreakdown: string[] = [];
 
-      for (const assignment of dealWonAssignments) {
+      for (const assignment of applicableAssignments) {
         const config = resolveEffectiveConfig(
           assignment.rule.config as unknown as CommissionRuleConfig,
           readOverrides(assignment.overrides),
@@ -709,8 +806,27 @@ export const commissionService = {
     // Récurrent ESN : commissions mensuelles projetées des missions actives
     const recurring = await getRecurringProjectionForUser(userId, tenantId, now);
 
+    // Lot 1 : progression et prime de CHAQUE objectif calculées par le point
+    // d'entrée unique du moteur (même fonction que le job snapshot 7h).
+    // Le front affiche ces nombres, il ne recalcule rien.
+    const userObjectives = Array.isArray(user?.objectives)
+      ? (user.objectives as unknown as Objective[])
+      : [];
+    const objectivesProgress = buildObjectivesProgress(
+      userObjectives,
+      wonDealsForObjectives,
+      missionMonthEvents,
+      objectiveSnapshots.map((s) => ({
+        objectiveId: s.objectiveId,
+        periodLabel: s.periodLabel,
+        actualValue: s.actualValue,
+        bonusEarned: s.bonusEarned,
+      })),
+    );
+
     return {
       fixedSalary,
+      objectivesProgress,
       totalEarnedThisMonth: totalEarned,
       totalMonthRevenue: fixedSalary + totalEarned,
       totalPendingValidation: totalPending,
@@ -744,6 +860,16 @@ export const commissionService = {
         closedAt: d.closedAt?.toISOString() ?? null,
         syncedAt: d.syncedAt?.toISOString() ?? null,
       })),
+      // CA récurrent mensuel des missions (une entrée par mission et par mois),
+      // pour que les objectifs de CA/marge intègrent la prestation facturée
+      missionRevenues: missionMonthEvents
+        .filter((e) => e.periodMonth !== null)
+        .map((e) => ({
+          missionId: e.missionId,
+          amount: e.amount,
+          marginAmount: e.marginAmount ?? null,
+          periodMonth: e.periodMonth!.toISOString(),
+        })),
     };
   },
 
@@ -1045,6 +1171,9 @@ export const commissionService = {
     }
 
     const allResults = [];
+    // Paires (userId, ruleId) effectivement appliquées : sert au nettoyage final
+    // des commissions PENDING devenues obsolètes (règle qui ne s'applique plus).
+    const appliedPairs: Array<{ userId: string; ruleId: string }> = [];
 
     for (const target of assignmentTargets) {
       const allAssignments = await ruleAssignmentRepository.findActiveForUser(
@@ -1053,22 +1182,29 @@ export const commissionService = {
       );
       // Un event DEAL_WON n'applique que les règles ciblant DEAL_WON (défaut).
       // Les règles récurrentes (MISSION_MONTH) sont réservées au job de mission.
-      const activeAssignments = allAssignments.filter((a) => {
+      const dealWonAssignments = allAssignments.filter((a) => {
         const cfg = a.rule.config as unknown as CommissionRuleConfig;
         return (cfg.appliesToEventType ?? 'DEAL_WON') === 'DEAL_WON';
       });
+      // Filtre par type de vente : une règle "Recrutement" ne s'applique pas à une
+      // vente de formation. Les règles génériques (sans dealType) servent de repli.
+      const activeAssignments = filterAssignmentsForDealType(dealWonAssignments, deal.dealType);
 
       if (activeAssignments.length === 0) {
         // Pas de règle de commission → normalement on ignore.
         // Mais pour les TEAM_LEAD, on crée une commission à 0 € afin que la vente
         // passe obligatoirement par la validation du manager général.
-        const targetUser = await userRepository.findById(target.userId);
+        // Exception : les deals sans valeur (contrat d'ancrage portage à 0 €)
+        // n'ont rien à faire dans la file de validation.
+        const hasValue = deal.amount > 0 || (deal.marginAmount ?? 0) > 0;
+        const targetUser = hasValue ? await userRepository.findById(target.userId) : null;
         if (targetUser?.role === PrismaUserRole.TEAM_LEAD) {
           const placeholderRuleId = await getOrCreatePlaceholderRuleId(tenantId, target.userId);
           const result = await commissionRepository.upsertForDeal(
             tenantId, target.userId, dealId, placeholderRuleId,
             0, 'Pas de règle de commission — validation manager requise', null, false,
           );
+          appliedPairs.push({ userId: target.userId, ruleId: placeholderRuleId });
           allResults.push(result);
         }
         continue;
@@ -1094,14 +1230,21 @@ export const commissionService = {
           config,
         );
 
-        // Si floor non atteint → commission à 0€ visible
+        // Si floor non atteint → commission à 0€ visible (avec explication du seuil)
         if (skippedReason) {
           const calculationDetail = `${assignment.rule.name} : ${explanation}`;
           const result = await commissionRepository.upsertForDeal(
             tenantId, target.userId, dealId, assignment.ruleId,
             0, calculationDetail, null, false,
           );
+          appliedPairs.push({ userId: target.userId, ruleId: assignment.ruleId });
           allResults.push(result);
+          continue;
+        }
+
+        // Base de calcul nulle (ex: contrat d'ancrage portage à 0 €) → pas de
+        // commission parasite à 0 €. La ligne existante éventuelle sera nettoyée.
+        if (totalAmount === 0) {
           continue;
         }
 
@@ -1135,9 +1278,23 @@ export const commissionService = {
           tenantId, target.userId, dealId, assignment.ruleId,
           amount, calculationDetail, scheduledPaymentAt, awaitingClientPayment,
         );
+        appliedPairs.push({ userId: target.userId, ruleId: assignment.ruleId });
         allResults.push(result);
       }
     }
+
+    // ── Nettoyage : supprime les commissions PENDING de ce deal dont la règle ne
+    // s'applique plus (changement de type de vente, règle désassignée, base à 0 €).
+    // Les commissions validées/payées ne sont jamais touchées.
+    await prisma.commission.deleteMany({
+      where: {
+        dealId,
+        tenantId,
+        status: PrismaCommissionStatus.PENDING,
+        missionId: null,
+        NOT: { OR: appliedPairs.map((p) => ({ userId: p.userId, ruleId: p.ruleId })) },
+      },
+    });
 
     return allResults[0] ?? null;
   },

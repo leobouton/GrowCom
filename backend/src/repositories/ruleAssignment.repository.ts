@@ -118,6 +118,26 @@ export const ruleAssignmentRepository = {
     });
   },
 
+  /**
+   * Met à jour les paramètres personnalisés (overrides) d'une assignation :
+   * taux, montant fixe, plafond, seuil, paliers — surchargés PAR PERSONNE
+   * sans toucher au barème de la règle (pattern template + override).
+   * `null` = retour au barème standard.
+   */
+  async updateOverrides(
+    id: string,
+    tenantId: string,
+    overrides: Record<string, unknown> | null,
+  ): Promise<RuleAssignmentWithRule> {
+    return prisma.ruleAssignment.update({
+      where: { id, tenantId },
+      data: { overrides: overrides === null ? Prisma.DbNull : (overrides as Prisma.InputJsonValue) },
+      include: {
+        rule: { select: { id: true, name: true, type: true, dealType: true, scope: true, config: true, paymentDelayDays: true } },
+      },
+    }) as Promise<RuleAssignmentWithRule>;
+  },
+
   async removeForRule(ruleId: string, tenantId: string): Promise<void> {
     await prisma.ruleAssignment.deleteMany({ where: { ruleId, tenantId } });
   },

@@ -14,6 +14,7 @@ export interface UpsertDealData {
   costAmount?: number | null;
   marginAmount?: number | null;
   marginSource?: string | null;
+  dealType?: string | null;
 }
 
 export interface UpsertHubspotDealData {
@@ -29,6 +30,7 @@ export interface UpsertHubspotDealData {
   costAmount?: number | null;
   marginAmount?: number | null;
   marginSource?: string | null;
+  dealType?: string | null;
 }
 
 export interface CreateFileImportDealData {
@@ -87,11 +89,12 @@ export const dealRepository = {
   },
 
   /**
-   * Retourne les deals WON attribués à un commercial, en excluant ceux dont la commission
-   * de CE commercial est CANCELLED. Inclut le share du DealAssignment si présent.
+   * Retourne les deals WON attribués à un commercial dont la commission de CE
+   * commercial a été VALIDÉE par le N+1 (ou payée). Inclut le share du DealAssignment.
    *
-   * Règle métier : un deal WON alimente les objectifs/concours SAUF si la commission
-   * du commercial a été annulée par le manager (ex: paiement client non reçu).
+   * Règle métier : une vente n'alimente les objectifs/concours qu'après validation
+   * managériale. Sont donc exclus : PENDING (dont attente de paiement client),
+   * CANCELLED, et les deals sans commission (jamais validés).
    * Pour les deals splittés, seule la part du commercial concerné est retirée.
    */
   async findWonForObjectives(userId: string, tenantId: string): Promise<Array<Deal & { userShare: number }>> {
@@ -129,14 +132,18 @@ export const dealRepository = {
 
     const results: Array<Deal & { userShare: number }> = [];
 
+    // Règle métier : une vente ne compte dans les objectifs/concours qu'une fois
+    // VALIDÉE par le N+1 (ou payée). PENDING (y compris en attente de paiement
+    // client) et CANCELLED sont exclus ; un deal sans commission n'a jamais été
+    // validé → exclu aussi.
+    const isValidatedForUser = (commissions: Array<{ status: string }>): boolean =>
+      commissions.some((c) => c.status === 'VALIDATED' || c.status === 'PAID');
+
     // Traitement des deals via DealAssignment
     for (const da of assignedDeals) {
       const deal = da.deal;
       if (deal.status !== DealStatus.WON) continue;
-      // Exclure si TOUTES les commissions de ce user sur ce deal sont CANCELLED
-      const hasNonCancelledCommission = deal.commissions.length === 0 ||
-        deal.commissions.some((c) => c.status !== 'CANCELLED');
-      if (!hasNonCancelledCommission) continue;
+      if (!isValidatedForUser(deal.commissions)) continue;
       // Extraire le deal sans les commissions incluses (Prisma)
       const { commissions: _, ...dealData } = deal;
       results.push({ ...dealData, userShare: da.share });
@@ -144,9 +151,7 @@ export const dealRepository = {
 
     // Traitement des deals legacy (pas de DealAssignment)
     for (const deal of legacyDeals) {
-      const hasNonCancelledCommission = deal.commissions.length === 0 ||
-        deal.commissions.some((c) => c.status !== 'CANCELLED');
-      if (!hasNonCancelledCommission) continue;
+      if (!isValidatedForUser(deal.commissions)) continue;
       const { commissions: _, ...dealData } = deal;
       results.push({ ...dealData, userShare: 1.0 });
     }
@@ -215,6 +220,8 @@ export const dealRepository = {
         costAmount: data.costAmount ?? null,
         marginAmount: data.marginAmount ?? null,
         marginSource: data.marginSource ?? null,
+        // Ne pas écraser un type de vente existant si la synchro n'en fournit pas
+        ...(data.dealType !== undefined ? { dealType: data.dealType } : {}),
         syncedAt: new Date(),
       },
       create: {
@@ -231,6 +238,7 @@ export const dealRepository = {
         costAmount: data.costAmount ?? null,
         marginAmount: data.marginAmount ?? null,
         marginSource: data.marginSource ?? null,
+        dealType: data.dealType ?? null,
         syncedAt: new Date(),
       },
     });
@@ -250,6 +258,8 @@ export const dealRepository = {
         costAmount: data.costAmount ?? null,
         marginAmount: data.marginAmount ?? null,
         marginSource: data.marginSource ?? null,
+        // Ne pas écraser un type de vente existant si la synchro n'en fournit pas
+        ...(data.dealType !== undefined ? { dealType: data.dealType } : {}),
         syncedAt: new Date(),
       },
       create: {

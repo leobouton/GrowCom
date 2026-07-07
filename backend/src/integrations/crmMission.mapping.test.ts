@@ -8,8 +8,10 @@ import {
   hubspotFreqToMonths,
   parseIso8601Months,
   mapHubspotLineItemsToMission,
+  mapHubspotLineItemToConsultantMissions,
   mapOdooSubscriptionStatus,
   mapOdooSubscriptionToMission,
+  mapOdooSubscriptionToConsultantMissions,
   type HubspotLineItem,
   type OdooSubscriptionOrder,
 } from './crmMission.mapping';
@@ -203,5 +205,93 @@ describe('mapOdooSubscriptionToMission', () => {
       NOW,
     );
     expect(result.status).toBe(MissionStatus.ENDED);
+  });
+});
+
+// ─── Éclatement par consultant (une ligne par consultant placé) ──────────────
+
+describe('mapHubspotLineItemToConsultantMissions', () => {
+  it('retourne [] si le line item n\'est pas récurrent', () => {
+    const result = mapHubspotLineItemToConsultantMissions(
+      lineItem({ recurringBillingFrequency: null }),
+      { closeDate: null },
+      NOW,
+    );
+    expect(result).toEqual([]);
+  });
+
+  it('produit une mission unique (clé = id du line item) pour quantité 1', () => {
+    const result = mapHubspotLineItemToConsultantMissions(
+      lineItem({ id: 'li42', hsMrr: 6000, quantity: 1 }),
+      { closeDate: '2026-05-01' },
+      NOW,
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].missionKey).toBe('li42');
+    expect(result[0].monthlyAmount).toBe(6000);
+    expect(result[0].consultantCount).toBe(1);
+  });
+
+  it('éclate une quantité de 2 en 2 missions de 1 consultant avec MRR divisé', () => {
+    const result = mapHubspotLineItemToConsultantMissions(
+      lineItem({ id: 'li7', hsMrr: 12000, quantity: 2, costOfGoodsSold: 4000 }),
+      { closeDate: '2026-05-01' },
+      NOW,
+    );
+    expect(result).toHaveLength(2);
+    expect(result.map((m) => m.missionKey)).toEqual(['li7-c1', 'li7-c2']);
+    for (const m of result) {
+      expect(m.monthlyAmount).toBe(6000);
+      expect(m.consultantCount).toBe(1);
+      // coût unitaire 4000/mois → marge par consultant = 6000 - 4000
+      expect(m.marginAmount).toBe(2000);
+      expect(m.marginSource).toBe('HUBSPOT');
+    }
+  });
+
+  it('déduit le MRR par consultant depuis prix × quantité si hs_mrr absent', () => {
+    const result = mapHubspotLineItemToConsultantMissions(
+      lineItem({ id: 'li9', hsMrr: null, price: 9000, quantity: 3, recurringBillingFrequency: 'quarterly' }),
+      { closeDate: '2026-05-01' },
+      NOW,
+    );
+    // (9000 × 3) / 3 mois = 9000 de MRR total → 3000 par consultant
+    expect(result).toHaveLength(3);
+    expect(result[0].monthlyAmount).toBe(3000);
+  });
+});
+
+describe('mapOdooSubscriptionToConsultantMissions', () => {
+  const order: OdooSubscriptionOrder = {
+    id: 555,
+    recurringMonthly: 15000,
+    subscriptionState: '3_progress',
+    startDate: '2026-06-01',
+    nextInvoiceDate: null,
+    endDate: null,
+  };
+
+  it('produit une mission unique (clé = id de commande) pour 1 consultant', () => {
+    const result = mapOdooSubscriptionToConsultantMissions(order, 1, NOW);
+    expect(result).toHaveLength(1);
+    expect(result[0].missionKey).toBe('555');
+    expect(result[0].monthlyAmount).toBe(15000);
+    expect(result[0].consultantCount).toBe(1);
+  });
+
+  it('éclate 3 consultants en 3 missions avec MRR réparti à parts égales', () => {
+    const result = mapOdooSubscriptionToConsultantMissions(order, 3, NOW);
+    expect(result).toHaveLength(3);
+    expect(result.map((m) => m.missionKey)).toEqual(['555-c1', '555-c2', '555-c3']);
+    for (const m of result) {
+      expect(m.monthlyAmount).toBe(5000);
+      expect(m.consultantCount).toBe(1);
+      expect(m.status).toBe(MissionStatus.ACTIVE);
+    }
+  });
+
+  it('force au moins 1 consultant', () => {
+    const result = mapOdooSubscriptionToConsultantMissions(order, 0, NOW);
+    expect(result).toHaveLength(1);
   });
 });

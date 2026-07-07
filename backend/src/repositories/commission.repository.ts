@@ -163,12 +163,17 @@ export const commissionRepository = {
   ): Promise<number> {
     // Utilise validatedAt comme date effective : une commission différée validée en avril
     // apparaît dans les gains d'avril, pas dans ceux de janvier (date de la vente).
+    // Repli sur paidAt si validatedAt est absent (imports, scripts) pour ne jamais
+    // perdre une commission payée dans le total.
     const result = await prisma.commission.aggregate({
       where: {
         userId,
         tenantId,
         status: { in: [CommissionStatus.VALIDATED, CommissionStatus.PAID] },
-        validatedAt: { gte: startOfMonth, lte: endOfMonth },
+        OR: [
+          { validatedAt: { gte: startOfMonth, lte: endOfMonth } },
+          { validatedAt: null, paidAt: { gte: startOfMonth, lte: endOfMonth } },
+        ],
       },
       _sum: { amount: true },
     });
@@ -261,20 +266,27 @@ export const commissionRepository = {
     scheduledPaymentAt?: Date | null,
     awaitingClientPayment?: boolean,
   ): Promise<Commission> {
-    return prisma.commission.upsert({
-      where: {
-        dealId_userId_ruleId_periodMonth: {
-          dealId, userId, ruleId, periodMonth: PERIOD_MONTH_SENTINEL,
+    // Upsert manuel : la clé unique Prisma inclut désormais missionId (nullable),
+    // inutilisable pour une commission de deal (missionId NULL). L'unicité BDD des
+    // deals one-shot est garantie par l'index partiel Commission_deal_oneshot_key.
+    const existing = await prisma.commission.findFirst({
+      where: { dealId, userId, ruleId, missionId: null, periodMonth: PERIOD_MONTH_SENTINEL },
+      select: { id: true },
+    });
+    if (existing) {
+      return prisma.commission.update({
+        where: { id: existing.id },
+        data: {
+          amount,
+          calculatedAt: new Date(),
+          calculationDetail: calculationDetail ?? null,
+          scheduledPaymentAt: scheduledPaymentAt ?? null,
+          awaitingClientPayment: awaitingClientPayment ?? false,
         },
-      },
-      update: {
-        amount,
-        calculatedAt: new Date(),
-        calculationDetail: calculationDetail ?? null,
-        scheduledPaymentAt: scheduledPaymentAt ?? null,
-        awaitingClientPayment: awaitingClientPayment ?? false,
-      },
-      create: {
+      });
+    }
+    return prisma.commission.create({
+      data: {
         tenantId, userId, dealId, ruleId, amount,
         periodMonth: PERIOD_MONTH_SENTINEL,
         calculationDetail: calculationDetail ?? null,
@@ -286,9 +298,17 @@ export const commissionRepository = {
 
   /**
    * Upsert idempotent d'une commission de mission pour un mois donné.
-   * Clé unique (dealId, userId, ruleId, periodMonth) → jamais deux commissions
-   * pour le même (mission, mois, règle). Ne touche pas au statut d'une commission
-   * déjà validée/payée (met seulement à jour le montant et le détail de calcul).
+   * Clé unique (dealId, userId, ruleId, missionId, periodMonth) → une commission
+   * PAR MISSION et par mois : un commercial avec plusieurs consultants placés
+   * (plusieurs missions sur le même contrat) touche bien une ligne par consultant.
+   * Ne touche pas au statut d'une commission déjà validée/payée.
+   */
+  /**
+   * Upsert d'une commission mensuelle de mission — VALIDATION AUTOMATIQUE :
+   * l'appelant (job de récurrence / sync CRM) ne génère que pour des missions
+   * ACTIVES côté CRM. La mission tourne = la commission est due, pas de
+   * validation manager. Une commission PENDING existante est promue VALIDATED ;
+   * PAID et CANCELLED ne sont jamais touchées.
    */
   async upsertForMissionMonth(params: {
     tenantId: string;
@@ -302,21 +322,31 @@ export const commissionRepository = {
     calculationDetail: string;
   }): Promise<Commission> {
     const { tenantId, userId, dealId, ruleId, missionId, eventId, periodMonth, amount, calculationDetail } = params;
-    return prisma.commission.upsert({
+    const now = new Date();
+    const commission = await prisma.commission.upsert({
       where: {
-        dealId_userId_ruleId_periodMonth: { dealId, userId, ruleId, periodMonth },
+        dealId_userId_ruleId_missionId_periodMonth: { dealId, userId, ruleId, missionId, periodMonth },
       },
       update: {
         amount,
         calculationDetail,
-        calculatedAt: new Date(),
+        calculatedAt: now,
         eventId,
         missionId,
       },
       create: {
         tenantId, userId, dealId, ruleId, missionId, eventId, periodMonth, amount, calculationDetail,
+        status: CommissionStatus.VALIDATED,
+        validatedAt: now,
       },
     });
+    if (commission.status === CommissionStatus.PENDING) {
+      return prisma.commission.update({
+        where: { id: commission.id },
+        data: { status: CommissionStatus.VALIDATED, validatedAt: now },
+      });
+    }
+    return commission;
   },
 
   async updateAmountAndDetail(

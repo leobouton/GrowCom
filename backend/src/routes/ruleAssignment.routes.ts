@@ -12,6 +12,7 @@ const managerRoles = [UserRole.MANAGER, UserRole.BU_MANAGER, UserRole.TEAM_LEAD]
 
 router.get('/user/:userId', checkRole(...managerRoles), ruleAssignmentController.getForUser);
 router.post('/', checkRole(...managerRoles), ruleAssignmentController.assign);
+router.patch('/:id/overrides', checkRole(...managerRoles), ruleAssignmentController.updateOverrides);
 router.patch('/:id/deactivate', checkRole(...managerRoles), ruleAssignmentController.deactivate);
 
 export default router;

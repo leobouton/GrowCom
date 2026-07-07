@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ruleAssignmentRepository } from '../repositories/ruleAssignment.repository';
 import { commissionRuleRepository } from '../repositories/commissionRule.repository';
 import { commissionService } from '../services/commission.service';
+import { recalculateForUser } from '../services/recalculation.service';
 import { AppError } from '../middlewares/errorHandler';
 import { AuthenticatedRequest } from '../middlewares/auth';
 import { AssigneeType, UserRole } from '../../../shared/types';
@@ -80,7 +81,44 @@ export const ruleAssignmentController = {
         endDate: endDate ? new Date(endDate) : null,
       });
 
+      // Recalcul immédiat : la nouvelle règle doit produire ses commissions sans attendre
+      if (assignedToType === AssigneeType.INDIVIDUAL && userId) {
+        await recalculateForUser(userId, user.tenantId!);
+      }
+
       res.status(201).json({ success: true, data: assignment });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /**
+   * Met à jour les paramètres personnalisés d'une assignation (taux, montant,
+   * plafond, seuil, paliers) pour UNE personne, puis recalcule immédiatement
+   * ses commissions en attente (deals WON + mois de mission en cours).
+   * Body { overrides: null } = retour au barème standard de la règle.
+   */
+  async updateOverrides(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const { id } = req.params;
+      const { overrides } = z.object({ overrides: overridesSchema }).parse(req.body);
+
+      const assignment = await ruleAssignmentRepository.findById(id, user.tenantId!);
+      if (!assignment) throw new AppError(404, 'ASSIGNMENT_NOT_FOUND', 'Assignation introuvable');
+
+      if (assignment.userId) {
+        await commissionService.assertUserInScope(assignment.userId, user.userId, user.role as UserRole, user.tenantId!);
+      }
+
+      const updated = await ruleAssignmentRepository.updateOverrides(id, user.tenantId!, overrides ?? null);
+
+      // Recalcul immédiat pour que le changement soit visible sans attendre une synchro
+      if (assignment.userId) {
+        await recalculateForUser(assignment.userId, user.tenantId!);
+      }
+
+      res.json({ success: true, data: updated });
     } catch (err) {
       next(err);
     }
@@ -100,6 +138,13 @@ export const ruleAssignmentController = {
       }
 
       const updated = await ruleAssignmentRepository.deactivate(id, user.tenantId!);
+
+      // Recalcul immédiat : les commissions en attente issues de cette règle
+      // doivent disparaître sans attendre une synchro CRM
+      if (assignment.userId) {
+        await recalculateForUser(assignment.userId, user.tenantId!);
+      }
+
       res.json({ success: true, data: updated });
     } catch (err) {
       next(err);

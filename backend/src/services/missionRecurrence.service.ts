@@ -4,7 +4,7 @@ import { logger } from '../config/logger';
 import { ruleAssignmentRepository } from '../repositories/ruleAssignment.repository';
 import { commissionRepository } from '../repositories/commission.repository';
 import { commissionableEventRepository } from '../repositories/commissionableEvent.repository';
-import { resolveBasisAmount, calculateCommissionAmount, resolveEffectiveConfig } from './commission.service';
+import { resolveBasisAmount, calculateCommissionAmount, resolveEffectiveConfig, filterAssignmentsForDealType } from './commission.service';
 import { CommissionRuleConfig } from '../../../shared/types';
 
 const MONTHS_FR = [
@@ -66,6 +66,12 @@ export function isMissionDueForPeriod(
  * Génère l'event du mois d'une mission (idempotent) et upsert les commissions
  * correspondantes (règles assignées au commercial ciblant MISSION_MONTH).
  * Retourne le nombre de commissions upsertées.
+ *
+ * VALIDATION AUTOMATIQUE : cette fonction n'est appelée que pour des missions
+ * ACTIVES (CRM = mission toujours en cours). La commission mensuelle est donc
+ * créée directement VALIDATED, sans validation manager. Si le CRM arrête la
+ * mission, aucun nouveau mois n'est généré ; le manager garde la main pour
+ * annuler/contester une commission déjà émise.
  */
 export async function generateMissionMonth(
   mission: Mission,
@@ -88,10 +94,17 @@ export async function generateMissionMonth(
 
   // 2. Règles assignées au commercial ciblant les events de mission
   const assignments = await ruleAssignmentRepository.findActiveForUser(mission.userId, mission.tenantId);
-  const missionAssignments = assignments.filter((a) => {
+  const monthAssignments = assignments.filter((a) => {
     const config = a.rule.config as unknown as CommissionRuleConfig;
     return config.appliesToEventType === 'MISSION_MONTH';
   });
+
+  // Filtre par type de vente du deal d'ancrage (cohérent avec le calcul des deals)
+  const anchorDeal = await prisma.deal.findFirst({
+    where: { id: mission.dealId, tenantId: mission.tenantId },
+    select: { dealType: true },
+  });
+  const missionAssignments = filterAssignmentsForDealType(monthAssignments, anchorDeal?.dealType);
 
   if (missionAssignments.length === 0) return 0;
 

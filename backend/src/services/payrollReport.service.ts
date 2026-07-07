@@ -121,6 +121,7 @@ interface EligibleUser {
   email: string;
   role: string;
   fixedSalary: number;
+  createdAt: Date;
 }
 
 interface CommissionLine {
@@ -165,11 +166,14 @@ interface ReportData {
 /**
  * Renvoie les utilisateurs éligibles dans le périmètre du demandeur.
  * Si `requestedUserIds` est fourni, on restreint à cette sélection (toujours dans le scope).
+ * Un collaborateur arrivé APRÈS la fin de la période n'apparaît pas dans la paie
+ * de cette période (sa masse salariale démarre à son mois d'arrivée).
  */
 async function resolveEligibleUsers(
   tenantId: string,
   callerId: string,
   callerRole: UserRole,
+  periodEnd: Date,
   requestedUserIds?: string[],
 ): Promise<EligibleUser[]> {
   const teamIds = await resolveTeamScope(callerId, callerRole, tenantId);
@@ -179,12 +183,13 @@ async function resolveEligibleUsers(
       tenantId,
       isActive: true,
       role: { in: [...ELIGIBLE_ROLES] },
+      createdAt: { lte: periodEnd },
       ...(teamIds !== null ? { id: { in: teamIds } } : {}),
       ...(requestedUserIds && requestedUserIds.length > 0
         ? { id: teamIds !== null ? { in: teamIds.filter((id) => requestedUserIds.includes(id)) } : { in: requestedUserIds } }
         : {}),
     },
-    select: { id: true, firstName: true, lastName: true, email: true, role: true, fixedSalary: true },
+    select: { id: true, firstName: true, lastName: true, email: true, role: true, fixedSalary: true, createdAt: true },
     orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
   });
 
@@ -302,12 +307,17 @@ async function collectReportData(
     const adjustmentsTotal = userAdjustments.reduce((s, a) => s + a.amount, 0);
     const bonusTotal = bonusByUser.get(user.id) ?? 0;
     const variableTotal = commissionsTotal + adjustmentsTotal + bonusTotal;
-    const fixedSalaryTotal = user.fixedSalary * monthsInPeriod;
+    // Le fixe ne compte qu'à partir du mois d'arrivée du collaborateur :
+    // un arrivé en cours de période n'est pas compté sur les mois antérieurs.
+    const arrivalMonthStart = new Date(user.createdAt.getFullYear(), user.createdAt.getMonth(), 1);
+    const effectiveStart = arrivalMonthStart > periodStart ? arrivalMonthStart : periodStart;
+    const userMonths = Math.min(monthsBetween(effectiveStart, periodEnd), monthsInPeriod);
+    const fixedSalaryTotal = user.fixedSalary * userMonths;
 
     return {
       user,
       fixedSalaryTotal,
-      monthsInPeriod,
+      monthsInPeriod: userMonths,
       commissions,
       adjustments: userAdjustments,
       commissionsTotal,
@@ -394,7 +404,7 @@ export async function buildPayrollReport(params: {
 }): Promise<PayrollReportPreview> {
   const { tenantId, callerId, callerRole, periodStart, periodEnd, userIds } = params;
 
-  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, userIds);
+  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, periodEnd, userIds);
   const data = await collectReportData(tenantId, periodStart, periodEnd, users);
   const locked = await getLockInfo(tenantId, periodStart, periodEnd);
 
@@ -467,7 +477,7 @@ export async function lockPayrollPeriod(params: {
     );
   }
 
-  const users = await resolveEligibleUsers(tenantId, callerId, callerRole);
+  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, periodEnd);
   const data = await collectReportData(tenantId, periodStart, periodEnd, users);
 
   const userIds = users.map((u) => u.id);
@@ -586,7 +596,7 @@ async function buildExportRows(params: {
   userIds?: string[];
 }): Promise<ExportRow[]> {
   const { tenantId, callerId, callerRole, periodStart, periodEnd, userIds } = params;
-  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, userIds);
+  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, periodEnd, userIds);
   const data = await collectReportData(tenantId, periodStart, periodEnd, users);
   const period = periodKey(periodStart);
 
@@ -967,7 +977,7 @@ export async function buildPayrollPdf(params: {
   userIds?: string[];
 }): Promise<{ buffer: Buffer; filename: string }> {
   const { tenantId, callerId, callerRole, periodStart, periodEnd, userIds } = params;
-  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, userIds);
+  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, periodEnd, userIds);
   const data = await collectReportData(tenantId, periodStart, periodEnd, users);
 
   if (data.users.length === 0) {
@@ -988,7 +998,7 @@ export async function buildPayrollPdfZip(params: {
   userIds?: string[];
 }): Promise<{ buffer: Buffer; filename: string }> {
   const { tenantId, callerId, callerRole, periodStart, periodEnd, userIds } = params;
-  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, userIds);
+  const users = await resolveEligibleUsers(tenantId, callerId, callerRole, periodEnd, userIds);
   const data = await collectReportData(tenantId, periodStart, periodEnd, users);
 
   // On ne génère un relevé que pour les commerciaux ayant un variable non nul.

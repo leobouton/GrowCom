@@ -1,98 +1,31 @@
+/**
+ * Job snapshot quotidien (7h) : fige les objectifs TERMINÉS dans ObjectiveSnapshot
+ * et crée la prime (ajustement auto-payé) le cas échéant.
+ *
+ * Tout le calcul (périmètre, valeur atteinte, prime) passe par le POINT D'ENTRÉE
+ * UNIQUE du moteur : objectiveProgress.service. Le dashboard live et ce job
+ * produisent donc STRICTEMENT les mêmes montants (Lot 1).
+ */
 import { prisma } from '../config/prisma';
 import { logger } from '../config/logger';
 import { objectiveSnapshotRepository } from '../repositories/objectiveSnapshot.repository';
 import { commissionAdjustmentRepository } from '../repositories/commissionAdjustment.repository';
-import type { Objective, ObjectiveBonusTier } from '@shared/types';
+import { dealRepository } from '../repositories/deal.repository';
+import { commissionableEventRepository } from '../repositories/commissionableEvent.repository';
+import {
+  getObjectiveDateRange,
+  formatObjectivePeriod,
+  isObjectiveEnded,
+  computeObjectiveActual,
+  computeBonus,
+  round2,
+} from './objectiveProgress.service';
+import type { Objective } from '@shared/types';
 
-// ─── Helpers période (sans date-fns) ─────────────────────────
-
-export function getObjectiveDateRange(obj: Objective): [Date, Date] | null {
-  const y = obj.year ?? new Date().getFullYear();
-
-  if (obj.periodType === 'monthly') {
-    const m = (obj.month ?? 1) - 1;
-    const start = new Date(y, m, 1);
-    const end = new Date(y, m + 1, 0, 23, 59, 59, 999);
-    return [start, end];
-  }
-  if (obj.periodType === 'quarterly') {
-    const q = obj.quarter ?? 1;
-    const startMonth = (q - 1) * 3;
-    const start = new Date(y, startMonth, 1);
-    const end = new Date(y, startMonth + 3, 0, 23, 59, 59, 999);
-    return [start, end];
-  }
-  if (obj.periodType === 'semester') {
-    const s = obj.semester ?? 1;
-    const startMonth = (s - 1) * 6; // S1 = 0 (jan), S2 = 6 (juil)
-    const start = new Date(y, startMonth, 1);
-    const end = new Date(y, startMonth + 6, 0, 23, 59, 59, 999);
-    return [start, end];
-  }
-  if (obj.periodType === 'annual') {
-    return [new Date(y, 0, 1), new Date(y, 11, 31, 23, 59, 59, 999)];
-  }
-  if (obj.periodType === 'custom' && obj.startDate && obj.endDate) {
-    return [new Date(obj.startDate), new Date(obj.endDate + 'T23:59:59.999Z')];
-  }
-  return null;
-}
-
-const MONTHS_FR = [
-  'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
-  'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre',
-];
-
-function formatObjectivePeriod(obj: Objective): string {
-  const y = obj.year ?? new Date().getFullYear();
-  if (obj.periodType === 'monthly') return `${MONTHS_FR[(obj.month ?? 1) - 1]} ${y}`;
-  if (obj.periodType === 'quarterly') return `T${obj.quarter ?? 1} ${y}`;
-  if (obj.periodType === 'semester') return `S${obj.semester ?? 1} ${y}`;
-  if (obj.periodType === 'annual') return `Année ${y}`;
-  if (obj.periodType === 'custom' && obj.startDate && obj.endDate) {
-    const fmt = (d: string) => {
-      const [yy, mm, dd] = d.split('-');
-      return `${dd}/${mm}/${yy.slice(2)}`;
-    };
-    return `${fmt(obj.startDate)} → ${fmt(obj.endDate)}`;
-  }
-  return 'Période perso.';
-}
-
-export function isObjectiveEnded(obj: Objective): boolean {
-  const range = getObjectiveDateRange(obj);
-  if (!range) return false;
-  return new Date() > range[1];
-}
-
-// ─── Calcul bonus ─────────────────────────────────────────────
-
-export function computeBonus(obj: Objective, current: number): number {
-  const bonus = obj.bonus ?? { enabled: false, type: 'percentage' as const, value: 0 };
-  const pct = obj.target > 0 ? (current / obj.target) * 100 : 0;
-  const mode = obj.bonusMode ?? (bonus.enabled ? 'simple' : 'none');
-
-  if (mode === 'none') return 0;
-
-  if (mode === 'tiered' && obj.bonusTiers && obj.bonusTiers.length > 0) {
-    // Cumuler tous les paliers atteints (du plus bas au plus haut)
-    const reachedTiers = [...obj.bonusTiers]
-      .filter((tier: ObjectiveBonusTier) => pct >= tier.threshold)
-      .sort((a: ObjectiveBonusTier, b: ObjectiveBonusTier) => a.threshold - b.threshold);
-    if (reachedTiers.length === 0) return 0;
-    let total = 0;
-    for (const tier of reachedTiers) {
-      total += tier.reward.type === 'fixed'
-        ? tier.reward.value
-        : current * (tier.reward.value / 100);
-    }
-    return total;
-  }
-
-  if (!bonus.enabled || current <= obj.target) return 0;
-  const excess = current - obj.target;
-  return bonus.type === 'percentage' ? excess * (bonus.value / 100) : bonus.value;
-}
+// Ré-exports de compatibilité : les consommateurs historiques (tests, simulation)
+// importent ces fonctions depuis ce module. La source canonique est
+// objectiveProgress.service.
+export { getObjectiveDateRange, isObjectiveEnded, computeBonus };
 
 // ─── Service principal ────────────────────────────────────────
 
@@ -116,11 +49,14 @@ async function snapshotEndedObjectivesForUser(
 
   if (ended.length === 0) return 0;
 
-  // Récupérer les deals WON de ce user (assignés à lui)
-  const wonDeals = await prisma.deal.findMany({
-    where: { tenantId, assignedToId: userId, status: 'WON' },
-    select: { amount: true, closedAt: true, syncedAt: true },
-  });
+  // Périmètre RICHE, identique au live du dashboard :
+  // - deals WON à commission VALIDATED/PAID, part userShare des splits appliquée,
+  //   marge incluse (via DealAssignment + rétrocompat assignedToId) ;
+  // - mois de mission à commission VALIDATED/PAID (CA et marge mensuels).
+  const [wonDeals, missionMonths] = await Promise.all([
+    dealRepository.findWonForObjectives(userId, tenantId),
+    commissionableEventRepository.findMissionMonthsByUserId(userId, tenantId),
+  ]);
 
   let created = 0;
 
@@ -131,26 +67,8 @@ async function snapshotEndedObjectivesForUser(
     );
     if (alreadyExists) continue;
 
-    const range = getObjectiveDateRange(obj);
-    let actualValue = 0;
-
-    if (range) {
-      const [start, end] = range;
-      const filtered = wonDeals.filter((d) => {
-        const dateStr = d.closedAt ?? d.syncedAt;
-        const t = dateStr.getTime();
-        return t >= start.getTime() && t <= end.getTime();
-      });
-      actualValue = obj.unit === 'deals'
-        ? filtered.length
-        : filtered.reduce((sum, d) => sum + d.amount, 0);
-    } else {
-      actualValue = obj.unit === 'deals'
-        ? wonDeals.length
-        : wonDeals.reduce((sum, d) => sum + d.amount, 0);
-    }
-
-    const bonusEarned = computeBonus(obj, actualValue);
+    const actualValue = round2(computeObjectiveActual(obj, wonDeals, missionMonths));
+    const bonusEarned = round2(computeBonus(obj, actualValue));
 
     await objectiveSnapshotRepository.create({
       tenantId,
@@ -164,11 +82,12 @@ async function snapshotEndedObjectivesForUser(
 
     // Prime automatique : si bonus > 0, créer un ajustement directement payé (sans validation manager)
     if (bonusEarned > 0) {
+      const unitLabel = obj.unit === 'deals' ? ' deals' : obj.unit === 'marge' ? ' € de marge' : ' €';
       await commissionAdjustmentRepository.create({
         tenantId,
         userId,
         amount: bonusEarned,
-        reason: `Prime objectif "${obj.label}" — ${periodLabel} (atteint : ${actualValue}${obj.unit === 'euros' ? ' €' : ' deals'} / cible : ${obj.target})`,
+        reason: `Prime objectif "${obj.label}" — ${periodLabel} (atteint : ${actualValue}${unitLabel} / cible : ${obj.target})`,
         createdBy: 'SYSTEM',
         autoPaid: true,
       });

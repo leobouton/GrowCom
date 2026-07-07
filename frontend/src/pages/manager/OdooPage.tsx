@@ -5,6 +5,7 @@ import { importBatchApiService } from '../../services/importBatch.service';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
+import { TruncatedText } from '../../components/ui/TruncatedText';
 import { FileImportPanel } from '../../components/FileImportPanel';
 import { OdooConnectionPanel } from '../../components/crm/OdooConnectionPanel';
 import { HubspotConnectionPanel } from '../../components/crm/HubspotConnectionPanel';
@@ -141,11 +142,11 @@ function BatchDetailModal({
                 <tbody className="divide-y divide-gray-100">
                   {deals.map((deal) => (
                     <tr key={deal.id}>
-                      <td className="px-3 py-2 font-medium text-gray-800 max-w-[180px] truncate">
-                        {deal.title}
+                      <td className="px-3 py-2 max-w-[180px]">
+                        <TruncatedText text={deal.title} className="font-medium text-gray-800" />
                       </td>
-                      <td className="px-3 py-2 text-gray-600 max-w-[140px] truncate">
-                        {deal.clientName ?? '-'}
+                      <td className="px-3 py-2 max-w-[140px]">
+                        <TruncatedText text={deal.clientName ?? '-'} className="text-gray-600" />
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-gray-700">
                         {deal.amount.toLocaleString('fr-FR')} EUR
@@ -454,9 +455,7 @@ function ImportHistorySection() {
               {/* Infos */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {batch.originalFileName ?? 'Sans nom'}
-                  </p>
+                  <TruncatedText text={batch.originalFileName ?? 'Sans nom'} className="text-sm font-medium text-gray-900" />
                   <BatchStatusBadge status={batch.status} />
                 </div>
                 <p className="text-xs text-gray-500 mt-0.5">

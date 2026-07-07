@@ -79,6 +79,8 @@ const planComponentSchema = z.discriminatedUnion('kind', [
     kind: z.literal('COMMISSION_RULE'),
     name: z.string().min(1),
     config: planConfigSchema,
+    // Mode ÉDITION d'un plan sauvegardé : la règle réelle à mettre à jour
+    ruleId: z.string().optional(),
   }),
   z.object({
     kind: z.literal('OBJECTIVE'),
@@ -86,7 +88,7 @@ const planComponentSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
-const generatedPlanSchema = z.object({
+export const generatedPlanSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
   components: z.array(planComponentSchema).min(1),
@@ -295,10 +297,22 @@ export const commissionAIService = {
    * + objectifs) à partir d'une description en langage naturel. Sortie JSON stricte
    * validée par Zod, prête à alimenter le futur wizard de saisie unifiée (champ examples conservé).
    */
-  async generatePlan(naturalLanguageDescription: string): Promise<GeneratedPlan> {
+  async generatePlan(
+    naturalLanguageDescription: string,
+    currentPlan?: GeneratedPlan,
+  ): Promise<GeneratedPlan> {
     logger.info('Génération de plan de variable via IA', {
       description: naturalLanguageDescription.substring(0, 100),
+      editMode: !!currentPlan,
     });
+
+    // Mode ÉDITION : le manager modifie un plan existant par instruction textuelle.
+    // On fournit le plan courant et on exige le plan COMPLET mis à jour en retour.
+    const userContent = currentPlan
+      ? `Voici le plan de variable ACTUEL au format JSON :\n${JSON.stringify(currentPlan)}\n\n` +
+        `Instruction de modification du manager :\n"${naturalLanguageDescription}"\n\n` +
+        `Renvoie le plan COMPLET mis à jour (même format JSON). Conserve à l'identique tous les composants non concernés par l'instruction.`
+      : `Voici le plan de variable à convertir en JSON :\n\n"${naturalLanguageDescription}"`;
 
     try {
       const response = await client.messages.create({
@@ -314,7 +328,7 @@ export const commissionAIService = {
         messages: [
           {
             role: 'user',
-            content: `Voici le plan de variable à convertir en JSON :\n\n"${naturalLanguageDescription}"`,
+            content: userContent,
           },
         ],
       });

@@ -65,9 +65,11 @@ export const commissionRuleRepository = {
       where: { id, tenantId },
       data: {
         name: data.name,
-        dealType: data.dealType ?? null,
-        paymentDelayDays: data.paymentDelayDays ?? null,
         description: data.description,
+        // dealType / paymentDelayDays non fournis = préservés (la mise à jour
+        // d'un plan ne doit pas effacer le type de vente ni le délai de paiement)
+        ...(data.dealType !== undefined ? { dealType: data.dealType } : {}),
+        ...(data.paymentDelayDays !== undefined ? { paymentDelayDays: data.paymentDelayDays } : {}),
         ...(data.config ? { config: data.config as object } : {}),
         ...(data.type ? { type: data.type } : {}),
       },

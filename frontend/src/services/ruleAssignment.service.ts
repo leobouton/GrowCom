@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { RuleAssignment, AssigneeType } from '@shared/types';
+import type { RuleAssignment, AssigneeType, CommissionRuleConfig } from '@shared/types';
 
 export const ruleAssignmentApiService = {
   async getForUser(userId: string): Promise<RuleAssignment[]> {
@@ -20,6 +20,22 @@ export const ruleAssignmentApiService = {
     const res = await api.post<{ success: true; data: RuleAssignment }>(
       '/rule-assignments',
       data,
+    );
+    return res.data.data;
+  },
+
+  /**
+   * Personnalise les valeurs d'une assignation pour UNE personne
+   * (taux, montant, plafond, seuil, paliers). `null` = retour au barème standard.
+   * Le backend recalcule immédiatement les commissions en attente du membre.
+   */
+  async updateOverrides(
+    assignmentId: string,
+    overrides: Partial<CommissionRuleConfig> | null,
+  ): Promise<RuleAssignment> {
+    const res = await api.patch<{ success: true; data: RuleAssignment }>(
+      `/rule-assignments/${assignmentId}/overrides`,
+      { overrides },
     );
     return res.data.data;
   },

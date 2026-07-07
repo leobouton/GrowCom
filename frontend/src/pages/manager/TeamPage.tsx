@@ -10,12 +10,15 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
+import { TruncatedText } from '../../components/ui/TruncatedText';
 import { OrgChart } from '../../components/team/OrgChart';
+import { AssignmentOverrideEditor } from '../../components/team/AssignmentOverrideEditor';
 import type { PublicUser, Objective, RuleAssignment, Contest, CommissionDispute, DisputeStatus } from '@shared/types';
 import { MONTHS } from '../../components/objectives';
 import { ObjectiveWizard } from '../../components/ObjectiveWizard';
 import { UserRole, AssigneeType, ContestStatus, ContestMetric, RuleScope } from '@shared/types';
 import { ruleAssignmentApiService } from '../../services/ruleAssignment.service';
+import { variablePlanApiService, type VariablePlanDetails } from '../../services/variablePlan.service';
 import { commissionRuleApiService, type CommissionRuleWithCount } from '../../services/commissionRule.service';
 import { contestApiService } from '../../services/contest.service';
 import { commissionDisputeService } from '../../services/commissionDispute.service';
@@ -86,6 +89,36 @@ function collectTemplateObjectives(members: PublicUser[], excludeMemberId?: stri
 
 function formatEur(amount: number) {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
+}
+
+const RECURRENCE_LABELS: Record<string, string> = {
+  monthly: 'chaque mois',
+  quarterly: 'chaque trimestre',
+  semester: 'chaque semestre',
+  annual: 'chaque année',
+};
+
+/**
+ * Objectifs affichés sur la fiche d'un membre : un objectif récurrent est
+ * représenté par son MODÈLE (badge 🔁) — ses occurrences générées sont
+ * masquées pour éviter les doublons, mais le supprimer supprime tout.
+ * Les occurrences orphelines (modèle déjà supprimé) restent visibles.
+ */
+function displayableObjectives(objs: Objective[]): Objective[] {
+  const templateIds = new Set(
+    objs
+      .filter((o) => o.recurrence && o.recurrence !== 'none' && !o.parentObjectiveId)
+      .map((o) => o.id),
+  );
+  return objs.filter((o) => !(o.parentObjectiveId && templateIds.has(o.parentObjectiveId)));
+}
+
+/** Libellé de période d'un objectif — « 🔁 chaque mois » pour un modèle récurrent. */
+function objectivePeriodLabel(obj: Objective): string {
+  if (obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId) {
+    return `🔁 ${RECURRENCE_LABELS[obj.recurrence] ?? 'récurrent'}`;
+  }
+  return formatObjectivePeriod(obj);
 }
 
 // ─── Modal de résolution de contestation ─────────────────────────────────────
@@ -330,6 +363,12 @@ export function TeamPage() {
   const [assignLoading, setAssignLoading] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [removingAssignmentId, setRemovingAssignmentId] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  // Ajustement des valeurs (taux, paliers…) d'une assignation POUR CE membre
+  const [adjustingAssignmentId, setAdjustingAssignmentId] = useState<string | null>(null);
+
+  // Plans de commissions (plans de variable) du tenant — pour retrouver le plan de chaque membre
+  const [allPlans, setAllPlans] = useState<VariablePlanDetails[]>([]);
 
   // Picker de réutilisation d'objectifs
   const [showEditPicker, setShowEditPicker] = useState(false);
@@ -372,18 +411,24 @@ export function TeamPage() {
 
   const loadTeam = async () => {
     try {
-      const [teamRes, groupsRes] = await Promise.all([
+      const [teamRes, groupsRes, plans] = await Promise.all([
         api.get<{ success: true; data: PublicUser[] }>('/auth/team'),
         api.get<{ success: true; data: Group[] }>('/groups').catch(() => ({ data: { data: [] as Group[] } })),
+        variablePlanApiService.getAll().catch(() => [] as VariablePlanDetails[]),
       ]);
       setMembers(teamRes.data.data);
       setGroups(groupsRes.data.data);
+      setAllPlans(plans);
     } catch {
       // silencieux
     } finally {
       setLoading(false);
     }
   };
+
+  /** Plans de commissions assignés à un membre donné. */
+  const plansForMember = (userId: string): VariablePlanDetails[] =>
+    allPlans.filter((p) => p.assignments.some((a) => a.userId === userId));
 
   useEffect(() => { void loadTeam(); }, []);
 
@@ -416,9 +461,11 @@ export function TeamPage() {
   // ── Drawer synthétique ─────────────────────────────────────
   const openDrawer = (member: PublicUser) => {
     setMemberToView(member);
-    setExpandedSections(new Set());
+    // Le plan de commissions est l'information centrale : ouvert par défaut
+    setExpandedSections(new Set(['plan']));
     setEditObjectives(Array.isArray(member.objectives) ? member.objectives : []);
     setEditError(null);
+    setRemoveError(null);
     setShowEditPicker(false);
     setMemberRuleAssignments([]);
     setMemberContests([]);
@@ -442,13 +489,16 @@ export function TeamPage() {
     setEditLoading(true);
     setEditError(null);
     try {
-      await api.patch(`/auth/team/${memberToView.id}`, {
+      const res = await api.patch<{ success: true; data: { objectives?: Objective[] } }>(`/auth/team/${memberToView.id}`, {
         firstName: memberToView.firstName,
         lastName: memberToView.lastName,
         fixedSalary: memberToView.fixedSalary ?? 0,
         objectives: editObjectives,
       });
-      setMemberToView((prev) => prev ? { ...prev, objectives: editObjectives } : null);
+      // La réponse du serveur fait foi (ex. occurrence de la période courante auto-générée)
+      const savedObjectives = Array.isArray(res.data.data?.objectives) ? res.data.data.objectives : editObjectives;
+      setEditObjectives(savedObjectives);
+      setMemberToView((prev) => prev ? { ...prev, objectives: savedObjectives } : null);
       await loadTeam();
     } catch (err) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
@@ -578,9 +628,13 @@ export function TeamPage() {
   const onRemoveAssignment = async (assignmentId: string) => {
     if (!memberToView) return;
     setRemovingAssignmentId(assignmentId);
+    setRemoveError(null);
     try {
       await ruleAssignmentApiService.deactivate(assignmentId);
       await loadMemberAssignments(memberToView.id);
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      setRemoveError(msg ?? 'Impossible de retirer cette règle du plan. Réessayez ou contactez le support.');
     } finally {
       setRemovingAssignmentId(null);
     }
@@ -635,7 +689,10 @@ export function TeamPage() {
     setWizardObjective(null);
   };
 
-  const removeObjective = (id: string) => setEditObjectives((p) => p.filter((o) => o.id !== id));
+  // Supprimer un objectif : si c'est un modèle récurrent, ses occurrences
+  // générées partent avec lui (sinon le moteur les recréerait)
+  const removeObjective = (id: string) =>
+    setEditObjectives((p) => p.filter((o) => o.id !== id && o.parentObjectiveId !== id));
 
   /** Copie un objectif existant (nouveau ID) dans la liste d'édition individuelle */
   const pickTemplateForEdit = (tpl: Objective) => {
@@ -719,7 +776,7 @@ export function TeamPage() {
               <th className="text-left py-3 px-6 font-medium text-gray-500">Rôle</th>
               <th className="text-left py-3 px-6 font-medium text-gray-500">Statut</th>
               <th className="text-left py-3 px-6 font-medium text-gray-500">Salaire fixe</th>
-              <th className="text-left py-3 px-6 font-medium text-gray-500">Objectifs</th>
+              <th className="text-left py-3 px-6 font-medium text-gray-500">Plan de commissions</th>
               <th className="text-left py-3 px-6 font-medium text-gray-500">Depuis</th>
               <th className="py-3 px-6" />
             </tr>
@@ -768,17 +825,29 @@ export function TeamPage() {
                     {member.fixedSalary ? `${member.fixedSalary.toLocaleString('fr-FR')} €` : <span className="text-gray-400">—</span>}
                   </td>
                   <td className="py-4 px-6">
-                    {objectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).length === 0
-                      ? <span className="text-gray-400 text-xs">Aucun objectif</span>
-                      : <div className="flex flex-wrap gap-1">
-                          {objectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).slice(0, 2).map((obj) => (
+                    {(() => {
+                      const memberPlans = plansForMember(member.id);
+                      const visibleObjs = displayableObjectives(objectives);
+                      if (memberPlans.length === 0 && visibleObjs.length === 0) {
+                        return <span className="text-gray-400 text-xs">Aucun plan de commissions</span>;
+                      }
+                      return (
+                        <div className="flex flex-wrap gap-1">
+                          {memberPlans.map((p) => (
+                            <span key={p.id} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                              📋 {p.name}
+                            </span>
+                          ))}
+                          {visibleObjs.slice(0, 2).map((obj) => (
                             <span key={obj.id} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
-                              {obj.label || 'Objectif'} · {obj.target.toLocaleString('fr-FR')} {obj.unit} · {formatObjectivePeriod(obj)}
+                              {obj.label || 'Objectif'} · {obj.target.toLocaleString('fr-FR')} {obj.unit} · {objectivePeriodLabel(obj)}
                               {obj.bonus?.enabled && <span className="ml-1 text-green-600 font-bold">+{obj.bonus.value}{obj.bonus.type === 'percentage' ? '%' : '€'}</span>}
                             </span>
                           ))}
-                          {objectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).length > 2 && <span className="text-xs text-gray-400">+{objectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).length - 2}</span>}
-                        </div>}
+                          {visibleObjs.length > 2 && <span className="text-xs text-gray-400">+{visibleObjs.length - 2}</span>}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="py-4 px-6 text-gray-500">{format(new Date(member.createdAt), 'dd MMM yyyy', { locale: fr })}</td>
                   <td className="py-4 px-6 text-right">
@@ -918,7 +987,7 @@ export function TeamPage() {
                             </div>
                           </td>
                           <td className="py-3 px-2 text-gray-600 max-w-xs">
-                            <p className="truncate max-w-[220px]" title={dispute.reason}>{dispute.reason}</p>
+                            <TruncatedText text={dispute.reason} className="max-w-[220px]" />
                           </td>
                           <td className="py-3 px-2">
                             <Badge variant={dispute.status === 'OPEN' ? 'yellow' : dispute.status === 'RESOLVED_ACCEPTED' ? 'green' : 'red'}>
@@ -931,7 +1000,7 @@ export function TeamPage() {
                           {showResp && (
                             <td className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
                               {dispute.managerResponse
-                                ? <span title={dispute.managerResponse} className="truncate block max-w-[180px]">{dispute.managerResponse}</span>
+                                ? <TruncatedText text={dispute.managerResponse} className="block max-w-[180px]" as="span" />
                                 : <span className="text-gray-300">&mdash;</span>}
                             </td>
                           )}
@@ -1022,9 +1091,10 @@ export function TeamPage() {
       ================================================================ */}
       {memberToView && (() => {
         const activeRules = memberRuleAssignments.filter((a) => a.isActive);
-        const isExpCommissions = expandedSections.has('commissions');
-        const isExpObjectifs   = expandedSections.has('objectifs');
-        const isExpConcours    = expandedSections.has('concours');
+        const memberPlans = plansForMember(memberToView.id);
+        const visibleObjectives = displayableObjectives(editObjectives);
+        const isExpPlan     = expandedSections.has('plan');
+        const isExpConcours = expandedSections.has('concours');
 
         return (
           <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
@@ -1063,10 +1133,10 @@ export function TeamPage() {
               {/* ── Corps : 3 sections ── */}
               <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
 
-                {/* ── Section Commissions ── */}
+                {/* ── Section Plan de commissions (rémunération + objectifs) ── */}
                 <div>
                   <button
-                    onClick={() => toggleDrawerSection('commissions')}
+                    onClick={() => toggleDrawerSection('plan')}
                     className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center gap-2.5">
@@ -1075,29 +1145,23 @@ export function TeamPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                         </svg>
                       </div>
-                      <span className="text-sm font-semibold text-gray-800">Commissions</span>
-                      {activeRules.length > 0 && (
-                        <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">{activeRules.length}</span>
+                      <span className="text-sm font-semibold text-gray-800">Plan de commissions</span>
+                      {memberPlans.length > 0 && (
+                        <TruncatedText
+                          text={`📋 ${memberPlans.map((p) => p.name).join(' · ')}`}
+                          className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full max-w-[160px]"
+                          as="span"
+                        />
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); void openAssignModal(); }}
-                        className="text-xs font-medium text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors"
-                      >
-                        + Assigner
-                      </button>
-                      <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpCommissions ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
+                    <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpPlan ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
                   </button>
                   <div className="px-5 pb-3.5">
-                    {loadingAssignments ? (
-                      <div className="flex justify-center py-2"><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" /></div>
-                    ) : !isExpCommissions ? (
-                      activeRules.length === 0 ? (
-                        <p className="text-xs text-gray-400 italic">Aucune règle de commission assignée</p>
+                    {!isExpPlan ? (
+                      activeRules.length === 0 && visibleObjectives.length === 0 ? (
+                        <p className="text-xs text-gray-400 italic">Aucun plan de commissions défini</p>
                       ) : (
                         <div className="flex flex-wrap gap-1.5">
                           {activeRules.map((a) => (
@@ -1106,104 +1170,116 @@ export function TeamPage() {
                               {a.rule.dealType && <span className="opacity-60">· {a.rule.dealType}</span>}
                             </span>
                           ))}
-                        </div>
-                      )
-                    ) : (
-                      activeRules.length === 0 ? (
-                        <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center">
-                          <p className="text-sm text-gray-400">Aucune règle assignée</p>
-                          <p className="text-xs text-gray-300 mt-0.5">Cliquez sur "+ Assigner" pour en ajouter</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {activeRules.map((assignment) => (
-                            <div key={assignment.id} className="flex items-center justify-between gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-sm font-medium text-gray-900">{assignment.rule.name}</span>
-                                  {assignment.rule.dealType && (
-                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">{assignment.rule.dealType}</span>
-                                  )}
-                                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${assignment.assignedToType === AssigneeType.INDIVIDUAL ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                                    {assignment.assignedToType === AssigneeType.INDIVIDUAL ? 'Directe' : `Équipe${assignment.teamName ? ` · ${assignment.teamName}` : ''}`}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-gray-400 mt-0.5">
-                                  Depuis le {format(new Date(assignment.startDate), 'dd MMM yyyy', { locale: fr })}
-                                  {assignment.endDate && ` → ${format(new Date(assignment.endDate), 'dd MMM yyyy', { locale: fr })}`}
-                                </p>
-                              </div>
-                              <button
-                                onClick={() => void onRemoveAssignment(assignment.id)}
-                                disabled={removingAssignmentId === assignment.id}
-                                className="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition-colors disabled:opacity-50"
-                              >
-                                {removingAssignmentId === assignment.id ? '...' : 'Retirer'}
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                    )}
-                  </div>
-                </div>
-
-                {/* ── Section Objectifs ── */}
-                <div>
-                  <button
-                    onClick={() => toggleDrawerSection('objectifs')}
-                    className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-6 h-6 rounded-md bg-indigo-100 flex items-center justify-center">
-                        <svg className="w-3.5 h-3.5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                        </svg>
-                      </div>
-                      <span className="text-sm font-semibold text-gray-800">Objectifs</span>
-                      {editObjectives.length > 0 && (
-                        <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full">{editObjectives.length}</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {isExpObjectifs && collectTemplateObjectives(members, memberToView.id).length > 0 && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setShowEditPicker((v) => !v); }}
-                          className="text-xs font-medium text-gray-500 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors border border-gray-200"
-                        >
-                          Réutiliser
-                        </button>
-                      )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!isExpObjectifs) setExpandedSections((prev) => { const n = new Set(prev); n.add('objectifs'); return n; });
-                          addObjective();
-                        }}
-                        className="text-xs font-medium text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-md transition-colors"
-                      >
-                        + Nouveau
-                      </button>
-                      <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpObjectifs ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                  </button>
-                  <div className="px-5 pb-3.5">
-                    {!isExpObjectifs ? (
-                      editObjectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).length === 0 ? (
-                        <p className="text-xs text-gray-400 italic">Aucun objectif défini</p>
-                      ) : (
-                        <div className="flex flex-wrap gap-1.5">
-                          {editObjectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).map((obj) => (
+                          {visibleObjectives.map((obj) => (
                             <span key={obj.id} className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full border border-indigo-100">
-                              {obj.label || 'Objectif'} · {obj.target.toLocaleString('fr-FR')} {obj.unit} · {formatObjectivePeriod(obj)}
-                              {obj.bonus?.enabled && <span className="text-green-600 ml-0.5 font-semibold">+{obj.bonus.value}{obj.bonus.type === 'percentage' ? '%' : '€'}</span>}
+                              🎯 {obj.label || 'Objectif'} · {obj.target.toLocaleString('fr-FR')} {obj.unit}
                             </span>
                           ))}
                         </div>
                       )
                     ) : (
+                      <div className="space-y-5">
+                        {/* ── Rémunération : règles du plan ── */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Rémunération</p>
+                            <button
+                              onClick={() => void openAssignModal()}
+                              className="text-xs font-medium text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors"
+                            >
+                              + Ajouter une règle
+                            </button>
+                          </div>
+                          {loadingAssignments ? (
+                            <div className="flex justify-center py-2"><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" /></div>
+                          ) : activeRules.length === 0 ? (
+                            <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center">
+                              <p className="text-sm text-gray-400">Aucune règle de rémunération dans le plan</p>
+                              <p className="text-xs text-gray-300 mt-0.5">Cliquez sur « + Ajouter une règle »</p>
+                            </div>
+                          ) : (
+                        <div className="space-y-2">
+                          {activeRules.map((assignment) => {
+                            const hasOverrides = assignment.overrides !== null
+                              && Object.keys(assignment.overrides ?? {}).length > 0;
+                            return (
+                              <div key={assignment.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-sm font-medium text-gray-900">{assignment.rule.name}</span>
+                                      {assignment.rule.dealType && (
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">{assignment.rule.dealType}</span>
+                                      )}
+                                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${assignment.assignedToType === AssigneeType.INDIVIDUAL ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+                                        {assignment.assignedToType === AssigneeType.INDIVIDUAL ? 'Directe' : `Équipe${assignment.teamName ? ` · ${assignment.teamName}` : ''}`}
+                                      </span>
+                                      {hasOverrides && (
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-700">Personnalisé</span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-0.5">
+                                      Depuis le {format(new Date(assignment.startDate), 'dd MMM yyyy', { locale: fr })}
+                                      {assignment.endDate && ` → ${format(new Date(assignment.endDate), 'dd MMM yyyy', { locale: fr })}`}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <button
+                                      onClick={() => setAdjustingAssignmentId((prev) => prev === assignment.id ? null : assignment.id)}
+                                      className="text-xs text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-2 py-1 rounded transition-colors"
+                                    >
+                                      {adjustingAssignmentId === assignment.id ? 'Fermer' : 'Ajuster'}
+                                    </button>
+                                    <button
+                                      onClick={() => void onRemoveAssignment(assignment.id)}
+                                      disabled={removingAssignmentId === assignment.id}
+                                      className="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                                    >
+                                      {removingAssignmentId === assignment.id ? '...' : 'Retirer'}
+                                    </button>
+                                  </div>
+                                </div>
+                                {adjustingAssignmentId === assignment.id && (
+                                  <AssignmentOverrideEditor
+                                    assignment={assignment}
+                                    onCancel={() => setAdjustingAssignmentId(null)}
+                                    onSaved={(updated) => {
+                                      setMemberRuleAssignments((prev) => prev.map((a) => a.id === updated.id ? { ...a, overrides: updated.overrides } : a));
+                                      setAdjustingAssignmentId(null);
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                          )}
+                          {removeError && (
+                            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5 mt-2">{removeError}</p>
+                          )}
+                        </div>
+
+                        {/* ── Objectifs du plan ── */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Objectifs</p>
+                            <div className="flex items-center gap-1">
+                              {collectTemplateObjectives(members, memberToView.id).length > 0 && (
+                                <button
+                                  onClick={() => setShowEditPicker((v) => !v)}
+                                  className="text-xs font-medium text-gray-500 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors border border-gray-200"
+                                >
+                                  Réutiliser
+                                </button>
+                              )}
+                              <button
+                                onClick={addObjective}
+                                className="text-xs font-medium text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-md transition-colors"
+                              >
+                                + Nouveau
+                              </button>
+                            </div>
+                          </div>
                       <div className="space-y-3">
                         {showEditPicker && (
                           <ObjectivePicker
@@ -1212,14 +1288,14 @@ export function TeamPage() {
                             onClose={() => setShowEditPicker(false)}
                           />
                         )}
-                        {editObjectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).length === 0 && !showEditPicker ? (
+                        {visibleObjectives.length === 0 && !showEditPicker ? (
                           <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center">
                             <p className="text-sm text-gray-400">Aucun objectif défini</p>
                             <p className="text-xs text-gray-300 mt-1">Cliquez sur « + Nouveau » pour créer un objectif</p>
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            {editObjectives.filter((obj) => !(obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId)).map((obj) => {
+                            {visibleObjectives.map((obj) => {
                               const isRecurrent = !!obj.parentObjectiveId;
                               const isTemplate = obj.recurrence && obj.recurrence !== 'none' && !obj.parentObjectiveId;
                               const effectiveBonusMode = obj.bonusMode ?? (obj.bonus?.enabled ? 'simple' : 'none');
@@ -1243,12 +1319,14 @@ export function TeamPage() {
 
                                   {/* Ligne 1 : Nom + badges */}
                                   <div className="flex items-center gap-2 mb-1.5">
-                                    <p className="text-sm font-semibold text-gray-900 truncate">{obj.label || 'Objectif sans nom'}</p>
+                                    <TruncatedText text={obj.label || 'Objectif sans nom'} className="text-sm font-semibold text-gray-900" />
+                                    {isTemplate && (
+                                      <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium flex-shrink-0">
+                                        🔁 Se renouvelle {RECURRENCE_LABELS[obj.recurrence!] ?? ''}
+                                      </span>
+                                    )}
                                     {isRecurrent && (
                                       <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 font-medium flex-shrink-0">🔁 Récurrent</span>
-                                    )}
-                                    {isTemplate && (
-                                      <span className="text-xs px-1.5 py-0.5 rounded bg-purple-50 text-purple-500 font-medium flex-shrink-0">Template</span>
                                     )}
                                   </div>
 
@@ -1259,7 +1337,7 @@ export function TeamPage() {
                                       <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                       </svg>
-                                      {formatObjectivePeriod(obj)}
+                                      {isTemplate ? `Récurrent · ${RECURRENCE_LABELS[obj.recurrence!] ?? ''}` : formatObjectivePeriod(obj)}
                                     </span>
 
                                     <span className="text-gray-300">·</span>
@@ -1302,6 +1380,8 @@ export function TeamPage() {
                         >
                           {editLoading ? 'Enregistrement...' : 'Enregistrer les objectifs'}
                         </button>
+                      </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1378,7 +1458,7 @@ export function TeamPage() {
                             <div key={c.id} className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
                               <span className="text-lg flex-shrink-0">🏆</span>
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-900 truncate">{c.name}</p>
+                                <TruncatedText text={c.name} className="text-sm font-medium text-gray-900" />
                                 <p className="text-xs text-gray-500 mt-0.5">
                                   {c.scope === RuleScope.GLOBAL ? 'Toute l\'équipe' : c.scope === RuleScope.TEAM ? `Équipe · ${c.teamName ?? ''}` : 'Personnel'}
                                   {' · '}{c.metric === ContestMetric.REVENUE ? 'CA (€)' : 'Deals signés'}
@@ -1491,10 +1571,10 @@ export function TeamPage() {
       {/* ================================================================
           Modal : Assigner une règle
       ================================================================ */}
-      <Modal isOpen={showAssignModal} onClose={() => setShowAssignModal(false)} title="Assigner une règle de commission" size="md">
+      <Modal isOpen={showAssignModal} onClose={() => setShowAssignModal(false)} title="Ajouter une règle au plan de commissions" size="md">
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Règle à assigner</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Règle à ajouter</label>
             {libraryRules.length === 0 ? (
               <p className="text-sm text-gray-400 italic">Aucune règle disponible dans la bibliothèque.</p>
             ) : (
@@ -1574,7 +1654,7 @@ export function TeamPage() {
 
           <div className="flex gap-3">
             <Button loading={assignLoading} onClick={() => void onAssignRule()} className="flex-1">
-              Confirmer l'assignation
+              Ajouter au plan
             </Button>
             <Button type="button" variant="secondary" onClick={() => setShowAssignModal(false)}>
               Annuler
@@ -1680,6 +1760,9 @@ export function TeamPage() {
                   <p className="text-xs text-gray-400 mt-0.5">{member.email}</p>
                   <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
                     {member.fixedSalary ? <span>{member.fixedSalary.toLocaleString('fr-FR')} €/mois</span> : null}
+                    {plansForMember(member.id).length > 0 && (
+                      <span className="text-blue-600">📋 {plansForMember(member.id).map((p) => p.name).join(' · ')}</span>
+                    )}
                     {objectives.length > 0 && <span>{objectives.length} objectif{objectives.length > 1 ? 's' : ''}</span>}
                     {!member.emailVerified && <span className="text-yellow-600">Invitation en attente</span>}
                   </div>
@@ -1793,7 +1876,7 @@ function ObjectivePicker({ objectives, onPick, onClose }: ObjectivePickerProps) 
             className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-white border border-indigo-100 hover:border-indigo-300 hover:bg-indigo-50 transition-colors text-left group"
           >
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-gray-800 truncate">{obj.label}</p>
+              <TruncatedText text={obj.label} className="text-sm font-semibold text-gray-800" />
               <p className="text-xs text-gray-400">
                 {obj.target.toLocaleString('fr-FR')} {obj.unit} · {formatObjectivePeriod(obj)}
                 {obj.bonus?.enabled && (

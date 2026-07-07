@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma';
 import { UserRole as PrismaUserRole } from '@prisma/client';
 import { ContestStatus, ContestMetric, RuleScope } from '../../../shared/types';
+import { resolveMarginForMetrics } from '../services/objectiveProgress.service';
 
 export interface CreateContestData {
   tenantId: string;
@@ -103,7 +104,8 @@ export const contestRepository = {
    * Calcule le leaderboard d'un concours.
    *
    * - Se base sur les deals WON dans la période du concours
-   * - Exclut les deals dont la commission du commercial est CANCELLED
+   * - Ne compte que les deals dont la commission du commercial est VALIDATED/PAID
+   *   (règle métier : une vente compte après validation par le N+1)
    * - Gère les DealAssignment (splits) : utilise amount × share
    * - Pour la marge : exclut les deals sans marginAmount (null)
    * - Fallback rétrocompat : si pas de DealAssignment, utilise assignedToId à 100%
@@ -215,16 +217,15 @@ export const contestRepository = {
       let valueField: number;
       let source: string;
       if (contest.metric === ContestMetric.MARGIN) {
-        if (deal.marginAmount !== null && deal.marginAmount !== undefined) {
-          valueField = deal.marginAmount;
-          source = 'marginAmount';
-        } else if (deal.costAmount !== null && deal.costAmount !== undefined) {
-          valueField = deal.amount - deal.costAmount;
-          source = 'amount - costAmount';
-        } else {
-          valueField = deal.amount;
-          source = 'amount (fallback)';
-        }
+        // Règle unique (identique aux objectifs) : marge connue, sinon
+        // amount - coût, sinon deal EXCLU — jamais de repli sur le CA,
+        // qui compterait un CA entier comme de la marge et fausserait le classement.
+        const margin = resolveMarginForMetrics(deal);
+        if (margin === null) continue;
+        valueField = margin;
+        source = deal.marginAmount !== null && deal.marginAmount !== undefined
+          ? 'marginAmount'
+          : 'amount - costAmount';
       } else {
         valueField = deal.amount;
         source = 'amount';
@@ -242,9 +243,12 @@ export const contestRepository = {
         // Filtrer par participants si scope limité
         if (!scoreMap.has(contrib.userId)) continue;
 
-        // Exclure si TOUTES les commissions de ce user sur ce deal sont CANCELLED
+        // Règle métier : une vente ne compte dans un concours qu'une fois sa
+        // commission VALIDÉE par le N+1 (ou payée). PENDING (y compris attente
+        // paiement client) et CANCELLED sont exclus ; sans commission = jamais validée.
         const userCommissions = deal.commissions.filter((c) => c.userId === contrib.userId);
-        if (userCommissions.length > 0 && userCommissions.every((c) => c.status === 'CANCELLED')) continue;
+        const isValidated = userCommissions.some((c) => c.status === 'VALIDATED' || c.status === 'PAID');
+        if (!isValidated) continue;
 
         const contribution = contest.metric === ContestMetric.DEAL_COUNT
           ? 1 // 1 deal par deal, même splitté

@@ -43,4 +43,21 @@ export const commissionableEventRepository = {
       },
     });
   },
+
+  /**
+   * Events mensuels de mission d'un commercial dont la commission a été VALIDÉE
+   * par le N+1 (ou payée). Règle métier : un mois de mission n'alimente les
+   * objectifs de CA/marge qu'après validation, comme les ventes one-shot.
+   */
+  async findMissionMonthsByUserId(userId: string, tenantId: string): Promise<CommissionableEvent[]> {
+    return prisma.commissionableEvent.findMany({
+      where: {
+        tenantId,
+        userId,
+        type: 'MISSION_MONTH',
+        commissions: { some: { userId, status: { in: ['VALIDATED', 'PAID'] } } },
+      },
+      orderBy: { periodMonth: 'desc' },
+    });
+  },
 };

@@ -38,7 +38,8 @@ function NavCard({ icon, title, description, count, countLabel, isActive, onClic
   );
 }
 
-export type ParametrageTab = 'commissions' | 'objectifs' | 'concours';
+// « Plan de variable » unifie les anciens onglets « Commissions » et « Objectifs »
+export type ParametrageTab = 'plan' | 'concours';
 
 interface ParametrageNavCardsProps {
   activeTab: ParametrageTab;
@@ -57,24 +58,16 @@ export function ParametrageNavCards({
 }: ParametrageNavCardsProps) {
   const cards: { tab: ParametrageTab; icon: string; title: string; description: string; count: number; countLabel: string }[] = [
     {
-      tab: 'commissions',
-      icon: '\uD83D\uDCB0',
-      title: 'Commissions',
-      description: 'Ce que vous payez à chaque vente',
-      count: commissionsCount,
-      countLabel: commissionsCount <= 1 ? 'active' : 'actives',
-    },
-    {
-      tab: 'objectifs',
-      icon: '\uD83C\uDFAF',
-      title: 'Objectifs',
-      description: "Ce que vous voulez qu'ils atteignent",
-      count: objectifsCount,
-      countLabel: 'en cours',
+      tab: 'plan',
+      icon: '📋',
+      title: 'Plan de variable',
+      description: 'Commissions et objectifs, décrits en une phrase et vérifiés par simulation',
+      count: commissionsCount + objectifsCount,
+      countLabel: 'élément(s) actif(s)',
     },
     {
       tab: 'concours',
-      icon: '\uD83C\uDFC6',
+      icon: '🏆',
       title: 'Concours',
       description: 'Challenges ponctuels avec lots',
       count: concoursCount,
@@ -83,7 +76,7 @@ export function ParametrageNavCards({
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {cards.map((card) => (
         <NavCard
           key={card.tab}

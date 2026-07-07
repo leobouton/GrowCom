@@ -4,6 +4,7 @@ import { fileImportApiService } from '../services/fileImport.service';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
+import { TruncatedText } from './ui/TruncatedText';
 import type { ImportPreview, ImportLog, ImportMappingDetails } from '@shared/types';
 
 // ─── Badge statut import ─────────────────────────────────────────────────────
@@ -417,9 +418,11 @@ export function FileImportPanel() {
                   <tbody className="divide-y divide-gray-100">
                     {preview.sample.map((row) => (
                       <tr key={row.externalId} className={row.isDuplicate ? 'bg-amber-50' : ''}>
-                        <td className="px-3 py-2 font-medium text-gray-800 max-w-[180px] truncate">
-                          {row.dealName}
-                          {row.isDuplicate && <span className="ml-1 text-amber-500">(doublon)</span>}
+                        <td className="px-3 py-2 max-w-[180px]">
+                          <div className="flex items-center gap-1 min-w-0">
+                            <TruncatedText text={row.dealName} className="font-medium text-gray-800" />
+                            {row.isDuplicate && <span className="text-amber-500 flex-shrink-0">(doublon)</span>}
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums text-gray-700">
                           {row.amount.toLocaleString('fr-FR')} {row.currency}
@@ -485,7 +488,7 @@ export function FileImportPanel() {
                 className="flex items-center justify-between py-2 px-3 rounded-lg bg-gray-50 border border-gray-100"
               >
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-700 truncate">{log.fileName}</p>
+                  <TruncatedText text={log.fileName} className="text-sm font-medium text-gray-700" />
                   <p className="text-xs text-gray-400 mt-0.5">
                     {new Date(log.createdAt).toLocaleDateString('fr-FR', {
                       day: '2-digit',

@@ -10,7 +10,7 @@ import { emailService } from './email.service';
 import { AppError } from '../middlewares/errorHandler';
 import { DealStatus as PrismaDealStatus, CommissionStatus as PrismaCommissionStatus, UserRole } from '@prisma/client';
 import { prisma } from '../config/prisma';
-import { OdooSubscriptionOrder, mapOdooSubscriptionToMission } from './crmMission.mapping';
+import { OdooSubscriptionOrder, mapOdooSubscriptionToConsultantMissions } from './crmMission.mapping';
 
 const ODOO_DEAL_LIMIT = 1000;
 const ODOO_DEAL_WARN_THRESHOLD = 950;
@@ -28,6 +28,7 @@ interface OdooCrmLead {
   active: boolean;
   planned_cost: number;        // Coût prévu (champ Odoo, absent sur certaines versions)
   margin: number;              // Marge calculée par Odoo (absent sur certaines versions)
+  tag_ids: number[];           // Étiquettes CRM → type de vente (Recrutement, Formation, Portage…)
 }
 
 // Abonnement récurrent (sale.order) enrichi de l'opportunité liée (crm.lead) pour l'ancrage.
@@ -308,7 +309,7 @@ export const odooService = {
     odooApiKey: string,
   ): Promise<OdooCrmLead[]> {
     // Champs de base toujours présents sur crm.lead
-    const baseFields = ['id', 'name', 'partner_id', 'expected_revenue', 'probability', 'stage_id', 'user_id', 'date_closed', 'write_date', 'active'];
+    const baseFields = ['id', 'name', 'partner_id', 'expected_revenue', 'probability', 'stage_id', 'user_id', 'date_closed', 'write_date', 'active', 'tag_ids'];
     // Champs optionnels : n'existent pas sur toutes les versions d'Odoo (ex: planned_cost absent en Odoo 19.0)
     const optionalFields = ['planned_cost', 'margin'];
 
@@ -358,7 +359,46 @@ export const odooService = {
       active: Boolean(r['active']),
       planned_cost: Number(r['planned_cost'] ?? 0),
       margin: Number(r['margin'] ?? 0),
+      tag_ids: Array.isArray(r['tag_ids']) ? (r['tag_ids'] as number[]).filter((t) => typeof t === 'number') : [],
     }));
+  },
+
+  /**
+   * Récupère les noms des étiquettes CRM (crm.tag) à partir de leurs IDs.
+   * La première étiquette d'une opportunité devient son type de vente (dealType),
+   * ce qui permet d'appliquer la bonne règle de commission (recrutement / formation / portage).
+   * Retourne une Map : tagId → nom.
+   */
+  async fetchTagNames(
+    odooUrl: string,
+    odooDatabase: string,
+    uid: number,
+    odooApiKey: string,
+    tagIds: number[],
+  ): Promise<Map<number, string>> {
+    if (tagIds.length === 0) return new Map();
+
+    try {
+      const result = await xmlRpcCall(
+        `${odooUrl}/xmlrpc/2/object`,
+        'execute_kw',
+        [odooDatabase, uid, odooApiKey, 'crm.tag', 'read', [tagIds], { fields: ['id', 'name'] }],
+      );
+      const map = new Map<number, string>();
+      const records = result as Record<string, unknown>[];
+      for (const r of records) {
+        const id = r['id'] as number;
+        const name = r['name'];
+        if (id && typeof name === 'string' && name.trim() !== '') map.set(id, name.trim());
+      }
+      return map;
+    } catch (err) {
+      // Étiquettes illisibles (droits insuffisants…) → synchro sans type de vente, pas de crash
+      logger.warn('[Odoo] Lecture des étiquettes CRM impossible — deals synchronisés sans type de vente', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return new Map();
+    }
   },
 
   /**
@@ -527,17 +567,48 @@ export const odooService = {
       }
 
       const consultantCount = qtyByOrder.get(order.id) ?? 1;
-      const mapping = mapOdooSubscriptionToMission(order, consultantCount);
 
-      await missionRepository.upsertOdoo({
-        tenantId,
-        odooId: String(order.id),
-        dealId: deal.id,
-        userId: deal.assignedToId,
-        source: 'ODOO',
-        ...mapping,
+      // UNE MISSION PAR CONSULTANT PLACÉ : une ligne par consultant dans le
+      // dashboard, même si c'est le même contrat chez le même client.
+      const missions = mapOdooSubscriptionToConsultantMissions(order, consultantCount);
+
+      for (const { missionKey, ...mapping } of missions) {
+        await missionRepository.upsertOdoo({
+          tenantId,
+          odooId: missionKey,
+          dealId: deal.id,
+          userId: deal.assignedToId,
+          source: 'ODOO',
+          ...mapping,
+        });
+        missionsSynced++;
+      }
+
+      // Nettoyage des missions obsolètes de cette commande (ancien format agrégé
+      // keyé sur l'id de commande seul, ou consultant retiré de l'abonnement).
+      const currentKeys = missions.map((m) => m.missionKey);
+      const staleMissions = await prisma.mission.findMany({
+        where: {
+          tenantId,
+          dealId: deal.id,
+          source: 'ODOO',
+          OR: [{ odooId: String(order.id) }, { odooId: { startsWith: `${order.id}-c` } }],
+          NOT: { odooId: { in: currentKeys } },
+        },
+        select: { id: true },
       });
-      missionsSynced++;
+      for (const stale of staleMissions) {
+        await prisma.commission.deleteMany({
+          where: { missionId: stale.id, tenantId, status: PrismaCommissionStatus.PENDING },
+        });
+        try {
+          await prisma.commissionableEvent.deleteMany({ where: { missionId: stale.id, tenantId } });
+          await prisma.mission.delete({ where: { id: stale.id } });
+        } catch {
+          // Historique validé/payé encore rattaché → on termine la mission au lieu de la supprimer
+          await prisma.mission.update({ where: { id: stale.id }, data: { status: 'ENDED' } });
+        }
+      }
     }
 
     if (orders.length === 0) {
@@ -611,6 +682,10 @@ export const odooService = {
       )];
       const odooEmailMap = await odooService.fetchUserEmails(odooUrl, odooDatabase, uid, odooApiKey, odooUserIds);
 
+      // Étiquettes CRM → type de vente (la 1re étiquette du deal fait foi)
+      const allTagIds = [...new Set(leads.flatMap((l) => l.tag_ids))];
+      const tagNameMap = await odooService.fetchTagNames(odooUrl, odooDatabase, uid, odooApiKey, allTagIds);
+
       // Index GrowCom : email → utilisateur (pour matching rapide)
       const growcomByEmail = new Map(tenantUsers.map((u) => [u.email.toLowerCase().trim(), u]));
 
@@ -668,6 +743,10 @@ export const odooService = {
             marginSource = 'COMPUTED';
           }
 
+          // Type de vente depuis la 1re étiquette Odoo (ex: "Recrutement", "Formation", "Portage")
+          const firstTagId = lead.tag_ids.find((t) => tagNameMap.has(t));
+          const dealType = firstTagId !== undefined ? tagNameMap.get(firstTagId)! : null;
+
           const upsertedDeal = await dealRepository.upsert({
             tenantId,
             odooId: String(lead.id),
@@ -681,6 +760,7 @@ export const odooService = {
             costAmount,
             marginAmount,
             marginSource,
+            ...(dealType !== null ? { dealType } : {}),
           });
 
           // DealAssignment : créer une assignation 100% si aucune n'existe encore

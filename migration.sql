@@ -171,7 +171,16 @@ DO $$ BEGIN
 END $$;
 
 DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Commission_dealId_userId_ruleId_key') THEN
+    -- Contrainte HISTORIQUE — remplacée plus bas par (…periodMonth) puis
+    -- (…missionId, periodMonth). On ne la crée que sur une base neuve qui
+    -- rejoue tout l'historique ; si un index remplaçant existe déjà, ne rien
+    -- faire : la recréer échouerait, car les commissions mensuelles de mission
+    -- dupliquent légitimement (dealId, userId, ruleId).
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Commission_dealId_userId_ruleId_key')
+       AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname IN (
+            'Commission_dealId_userId_ruleId_periodMonth_key',
+            'Commission_dealId_userId_ruleId_missionId_periodMonth_key'
+       )) THEN
         ALTER TABLE "Commission"
             ADD CONSTRAINT "Commission_dealId_userId_ruleId_key"
             UNIQUE ("dealId", "userId", "ruleId");
@@ -1031,8 +1040,17 @@ ALTER TABLE "Commission" ALTER COLUMN "periodMonth" SET NOT NULL;
 -- Remplacement de la contrainte unique (dealId,userId,ruleId) -> (+periodMonth)
 ALTER TABLE "Commission" DROP CONSTRAINT IF EXISTS "Commission_dealId_userId_ruleId_key";
 DROP INDEX IF EXISTS "Commission_dealId_userId_ruleId_key";
-CREATE UNIQUE INDEX IF NOT EXISTS "Commission_dealId_userId_ruleId_periodMonth_key"
-    ON "Commission" ("dealId", "userId", "ruleId", "periodMonth");
+DO $$ BEGIN
+    -- Index HISTORIQUE — remplacé plus bas par (…missionId, periodMonth).
+    -- Ne le créer que si le remplaçant n'existe pas encore (base neuve qui
+    -- rejoue l'historique) ; sinon, le recréer échouerait : un commercial
+    -- peut avoir plusieurs missions ancrées sur le même deal, donc plusieurs
+    -- commissions par (dealId, userId, ruleId, periodMonth).
+    IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'Commission_dealId_userId_ruleId_missionId_periodMonth_key') THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS "Commission_dealId_userId_ruleId_periodMonth_key"
+            ON "Commission" ("dealId", "userId", "ruleId", "periodMonth");
+    END IF;
+END $$;
 
 
 -- ============================================================
@@ -1053,3 +1071,24 @@ ALTER TABLE "RuleAssignment" ADD COLUMN IF NOT EXISTS "overrides" JSONB;
 -- l'autorise (plusieurs règles + un mois de mission). On le supprime ; l'unicité
 -- correcte est portée par Commission_dealId_userId_ruleId_periodMonth_key.
 DROP INDEX IF EXISTS "Commission_dealId_userId_key";
+
+
+-- ============================================================
+-- MISSIONS CRM (2026-07-02) — Unicité des commissions récurrentes PAR MISSION
+-- ============================================================
+-- Déjà appliqué en base le 2026-07-02 via backend/scripts/apply-migration-mission-unique.ts ;
+-- reporté ici pour que migration.sql reste LE fichier de référence. Idempotent.
+-- Un commercial peut avoir PLUSIEURS missions (une par consultant placé)
+-- ancrées sur le même deal, chacune avec sa commission mensuelle : l'unicité
+-- devient (deal, user, règle, mission, mois). Les commissions one-shot
+-- (missionId NULL) restent protégées par un index unique partiel.
+
+ALTER TABLE "Commission" DROP CONSTRAINT IF EXISTS "Commission_dealId_userId_ruleId_periodMonth_key";
+DROP INDEX IF EXISTS "Commission_dealId_userId_ruleId_periodMonth_key";
+
+CREATE UNIQUE INDEX IF NOT EXISTS "Commission_dealId_userId_ruleId_missionId_periodMonth_key"
+    ON "Commission" ("dealId", "userId", "ruleId", "missionId", "periodMonth");
+
+CREATE UNIQUE INDEX IF NOT EXISTS "Commission_deal_oneshot_key"
+    ON "Commission" ("dealId", "userId", "ruleId", "periodMonth")
+    WHERE "missionId" IS NULL;
