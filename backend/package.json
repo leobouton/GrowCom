@@ -11,9 +11,11 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "lint": "eslint src --ext .ts",
-    "lint:fix": "eslint src --ext .ts --fix",
-    "format": "prettier --write src/**/*.ts"
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write src/**/*.ts",
+    "seed:demo": "tsx scripts/seed-demo-immo.ts",
+    "seed:demo:reset": "tsx scripts/seed-demo-immo.ts --reset"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.3",

@@ -19,7 +19,6 @@ enum UserRole {
   MANAGER
   TEAM_LEAD
   BU_MANAGER
-  RECRUITER
   COMMERCIAL
 }
 
@@ -152,6 +151,7 @@ model Tenant {
   odooLimitWarningSentAt     DateTime?    // Date du dernier email d'alerte limite Odoo (throttle 2 jours)
   hubspotToken               String?      // Token Private App HubSpot, stocké chiffré (AES-256-GCM) via encryption.ts
   hubspotPortalId            String?      // Identifiant du portail HubSpot (hub_id), affiché en lecture seule
+  defaultJobTitle            String?      // Fonction pré-remplie à l'invitation (ex : "Négociateur")
   createdAt                  DateTime     @default(now())
 
   users               User[]
@@ -205,6 +205,7 @@ model User {
   firstName         String
   lastName          String
   role              UserRole
+  jobTitle          String?   // Fonction libre affichée (ex : "Négociateur", "Consultant")
   tenantId          String?
   groupId           String?
   fixedSalary       Float     @default(0) // Salaire fixe BRUT MENSUEL en euros

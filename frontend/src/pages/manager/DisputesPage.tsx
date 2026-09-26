@@ -361,7 +361,7 @@ function DisputeRow({
         className="border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50/50 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <td className="py-3 px-2">
+        <td data-label="Commercial" className="py-3 px-2">
           <div className="flex items-center gap-2">
             <svg
               className={`w-3.5 h-3.5 text-gray-400 transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -372,25 +372,25 @@ function DisputeRow({
             <span className="font-medium text-gray-900">{raiserName}</span>
           </div>
         </td>
-        <td className="py-3 px-2 text-gray-600 max-w-xs">
+        <td data-label="Motif" className="py-3 px-2 text-gray-600 max-w-xs">
           <TruncatedText text={dispute.reason} className="max-w-[220px]" />
         </td>
-        <td className="py-3 px-2">
+        <td data-label="Statut" className="py-3 px-2">
           <Badge variant={STATUS_BADGE_VARIANT[dispute.status]}>
             {STATUS_LABELS[dispute.status]}
           </Badge>
         </td>
-        <td className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap">
+        <td data-label="Date" className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap">
           {format(new Date(dispute.createdAt), 'dd MMM yyyy', { locale: fr })}
         </td>
         {showResponse && (
-          <td className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
+          <td data-label="Réponse manager" className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
             {dispute.managerResponse
               ? <TruncatedText text={dispute.managerResponse} className="block max-w-[180px]" as="span" />
               : <span className="text-gray-300">&mdash;</span>}
           </td>
         )}
-        <td className="py-3 px-2 text-right">
+        <td data-label="" className="py-3 px-2 text-right">
           {dispute.status === 'OPEN' && (
             <Button
               size="sm"
@@ -403,7 +403,7 @@ function DisputeRow({
       </tr>
       {expanded && deal && (
         <tr className="bg-gray-50/70">
-          <td colSpan={showResponse ? 6 : 5} className="px-6 py-3">
+          <td data-label="" colSpan={showResponse ? 6 : 5} className="px-6 py-3">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
               <div>
                 <span className="text-gray-400 block">Vente</span>
@@ -534,7 +534,7 @@ export function DisputesPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="responsive-table w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Commercial</th>

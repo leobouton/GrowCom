@@ -55,13 +55,12 @@ export const stripeService = {
           customer: tenant.stripeCustomerId,
           items: [
             {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               price_data: {
                 currency: 'eur',
                 product_data: { name: 'GrowCom — Abonnement' },
                 unit_amount: env.STRIPE_PRICE_PER_USER,
                 recurring: { interval: 'month' },
-              } as any,
+              } as unknown as Stripe.SubscriptionCreateParams.Item.PriceData,
               quantity: Math.max(activeUsers, 1),
             },
           ],

@@ -21,8 +21,8 @@ export const authApiService = {
     await api.post('/auth/logout');
   },
 
-  async me(): Promise<PublicUser> {
-    const res = await api.get<{ success: true; data: PublicUser }>('/auth/me');
+  async me(): Promise<PublicUser & { tenantDefaultJobTitle: string | null }> {
+    const res = await api.get<{ success: true; data: PublicUser & { tenantDefaultJobTitle: string | null } }>('/auth/me');
     return res.data.data;
   },
 
@@ -31,6 +31,7 @@ export const authApiService = {
     firstName: string;
     lastName: string;
     role?: string;
+    jobTitle?: string;
     fixedSalary?: number;
   }): Promise<PublicUser> {
     const res = await api.post<{ success: true; data: PublicUser }>('/auth/invite', data);

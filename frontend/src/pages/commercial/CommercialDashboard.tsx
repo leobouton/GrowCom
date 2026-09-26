@@ -15,6 +15,10 @@ import {
   isObjectiveCurrent, isObjectiveFuture, getObjectiveDateRange,
   formatObjectivePeriod,
 } from '../../utils/objectives';
+import { computeNextMilestone } from '../../utils/milestones';
+import { NextMilestoneBanner } from '../../components/objectives/NextMilestoneBanner';
+import { deriveCommissionWins, deriveObjectiveWins, type Win } from '../../utils/celebrations';
+import { CelebrationOverlay } from '../../components/celebrations/CelebrationOverlay';
 import { fr } from 'date-fns/locale';
 
 // ─── Modal de contestation ────────────────────────────────────────────────────
@@ -516,6 +520,18 @@ export function CommercialDashboard() {
     .filter((b) => b.amount > 0);
   const totalConfirmedBonuses = confirmedBonuses.reduce((sum, b) => sum + b.amount, 0);
 
+  // Étape 1 — jalon le plus proche à débloquer (parmi les objectifs en cours).
+  const currentObjectives = visibleObjectives.filter((o) => isObjectiveCurrent(o));
+  const nextMilestone = computeNextMilestone(currentObjectives, progressById);
+
+  // Étape 2 — victoires à célébrer (commissions validées/payées, objectifs atteints).
+  const wins: Win[] = user
+    ? [
+        ...deriveCommissionWins(allCommissions),
+        ...deriveObjectiveWins(currentObjectives, progressById, formatObjectivePeriod),
+      ]
+    : [];
+
   return (
     <div className="space-y-6">
       {/* En-tête */}
@@ -524,15 +540,18 @@ export function CommercialDashboard() {
           <h1 className="text-2xl font-bold text-gray-900">Tableau de bord</h1>
           <p className="text-gray-500 mt-1">Vos revenus, objectifs et concours en temps réel</p>
         </div>
-        <button
-          onClick={() => void load()}
-          className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors mt-1"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Actualiser
-        </button>
+        <div className="flex items-center gap-4 mt-1">
+          {user && <CelebrationOverlay userId={user.id} wins={wins} />}
+          <button
+            onClick={() => void load()}
+            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Actualiser
+          </button>
+        </div>
       </div>
 
       {/* ====== Section Mes revenus ====== */}
@@ -572,6 +591,9 @@ export function CommercialDashboard() {
           )}
         </div>
       </div>
+
+      {/* Étape 1 — Prochain palier à débloquer */}
+      <NextMilestoneBanner milestone={nextMilestone} />
 
       {/* Stats secondaires */}
       <div className={`grid grid-cols-1 gap-5 ${totalConfirmedBonuses > 0 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
@@ -656,7 +678,7 @@ export function CommercialDashboard() {
             Versé chaque mois tant que la mission est active dans le CRM. Le CA facturé compte dans vos objectifs de CA.
           </p>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="responsive-table w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Mission</th>
@@ -671,23 +693,23 @@ export function CommercialDashboard() {
               <tbody>
                 {recurring.missions.map((m) => (
                   <tr key={m.missionId} className="border-b border-gray-50 last:border-0">
-                    <td className="py-3 px-2">
+                    <td data-label="Mission" className="py-3 px-2">
                       <TruncatedText text={m.dealTitle} className="font-medium text-gray-900 max-w-[200px]" />
                     </td>
-                    <td className="py-3 px-2">
+                    <td data-label="Client" className="py-3 px-2">
                       {m.clientName
                         ? <TruncatedText text={m.clientName} className="text-gray-700 text-sm max-w-[150px]" />
                         : <span className="text-gray-300 text-xs">—</span>}
                     </td>
-                    <td className="py-3 px-2 text-right text-gray-600">{m.consultantCount}</td>
-                    <td className="py-3 px-2 text-right text-gray-700">{formatEur(m.monthlyAmount)}</td>
-                    <td className="py-3 px-2 text-right font-semibold text-indigo-700">{formatEur(m.monthlyCommission)}</td>
-                    <td className="py-3 px-2 text-gray-500 text-xs">
+                    <td data-label="Consultants" className="py-3 px-2 text-right text-gray-600">{m.consultantCount}</td>
+                    <td data-label="CA / mois" className="py-3 px-2 text-right text-gray-700">{formatEur(m.monthlyAmount)}</td>
+                    <td data-label="Commission / mois" className="py-3 px-2 text-right font-semibold text-indigo-700">{formatEur(m.monthlyCommission)}</td>
+                    <td data-label="Durée restante" className="py-3 px-2 text-gray-500 text-xs">
                       {m.monthsRemaining === null
                         ? 'En cours (sans terme)'
                         : `${m.monthsRemaining} mois`}
                     </td>
-                    <td className="py-3 px-2 text-right text-gray-600">
+                    <td data-label="Projeté restant" className="py-3 px-2 text-right text-gray-600">
                       {m.projectedRemaining !== null ? formatEur(m.projectedRemaining) : '—'}
                     </td>
                   </tr>
@@ -711,7 +733,7 @@ export function CommercialDashboard() {
             Ces commissions seront automatiquement validées et apparaîtront dans vos gains le mois du versement prévu.
           </p>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="responsive-table w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
@@ -722,16 +744,16 @@ export function CommercialDashboard() {
               <tbody>
                 {data!.deferredCommissions.map((commission) => (
                   <tr key={commission.id} className="border-b border-gray-50 last:border-0">
-                    <td className="py-3 px-2">
+                    <td data-label="Deal" className="py-3 px-2">
                       <TruncatedText text={commission.deal.title} className="font-medium text-gray-900 max-w-[220px]" />
                       {commission.deal.clientName && (
                         <p className="text-xs text-gray-400">{commission.deal.clientName}</p>
                       )}
                     </td>
-                    <td className="py-3 px-2 text-right font-semibold text-gray-900">
+                    <td data-label="Commission" className="py-3 px-2 text-right font-semibold text-gray-900">
                       {formatEur(commission.amount)}
                     </td>
-                    <td className="py-3 px-2">
+                    <td data-label="Paiement prévu" className="py-3 px-2">
                       <span className="inline-flex items-center gap-1.5 text-orange-700 font-medium">
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -894,12 +916,12 @@ export function CommercialDashboard() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="responsive-table w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-100">
                         <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
                         <th className="text-left py-3 px-2 font-medium text-gray-500">Client</th>
-                        <th className="text-right py-3 px-2 font-medium text-gray-500">Montant vente</th>
+                        <th className="text-right py-3 px-2 font-medium text-gray-500">Honoraires</th>
                         <th className="text-right py-3 px-2 font-medium text-gray-500">Commission</th>
                         <th className="text-left py-3 px-2 font-medium text-gray-500">Détail</th>
                         <th className="text-left py-3 px-2 font-medium text-gray-500">Statut</th>
@@ -911,7 +933,7 @@ export function CommercialDashboard() {
                       {/* Rémunération récurrente du mois — une seule ligne récap */}
                       {monthRecurring.length > 0 && (
                         <tr className="border-b border-gray-50 last:border-0 bg-indigo-50/30">
-                          <td className="py-3 px-2" colSpan={2}>
+                          <td data-label="" className="py-3 px-2" colSpan={2}>
                             <div className="flex items-center gap-2">
                               <span className="text-sm">🔁</span>
                               <p className="font-medium text-gray-900">
@@ -920,46 +942,46 @@ export function CommercialDashboard() {
                             </div>
                             <p className="text-xs text-gray-400 mt-0.5 ml-6">Détail dans « Revenus récurrents » ci-dessus</p>
                           </td>
-                          <td className="py-3 px-2 text-right text-gray-600">
+                          <td data-label="Honoraires" className="py-3 px-2 text-right text-gray-600">
                             {isCurrentMonth && recurring
                               ? formatEur(recurring.missions.reduce((s, m) => s + m.monthlyAmount, 0))
                               : <span className="text-gray-400 text-xs">—</span>}
                           </td>
-                          <td className="py-3 px-2 text-right font-semibold text-indigo-700">
+                          <td data-label="Commission" className="py-3 px-2 text-right font-semibold text-indigo-700">
                             +{formatEur(monthRecurringTotal)}
                           </td>
-                          <td className="py-3 px-2 text-gray-500 text-xs">Commission mensuelle de mission</td>
-                          <td className="py-3 px-2">
+                          <td data-label="Détail" className="py-3 px-2 text-gray-500 text-xs">Commission mensuelle de mission</td>
+                          <td data-label="Statut" className="py-3 px-2">
                             <Badge variant="green">Validée</Badge>
                           </td>
-                          <td className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap capitalize">
+                          <td data-label="Date" className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap capitalize">
                             {format(new Date(selectedYear, selectedMonth, 1), 'MMMM yyyy', { locale: fr })}
                           </td>
-                          <td className="py-3 px-2" />
+                          <td data-label="" className="py-3 px-2" />
                         </tr>
                       )}
 
                       {/* Primes d'objectifs du mois */}
                       {monthBonuses.map((adj) => (
                         <tr key={`adj-${adj.id}`} className="border-b border-gray-50 last:border-0 bg-emerald-50/30">
-                          <td className="py-3 px-2" colSpan={2}>
+                          <td data-label="" className="py-3 px-2" colSpan={2}>
                             <div className="flex items-center gap-2">
                               <span className="text-sm">🎯</span>
                               <TruncatedText text={adj.reason} className="font-medium text-gray-900 max-w-[300px]" />
                             </div>
                           </td>
-                          <td className="py-3 px-2 text-right text-gray-400 text-xs">—</td>
-                          <td className="py-3 px-2 text-right font-semibold text-emerald-700">
+                          <td data-label="Honoraires" className="py-3 px-2 text-right text-gray-400 text-xs">—</td>
+                          <td data-label="Commission" className="py-3 px-2 text-right font-semibold text-emerald-700">
                             +{formatEur(adj.amount)}
                           </td>
-                          <td className="py-3 px-2 text-gray-500 text-xs">Prime d'objectif</td>
-                          <td className="py-3 px-2">
+                          <td data-label="Détail" className="py-3 px-2 text-gray-500 text-xs">Prime d'objectif</td>
+                          <td data-label="Statut" className="py-3 px-2">
                             <Badge variant="green">Validée</Badge>
                           </td>
-                          <td className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap">
+                          <td data-label="Date" className="py-3 px-2 text-gray-400 text-xs whitespace-nowrap">
                             {format(new Date(adj.paidAt ?? adj.createdAt), 'dd MMM yyyy', { locale: fr })}
                           </td>
-                          <td className="py-3 px-2" />
+                          <td data-label="" className="py-3 px-2" />
                         </tr>
                       ))}
 
@@ -972,7 +994,7 @@ export function CommercialDashboard() {
                         const isRejected = commission.dispute?.status === 'RESOLVED_REJECTED';
                         return (
                         <tr key={commission.id} className={`border-b border-gray-50 last:border-0 ${isCancelled ? 'opacity-60' : ''}`}>
-                          <td className="py-3 px-2">
+                          <td data-label="Deal" className="py-3 px-2">
                             <TruncatedText text={commission.deal.title} className="font-medium text-gray-900 max-w-[180px]" />
                             {hasResolvedDispute && commission.dispute?.managerResponse && (
                               <div className={`mt-1.5 rounded-lg px-2.5 py-1.5 text-xs border ${
@@ -990,19 +1012,19 @@ export function CommercialDashboard() {
                               </div>
                             )}
                           </td>
-                          <td className="py-3 px-2">
+                          <td data-label="Client" className="py-3 px-2">
                             {commission.deal.clientName
                               ? <TruncatedText text={commission.deal.clientName} className="text-gray-700 text-sm max-w-[150px]" />
                               : <span className="text-gray-300 text-xs">—</span>}
                           </td>
-                          <td className="py-3 px-2 text-right text-gray-600">{formatEur(commission.deal.amount)}</td>
-                          <td className={`py-3 px-2 text-right font-semibold ${isCancelled ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                          <td data-label="Honoraires" className="py-3 px-2 text-right text-gray-600">{formatEur(commission.deal.amount)}</td>
+                          <td data-label="Commission" className={`py-3 px-2 text-right font-semibold ${isCancelled ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                             {formatEur(commission.amount)}
                           </td>
-                          <td className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
+                          <td data-label="Détail" className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
                             {commission.calculationDetail ?? commission.rule.name}
                           </td>
-                          <td className="py-3 px-2">
+                          <td data-label="Statut" className="py-3 px-2">
                             {isCancelled
                               ? <Badge variant="red">Annulée</Badge>
                               : commission.awaitingClientPayment
@@ -1030,7 +1052,7 @@ export function CommercialDashboard() {
                               </div>
                             )}
                           </td>
-                          <td className="py-3 px-2 text-xs whitespace-nowrap">
+                          <td data-label="Date" className="py-3 px-2 text-xs whitespace-nowrap">
                             <p className="text-gray-400">
                               <span className="text-gray-500 font-medium">Signé </span>
                               {format(
@@ -1050,7 +1072,7 @@ export function CommercialDashboard() {
                               </p>
                             )}
                           </td>
-                          <td className="py-3 px-2 text-right">
+                          <td data-label="" className="py-3 px-2 text-right">
                             {!isCancelled && !hasOpenDispute && !hasResolvedDispute && (
                               <Button
                                 size="sm"
@@ -1069,24 +1091,24 @@ export function CommercialDashboard() {
                       {/* Ventes sans règle de commission */}
                       {monthDealsWithoutCommission.map((deal) => (
                         <tr key={`deal-${deal.id}`} className="border-b border-gray-50 last:border-0">
-                          <td className="py-3 px-2">
+                          <td data-label="Deal" className="py-3 px-2">
                             <TruncatedText text={deal.title} className="font-medium text-gray-900 max-w-[180px]" />
                             {deal.userShare < 1 && (
                               <p className="text-xs text-gray-400">Part : {(deal.userShare * 100).toFixed(0)}%</p>
                             )}
                           </td>
-                          <td className="py-3 px-2">
+                          <td data-label="Client" className="py-3 px-2">
                             {deal.clientName
                               ? <TruncatedText text={deal.clientName} className="text-gray-700 text-sm max-w-[150px]" />
                               : <span className="text-gray-300 text-xs">—</span>}
                           </td>
-                          <td className="py-3 px-2 text-right text-gray-600">{formatEur(deal.amount * deal.userShare)}</td>
-                          <td className="py-3 px-2 text-right font-semibold text-gray-300">{formatEur(0)}</td>
-                          <td className="py-3 px-2 text-gray-400 text-xs italic">Pas de règle de commission</td>
-                          <td className="py-3 px-2">
+                          <td data-label="Honoraires" className="py-3 px-2 text-right text-gray-600">{formatEur(deal.amount * deal.userShare)}</td>
+                          <td data-label="Commission" className="py-3 px-2 text-right font-semibold text-gray-300">{formatEur(0)}</td>
+                          <td data-label="Détail" className="py-3 px-2 text-gray-400 text-xs italic">Pas de règle de commission</td>
+                          <td data-label="Statut" className="py-3 px-2">
                             <Badge variant="gray">Vente enregistrée</Badge>
                           </td>
-                          <td className="py-3 px-2 text-xs whitespace-nowrap">
+                          <td data-label="Date" className="py-3 px-2 text-xs whitespace-nowrap">
                             <p className="text-gray-400">
                               <span className="text-gray-500 font-medium">Signé </span>
                               {deal.closedAt
@@ -1094,7 +1116,7 @@ export function CommercialDashboard() {
                                 : '—'}
                             </p>
                           </td>
-                          <td className="py-3 px-2" />
+                          <td data-label="" className="py-3 px-2" />
                         </tr>
                       ))}
                     </tbody>

@@ -39,7 +39,6 @@ function RootRedirect() {
     case UserRole.BU_MANAGER:
       return <Navigate to="/manager" replace />;
     case UserRole.COMMERCIAL:
-    case UserRole.RECRUITER:
       return <Navigate to="/dashboard" replace />;
     default:
       return <Navigate to="/login" replace />;
@@ -95,7 +94,7 @@ export function App() {
         <Route
           path="/dashboard"
           element={
-            <ProtectedRoute allowedRoles={[UserRole.COMMERCIAL, UserRole.RECRUITER, UserRole.TEAM_LEAD]}>
+            <ProtectedRoute allowedRoles={[UserRole.COMMERCIAL, UserRole.TEAM_LEAD]}>
               <AppLayout />
             </ProtectedRoute>
           }

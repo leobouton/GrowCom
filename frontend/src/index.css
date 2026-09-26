@@ -18,6 +18,79 @@
   }
 }
 
+@layer components {
+  /*
+   * Tableau responsive : sur écran large, rendu tableau classique.
+   * Sous 768px (< md), chaque ligne se transforme en « carte » empilée.
+   * Chaque cellule affiche son libellé (attribut data-label) puis sa valeur :
+   * une valeur courte se place à côté du libellé, un contenu riche (plusieurs
+   * blocs, grille de détail...) s'empile naturellement dessous. Une cellule
+   * sans libellé (data-label="" : colonne Actions, ligne de détail, état vide)
+   * occupe toute la largeur.
+   *
+   * Disposition en bloc (et non flex) volontaire : elle gère sans casse les
+   * cellules à plusieurs enfants et les cellules pleine largeur.
+   * Pas de fond blanc forcé sur la ligne, pour laisser vivre les fonds
+   * sémantiques Tailwind (ligne doublon, récap, total...) posés sur le <tr>.
+   */
+  @media (max-width: 767.98px) {
+    .responsive-table,
+    .responsive-table tbody,
+    .responsive-table tfoot,
+    .responsive-table tr,
+    .responsive-table td {
+      display: block;
+      width: 100%;
+    }
+
+    .responsive-table thead {
+      display: none;
+    }
+
+    .responsive-table tr {
+      margin-bottom: 0.75rem;
+      padding: 0.875rem 1rem;
+      border: 1px solid theme('colors.gray.200') !important;
+      border-radius: 0.75rem;
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+    }
+
+    .responsive-table td {
+      max-width: none !important;
+      padding: 0.375rem 0 !important;
+      text-align: left !important;
+      border: 0 !important;
+      border-top: 1px solid theme('colors.gray.100') !important;
+    }
+
+    .responsive-table tr td:first-child {
+      padding-top: 0 !important;
+      border-top: 0 !important;
+    }
+
+    .responsive-table td::before {
+      content: attr(data-label);
+      display: inline-block;
+      min-width: 7rem;
+      margin-right: 0.5rem;
+      font-weight: 500;
+      vertical-align: top;
+      color: theme('colors.gray.500');
+    }
+
+    /* Cellule sans libellé : contenu pleine largeur, pas de libellé fantôme */
+    .responsive-table td[data-label='']::before,
+    .responsive-table td:not([data-label])::before {
+      display: none;
+    }
+
+    /* Empêche un contenu large (TruncatedText, grille) de déborder la carte */
+    .responsive-table td > * {
+      max-width: 100%;
+    }
+  }
+}
+
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;

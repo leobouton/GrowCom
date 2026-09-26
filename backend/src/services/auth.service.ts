@@ -131,6 +131,7 @@ export const authService = {
         firstName: result.user.firstName,
         lastName: result.user.lastName,
         role: result.user.role,
+        jobTitle: result.user.jobTitle,
         tenantId: result.user.tenantId,
         isActive: result.user.isActive,
         emailVerified: result.user.emailVerified,
@@ -173,6 +174,7 @@ export const authService = {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        jobTitle: user.jobTitle,
         tenantId: user.tenantId,
         isActive: user.isActive,
         emailVerified: user.emailVerified,
@@ -224,16 +226,17 @@ export const authService = {
     lastName: string,
     role: UserRole = UserRole.COMMERCIAL,
     fixedSalary: number = 0,
+    jobTitle: string | null = null,
   ) {
     // Vérification hiérarchique : empêcher l'escalade de privilège via l'invitation
     const inviter = await userRepository.findById(managerId);
     if (!inviter) throw new AppError(403, 'FORBIDDEN', 'Invitant introuvable');
 
     const allowedRolesByInviter: Record<string, UserRole[]> = {
-      [UserRole.TEAM_LEAD]: [UserRole.COMMERCIAL, UserRole.RECRUITER],
-      [UserRole.BU_MANAGER]: [UserRole.COMMERCIAL, UserRole.RECRUITER, UserRole.TEAM_LEAD],
-      [UserRole.MANAGER]: [UserRole.COMMERCIAL, UserRole.RECRUITER, UserRole.TEAM_LEAD, UserRole.BU_MANAGER],
-      [UserRole.SUPER_ADMIN]: [UserRole.COMMERCIAL, UserRole.RECRUITER, UserRole.TEAM_LEAD, UserRole.BU_MANAGER, UserRole.MANAGER],
+      [UserRole.TEAM_LEAD]: [UserRole.COMMERCIAL],
+      [UserRole.BU_MANAGER]: [UserRole.COMMERCIAL, UserRole.TEAM_LEAD],
+      [UserRole.MANAGER]: [UserRole.COMMERCIAL, UserRole.TEAM_LEAD, UserRole.BU_MANAGER],
+      [UserRole.SUPER_ADMIN]: [UserRole.COMMERCIAL, UserRole.TEAM_LEAD, UserRole.BU_MANAGER, UserRole.MANAGER],
     };
 
     const allowed = allowedRolesByInviter[inviter.role] ?? [];
@@ -287,6 +290,7 @@ export const authService = {
       firstName,
       lastName,
       role,
+      jobTitle: jobTitle && jobTitle.trim() ? jobTitle.trim() : null,
       fixedSalary,
       tenantId: managerTenantId,
       inviteToken,
@@ -374,6 +378,14 @@ export const authService = {
       where: { id: user.id },
       data: { emailVerified: true, inviteToken: null, inviteTokenExpiry: null },
     });
+
+    // Email de bienvenue en arrière-plan (ne doit pas bloquer l'activation)
+    const tenant = await tenantRepository.findById(user.tenantId);
+    emailService
+      .sendCompanyWelcome(user.email, user.firstName, tenant?.name ?? 'votre entreprise')
+      .catch(() => {
+        // Log géré dans emailService
+      });
   },
 
   async acceptInvitation(token: string, password: string) {
@@ -419,6 +431,7 @@ export const authService = {
         firstName: updatedUser.firstName,
         lastName: updatedUser.lastName,
         role: updatedUser.role,
+        jobTitle: updatedUser.jobTitle,
         tenantId: updatedUser.tenantId,
         isActive: updatedUser.isActive,
         emailVerified: updatedUser.emailVerified,

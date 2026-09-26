@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { authService } from '../services/auth.service';
 import { userRepository } from '../repositories/user.repository';
+import { prisma } from '../config/prisma';
 import { AuthenticatedRequest } from '../middlewares/auth';
 import { env } from '../config/env';
 import { UserRole } from '../../../shared/types';
@@ -36,7 +37,8 @@ const inviteSchema = z.object({
   email: z.string().email('Email invalide'),
   firstName: z.string().min(1, 'Prénom requis').max(50),
   lastName: z.string().min(1, 'Nom requis').max(50),
-  role: z.enum([UserRole.COMMERCIAL, UserRole.RECRUITER, UserRole.TEAM_LEAD, UserRole.BU_MANAGER]).default(UserRole.COMMERCIAL),
+  role: z.enum([UserRole.COMMERCIAL, UserRole.TEAM_LEAD, UserRole.BU_MANAGER]).default(UserRole.COMMERCIAL),
+  jobTitle: z.string().max(60).trim().optional(),
   fixedSalary: z.number().min(0).default(0),
 });
 
@@ -139,6 +141,7 @@ export const authController = {
         data.lastName,
         data.role,
         data.fixedSalary,
+        data.jobTitle ?? null,
       );
 
       res.status(201).json({
@@ -149,6 +152,7 @@ export const authController = {
           firstName: invited.firstName,
           lastName: invited.lastName,
           role: invited.role,
+          jobTitle: invited.jobTitle,
         },
       });
     } catch (err) {
@@ -214,6 +218,10 @@ export const authController = {
         res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Utilisateur introuvable' } });
         return;
       }
+      // Fonction par défaut du tenant (pré-remplissage du formulaire d'invitation)
+      const tenant = user.tenantId
+        ? await prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { defaultJobTitle: true } })
+        : null;
       res.json({
         success: true,
         data: {
@@ -222,7 +230,9 @@ export const authController = {
           firstName: user.firstName,
           lastName: user.lastName,
           role: user.role,
+          jobTitle: user.jobTitle,
           tenantId: user.tenantId,
+          tenantDefaultJobTitle: tenant?.defaultJobTitle ?? null,
           fixedSalary: user.fixedSalary,
           objectives: Array.isArray((user as Record<string, unknown>).objectives)
             ? (user as Record<string, unknown>).objectives

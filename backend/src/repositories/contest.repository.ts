@@ -159,7 +159,6 @@ export const contestRepository = {
               role: {
                 in: [
                   PrismaUserRole.COMMERCIAL,
-                  PrismaUserRole.RECRUITER,
                   PrismaUserRole.TEAM_LEAD,
                   PrismaUserRole.BU_MANAGER,
                 ],

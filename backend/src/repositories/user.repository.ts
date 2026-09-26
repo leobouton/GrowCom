@@ -7,6 +7,7 @@ export interface CreateUserData {
   firstName: string;
   lastName: string;
   role: UserRole;
+  jobTitle?: string | null;
   tenantId?: string;
   groupId?: string;
   fixedSalary?: number;
@@ -42,7 +43,7 @@ export const userRepository = {
     return prisma.user.create({ data });
   },
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   async update(id: string, data: Partial<User> | Record<string, unknown>): Promise<User> {
     return prisma.user.update({ where: { id }, data: data as any });
   },

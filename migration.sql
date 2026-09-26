@@ -1092,3 +1092,59 @@ CREATE UNIQUE INDEX IF NOT EXISTS "Commission_dealId_userId_ruleId_missionId_per
 CREATE UNIQUE INDEX IF NOT EXISTS "Commission_deal_oneshot_key"
     ON "Commission" ("dealId", "userId", "ruleId", "periodMonth")
     WHERE "missionId" IS NULL;
+
+
+-- ============================================================
+-- FONCTION LIBRE + SUPPRESSION DU RÔLE RECRUITER (2026-09-19)
+-- ============================================================
+-- Objectif : un SEUL rôle "membre commissionné" (COMMERCIAL) + une fonction
+-- métier LIBRE saisie par le manager. RECRUITER disparaît, fusionné dans
+-- COMMERCIAL. Aucune perte de données. Idempotent.
+--
+-- Ordre IMPORTANT :
+--   1) ajouter les colonnes jobTitle / defaultJobTitle
+--   2) BACKFILL jobTitle AVANT de retirer RECRUITER (on a encore besoin de
+--      distinguer les ex-recruteurs)
+--   3) migrer les données RECRUITER -> COMMERCIAL puis recréer l'enum sans
+--      RECRUITER (Postgres ne sait pas retirer une valeur d'enum en place)
+
+-- 1) Nouvelles colonnes
+ALTER TABLE "User"   ADD COLUMN IF NOT EXISTS "jobTitle"        TEXT;
+ALTER TABLE "Tenant" ADD COLUMN IF NOT EXISTS "defaultJobTitle" TEXT;
+
+-- 2) Backfill de la fonction des membres existants (uniquement si vide) :
+--    priorité au defaultJobTitle du tenant s'il est défini, sinon libellé
+--    dérivé de l'ancien rôle métier.
+UPDATE "User" u
+SET "jobTitle" = COALESCE(
+      NULLIF(t."defaultJobTitle", ''),
+      CASE
+        WHEN u.role = 'RECRUITER'  THEN 'Recruteur'
+        WHEN u.role = 'COMMERCIAL' THEN 'Commercial'
+      END
+    )
+FROM "Tenant" t
+WHERE u."tenantId" = t.id
+  AND u."jobTitle" IS NULL
+  AND u.role IN ('RECRUITER', 'COMMERCIAL');
+
+-- 3) Migration des données + recréation de l'enum, seulement si RECRUITER
+--    existe encore (rend le bloc rejouable sans erreur).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_enum e
+    JOIN pg_type t ON t.oid = e.enumtypid
+    WHERE t.typname = 'UserRole' AND e.enumlabel = 'RECRUITER'
+  ) THEN
+    -- Les ex-recruteurs deviennent des commerciaux (permission fusionnée)
+    UPDATE "User" SET role = 'COMMERCIAL' WHERE role = 'RECRUITER';
+
+    -- Recréer l'enum sans RECRUITER
+    ALTER TYPE "UserRole" RENAME TO "UserRole_old";
+    CREATE TYPE "UserRole" AS ENUM ('SUPER_ADMIN', 'MANAGER', 'TEAM_LEAD', 'BU_MANAGER', 'COMMERCIAL');
+    ALTER TABLE "User" ALTER COLUMN role TYPE "UserRole" USING role::text::"UserRole";
+    DROP TYPE "UserRole_old";
+  END IF;
+END $$;

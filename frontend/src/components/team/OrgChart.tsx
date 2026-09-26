@@ -36,11 +36,14 @@ const COLORS = [
   '#10b981', '#3b82f6', '#ef4444', '#14b8a6',
 ];
 
-// ─── Libellé de rôle ────────────────────────────────────────
-function roleLabel(role: UserRole): string | null {
-  if (role === UserRole.MANAGER)   return 'Manager';
-  if (role === UserRole.TEAM_LEAD || role === UserRole.BU_MANAGER) return 'Resp. de secteur';
-  if (role === UserRole.RECRUITER) return 'Recruteur';
+// ─── Libellé de fonction ────────────────────────────────────
+// Priorité à la fonction libre (jobTitle) saisie par le manager ; sinon repli
+// sur le niveau de permission. Un membre commercial sans fonction n'affiche
+// aucun sous-libellé (comportement historique).
+function roleLabel(member: { role: UserRole; jobTitle?: string | null }): string | null {
+  if (member.jobTitle?.trim()) return member.jobTitle.trim();
+  if (member.role === UserRole.MANAGER) return 'Manager';
+  if (member.role === UserRole.TEAM_LEAD || member.role === UserRole.BU_MANAGER) return 'Resp. de secteur';
   return null;
 }
 
@@ -52,7 +55,7 @@ function MemberCard({ member, isDragging = false, onMemberClick }: {
 }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: member.id });
   const style = transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined;
-  const label = roleLabel(member.role);
+  const label = roleLabel(member);
   const isManager = member.role === UserRole.MANAGER;
 
   return (
@@ -89,7 +92,7 @@ function TeamLeadBadgeCard({ member, isDragging = false, onMemberClick }: {
 }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: member.id });
   const style = transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined;
-  const label = roleLabel(member.role) ?? 'Responsable';
+  const label = roleLabel(member) ?? 'Responsable';
   return (
     <div
       ref={setNodeRef}
@@ -122,7 +125,7 @@ function LeadCard({ lead, onRemove, onMemberClick }: {
   onRemove: () => void;
   onMemberClick?: (member: PublicUser) => void;
 }) {
-  const label = roleLabel(lead.role) ?? 'Resp. de secteur';
+  const label = roleLabel(lead) ?? 'Resp. de secteur';
   return (
     <div
       onClick={() => onMemberClick?.(lead)}
@@ -152,7 +155,7 @@ function LeadCard({ lead, onRemove, onMemberClick }: {
 // ─── Aperçu fantôme pendant le drag ─────────────────────────
 function DragPreview({ member }: { member: PublicUser }) {
   const isLead = member.role === UserRole.TEAM_LEAD || member.role === UserRole.BU_MANAGER || member.role === UserRole.MANAGER;
-  const label = roleLabel(member.role);
+  const label = roleLabel(member);
   return (
     <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-primary-400 shadow-xl cursor-grabbing select-none opacity-95 ${isLead ? 'bg-purple-50' : 'bg-white'}`}>
       <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${isLead ? 'bg-purple-100' : 'bg-blue-100'}`}>
@@ -193,6 +196,10 @@ function GroupColumn({
   const [nameValue, setNameValue] = useState(group.name);
   const [showLeadSelect, setShowLeadSelect] = useState(false);
 
+  // Un responsable ne doit jamais apparaître aussi dans la liste des conseillers
+  // de son propre groupe (il est déjà affiché dans le slot « Responsable »).
+  const memberList = group.members.filter((m) => m.id !== group.leadId);
+
   const handleRename = () => {
     if (nameValue.trim() && nameValue !== group.name) onRename(group.id, nameValue.trim());
     setEditing(false);
@@ -229,7 +236,7 @@ function GroupColumn({
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          <span className="text-xs text-gray-400 font-medium">{group.members.length}</span>
+          <span className="text-xs text-gray-400 font-medium">{memberList.length}</span>
           <button
             onClick={() => onDelete(group.id)}
             className="ml-1 text-gray-300 hover:text-red-400 transition-colors"
@@ -284,10 +291,10 @@ function GroupColumn({
 
       {/* Membres commerciaux */}
       <div className="flex flex-col gap-1.5 p-2 min-h-[60px]">
-        {group.members.map((m) => (
+        {memberList.map((m) => (
           <MemberCard key={m.id} member={m} isDragging={activeMemberId === m.id} onMemberClick={onMemberClick} />
         ))}
-        {group.members.length === 0 && (
+        {memberList.length === 0 && (
           <p className="text-xs text-gray-400 text-center py-3 italic">Déposez ici</p>
         )}
       </div>

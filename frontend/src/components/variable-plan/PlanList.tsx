@@ -84,7 +84,7 @@ export function PlanList() {
       ]);
       setPlans(planList);
       setMembers(teamRes.data.data.filter((m) =>
-        m.role === 'COMMERCIAL' || m.role === 'RECRUITER' || m.role === 'TEAM_LEAD',
+        m.role === 'COMMERCIAL' || m.role === 'TEAM_LEAD',
       ));
     } catch (err: unknown) {
       setError(getApiErrorMessage(err));

@@ -511,7 +511,8 @@ export const hubspotService = {
             });
           }
 
-          existingDeal ? updated++ : created++;
+          if (existingDeal) updated++;
+          else created++;
           synced++;
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Erreur inconnue';

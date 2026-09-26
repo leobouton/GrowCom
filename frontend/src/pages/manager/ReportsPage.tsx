@@ -17,13 +17,18 @@ const MONTHS = [
   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
 ];
 
+// Repli quand le membre n'a pas de fonction libre (jobTitle) saisie.
 const ROLE_LABELS: Record<string, string> = {
-  COMMERCIAL: 'Commercial',
-  RECRUITER: 'Recruteur',
+  COMMERCIAL: 'Membre',
   TEAM_LEAD: 'Resp. secteur',
   BU_MANAGER: 'Dir. régional',
   MANAGER: 'Manager',
 };
+
+/** Fonction affichée : jobTitle libre en priorité, sinon repli sur le rôle. */
+function memberFunction(member: { role: string; jobTitle?: string | null }): string {
+  return member.jobTitle?.trim() || ROLE_LABELS[member.role] || 'Membre';
+}
 
 interface Group {
   id: string;
@@ -237,7 +242,7 @@ export function ReportsPage() {
       m.firstName.toLowerCase().includes(q) ||
       m.lastName.toLowerCase().includes(q) ||
       m.email.toLowerCase().includes(q) ||
-      (ROLE_LABELS[m.role] ?? m.role).toLowerCase().includes(q)
+      memberFunction(m).toLowerCase().includes(q)
     );
   });
 
@@ -683,7 +688,7 @@ export function ReportsPage() {
                 )}
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="responsive-table w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-200 bg-gray-50/80">
                       <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wider">Collaborateur</th>
@@ -713,15 +718,15 @@ export function ReportsPage() {
                   {visibleItems.length > 1 && (
                     <tfoot>
                       <tr className="border-t-2 border-gray-200 bg-gray-50/80 font-semibold">
-                        <td className="py-3.5 px-4 text-gray-700 text-xs uppercase tracking-wider">
+                        <td data-label="" className="py-3.5 px-4 text-gray-700 text-xs uppercase tracking-wider">
                           Total ({visibleItems.length})
                         </td>
-                        <td className="py-3.5 px-4 text-right text-gray-700 tabular-nums">{formatEur(totalFixed)}</td>
-                        <td className="py-3.5 px-4 text-right text-green-700 tabular-nums">{formatEur(totalCommissions)}</td>
-                        <td className="py-3.5 px-4 text-right text-blue-700 tabular-nums">{formatEur(totalBonus)}</td>
-                        <td className="py-3.5 px-4 text-right tabular-nums">{formatEur(totalAdj)}</td>
-                        <td className="py-3.5 px-4 text-right text-primary-700 tabular-nums">{formatEur(preview.variableGrandTotal)}</td>
-                        <td className="py-3.5 px-4 text-right text-gray-900 tabular-nums">{formatEur(preview.grandTotal)}</td>
+                        <td data-label="Fixe" className="py-3.5 px-4 text-right text-gray-700 tabular-nums">{formatEur(totalFixed)}</td>
+                        <td data-label="Commissions" className="py-3.5 px-4 text-right text-green-700 tabular-nums">{formatEur(totalCommissions)}</td>
+                        <td data-label="Primes" className="py-3.5 px-4 text-right text-blue-700 tabular-nums">{formatEur(totalBonus)}</td>
+                        <td data-label="Ajustements" className="py-3.5 px-4 text-right tabular-nums">{formatEur(totalAdj)}</td>
+                        <td data-label="Variable (paie)" className="py-3.5 px-4 text-right text-primary-700 tabular-nums">{formatEur(preview.variableGrandTotal)}</td>
+                        <td data-label="Total" className="py-3.5 px-4 text-right text-gray-900 tabular-nums">{formatEur(preview.grandTotal)}</td>
                       </tr>
                     </tfoot>
                   )}
@@ -769,7 +774,7 @@ function PayrollRow({
         className={`transition-colors ${hasDetail ? 'cursor-pointer hover:bg-gray-50/60' : ''} ${expanded ? 'bg-primary-50/40' : ''}`}
         onClick={hasDetail ? onToggle : undefined}
       >
-        <td className="py-3.5 px-4">
+        <td data-label="Collaborateur" className="py-3.5 px-4">
           <div className="flex items-center gap-2.5">
             {hasDetail ? (
               <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -787,18 +792,18 @@ function PayrollRow({
             </div>
           </div>
         </td>
-        <td className="py-3.5 px-4 text-right text-gray-700 tabular-nums font-medium">{formatEur(item.fixedSalaryTotal)}</td>
-        <td className="py-3.5 px-4 text-right tabular-nums">
+        <td data-label="Fixe" className="py-3.5 px-4 text-right text-gray-700 tabular-nums font-medium">{formatEur(item.fixedSalaryTotal)}</td>
+        <td data-label="Commissions" className="py-3.5 px-4 text-right tabular-nums">
           <span className={item.commissionsTotal > 0 ? 'text-green-700 font-medium' : 'text-gray-300'}>
             {item.commissionsTotal > 0 ? formatEur(item.commissionsTotal) : '—'}
           </span>
         </td>
-        <td className="py-3.5 px-4 text-right tabular-nums">
+        <td data-label="Primes" className="py-3.5 px-4 text-right tabular-nums">
           <span className={item.bonusTotal > 0 ? 'text-blue-700 font-medium' : 'text-gray-300'}>
             {item.bonusTotal > 0 ? formatEur(item.bonusTotal) : '—'}
           </span>
         </td>
-        <td className="py-3.5 px-4 text-right tabular-nums">
+        <td data-label="Ajustements" className="py-3.5 px-4 text-right tabular-nums">
           {item.adjustmentsTotal !== 0 ? (
             <span className={item.adjustmentsTotal < 0 ? 'text-red-600 font-medium' : 'text-blue-700 font-medium'}>
               {item.adjustmentsTotal > 0 ? '+' : ''}{formatEur(item.adjustmentsTotal)}
@@ -807,19 +812,19 @@ function PayrollRow({
             <span className="text-gray-300">—</span>
           )}
         </td>
-        <td className="py-3.5 px-4 text-right tabular-nums">
+        <td data-label="Variable (paie)" className="py-3.5 px-4 text-right tabular-nums">
           <span className={`font-semibold ${item.variableTotal < 0 ? 'text-red-600' : item.variableTotal > 0 ? 'text-primary-700' : 'text-gray-300'}`}>
             {item.variableTotal !== 0 ? formatEur(item.variableTotal) : '—'}
           </span>
         </td>
-        <td className="py-3.5 px-4 text-right">
+        <td data-label="Total" className="py-3.5 px-4 text-right">
           <span className="font-bold text-gray-900 tabular-nums">{formatEur(item.netTotal)}</span>
         </td>
       </tr>
 
       {expanded && hasDetail && (
         <tr className="bg-primary-50/20">
-          <td colSpan={7} className="px-4 py-4">
+          <td data-label="" colSpan={7} className="px-4 py-4">
             <DrillDown item={item} />
           </td>
         </tr>
@@ -837,7 +842,7 @@ function DrillDown({ item }: { item: PayrollReportPreviewItem }) {
             Commissions incluses ({item.commissions.length})
           </p>
           <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
-            <table className="w-full text-xs">
+            <table className="responsive-table w-full text-xs">
               <thead>
                 <tr className="bg-gray-50 text-gray-500">
                   <th className="text-left py-2 px-3 font-medium">Deal</th>
@@ -850,11 +855,11 @@ function DrillDown({ item }: { item: PayrollReportPreviewItem }) {
               <tbody className="divide-y divide-gray-100">
                 {item.commissions.map((c) => (
                   <tr key={c.commissionId}>
-                    <td className="py-2 px-3 text-gray-900 font-medium">{c.dealTitle}</td>
-                    <td className="py-2 px-3 text-gray-500">{c.clientName ?? '—'}</td>
-                    <td className="py-2 px-3 text-gray-500">{c.ruleName}</td>
-                    <td className="py-2 px-3 text-right text-gray-500 tabular-nums">{formatEur(c.dealAmount)}</td>
-                    <td className="py-2 px-3 text-right text-green-700 font-semibold tabular-nums">{formatEur(c.amount)}</td>
+                    <td data-label="Deal" className="py-2 px-3 text-gray-900 font-medium">{c.dealTitle}</td>
+                    <td data-label="Client" className="py-2 px-3 text-gray-500">{c.clientName ?? '—'}</td>
+                    <td data-label="Règle" className="py-2 px-3 text-gray-500">{c.ruleName}</td>
+                    <td data-label="Vente" className="py-2 px-3 text-right text-gray-500 tabular-nums">{formatEur(c.dealAmount)}</td>
+                    <td data-label="Commission" className="py-2 px-3 text-right text-green-700 font-semibold tabular-nums">{formatEur(c.amount)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -869,7 +874,7 @@ function DrillDown({ item }: { item: PayrollReportPreviewItem }) {
             Ajustements / Régularisations ({item.adjustments.length})
           </p>
           <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
-            <table className="w-full text-xs">
+            <table className="responsive-table w-full text-xs">
               <thead>
                 <tr className="bg-gray-50 text-gray-500">
                   <th className="text-left py-2 px-3 font-medium">Date</th>
@@ -880,9 +885,9 @@ function DrillDown({ item }: { item: PayrollReportPreviewItem }) {
               <tbody className="divide-y divide-gray-100">
                 {item.adjustments.map((a) => (
                   <tr key={a.adjustmentId}>
-                    <td className="py-2 px-3 text-gray-500 tabular-nums">{formatDate(a.createdAt)}</td>
-                    <td className="py-2 px-3 text-gray-900">{a.reason}</td>
-                    <td className={`py-2 px-3 text-right font-semibold tabular-nums ${a.amount < 0 ? 'text-red-600' : 'text-blue-700'}`}>
+                    <td data-label="Date" className="py-2 px-3 text-gray-500 tabular-nums">{formatDate(a.createdAt)}</td>
+                    <td data-label="Motif" className="py-2 px-3 text-gray-900">{a.reason}</td>
+                    <td data-label="Montant" className={`py-2 px-3 text-right font-semibold tabular-nums ${a.amount < 0 ? 'text-red-600' : 'text-blue-700'}`}>
                       {a.amount > 0 ? '+' : ''}{formatEur(a.amount)}
                     </td>
                   </tr>
@@ -926,7 +931,7 @@ function ExcludedSection({ excluded }: { excluded: PayrollExcludedCommission[] }
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="responsive-table w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50/60 text-gray-500 text-xs uppercase tracking-wider">
               <th className="text-left py-2.5 px-4 font-semibold">Commercial</th>
@@ -940,13 +945,13 @@ function ExcludedSection({ excluded }: { excluded: PayrollExcludedCommission[] }
               const style = EXCLUSION_STYLES[e.reason] ?? EXCLUSION_STYLES.PENDING;
               return (
                 <tr key={e.commissionId} className="hover:bg-gray-50/40">
-                  <td className="py-2.5 px-4 text-gray-700">{e.user.firstName} {e.user.lastName}</td>
-                  <td className="py-2.5 px-4">
+                  <td data-label="Commercial" className="py-2.5 px-4 text-gray-700">{e.user.firstName} {e.user.lastName}</td>
+                  <td data-label="Deal / Client" className="py-2.5 px-4">
                     <span className="text-gray-900">{e.dealTitle}</span>
                     {e.clientName && <span className="text-gray-400"> — {e.clientName}</span>}
                   </td>
-                  <td className="py-2.5 px-4 text-right text-gray-600 tabular-nums">{formatEur(e.amount)}</td>
-                  <td className="py-2.5 px-4">
+                  <td data-label="Montant" className="py-2.5 px-4 text-right text-gray-600 tabular-nums">{formatEur(e.amount)}</td>
+                  <td data-label="Raison" className="py-2.5 px-4">
                     <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}>
                       {e.reasonLabel}
                     </span>
@@ -1071,7 +1076,7 @@ function MemberCheckbox({
           )}
         </div>
         <TruncatedText
-          text={`${ROLE_LABELS[member.role] ?? member.role} — ${member.email}`}
+          text={`${memberFunction(member)} — ${member.email}`}
           className="text-xs text-gray-400"
         />
       </div>

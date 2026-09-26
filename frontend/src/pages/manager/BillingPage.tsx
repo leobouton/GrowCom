@@ -128,7 +128,7 @@ export function BillingPage() {
           <p className="text-sm text-gray-500 text-center py-6">Aucune facture pour l'instant.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="responsive-table w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Date</th>
@@ -140,16 +140,16 @@ export function BillingPage() {
               <tbody>
                 {info.invoices.map((inv) => (
                   <tr key={inv.id} className="border-b border-gray-50 last:border-0">
-                    <td className="py-3 px-2 text-gray-600">
+                    <td data-label="Date" className="py-3 px-2 text-gray-600">
                       {format(new Date(inv.date), 'dd MMMM yyyy', { locale: fr })}
                     </td>
-                    <td className="py-3 px-2 text-right font-semibold">{formatEur(inv.amount)}</td>
-                    <td className="py-3 px-2">
+                    <td data-label="Montant" className="py-3 px-2 text-right font-semibold">{formatEur(inv.amount)}</td>
+                    <td data-label="Statut" className="py-3 px-2">
                       <Badge variant={inv.status === 'paid' ? 'green' : 'yellow'}>
                         {inv.status === 'paid' ? 'Payée' : inv.status}
                       </Badge>
                     </td>
-                    <td className="py-3 px-2 text-right">
+                    <td data-label="PDF" className="py-3 px-2 text-right">
                       {inv.pdfUrl ? (
                         <a
                           href={inv.pdfUrl}

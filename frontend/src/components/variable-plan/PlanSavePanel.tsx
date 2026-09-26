@@ -22,7 +22,7 @@ export function PlanSavePanel() {
       try {
         const res = await api.get<{ success: true; data: PublicUser[] }>('/auth/team');
         const eligible = res.data.data.filter((m) =>
-          m.role === 'COMMERCIAL' || m.role === 'RECRUITER' || m.role === 'TEAM_LEAD',
+          m.role === 'COMMERCIAL' || m.role === 'TEAM_LEAD',
         );
         setMembers(eligible);
       } catch (err: unknown) {

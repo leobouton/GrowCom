@@ -79,11 +79,11 @@ export function AdminDashboard() {
         />
       </div>
 
-      <Card padding="none">
+      <Card padding="none" className="overflow-x-auto">
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-900">Liste des clients</h2>
         </div>
-        <table className="w-full text-sm">
+        <table className="responsive-table w-full text-sm">
           <thead className="border-b border-gray-100">
             <tr>
               <th className="text-left py-3 px-6 font-medium text-gray-500">Entreprise</th>
@@ -97,21 +97,21 @@ export function AdminDashboard() {
           <tbody>
             {!data?.tenants?.length ? (
               <tr>
-                <td colSpan={6} className="py-12 text-center text-gray-400">
+                <td data-label="" colSpan={6} className="py-12 text-center text-gray-400">
                   Aucun client pour l'instant
                 </td>
               </tr>
             ) : (
               data.tenants.map((tenant) => (
                 <tr key={tenant.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
-                  <td className="py-4 px-6">
+                  <td data-label="Entreprise" className="py-4 px-6">
                     <p className="font-medium text-gray-900">{tenant.name}</p>
                     <p className="text-xs text-gray-400">{tenant.slug}</p>
                   </td>
-                  <td className="py-4 px-6">
+                  <td data-label="Plan" className="py-4 px-6">
                     <Badge variant="gray">{tenant.plan}</Badge>
                   </td>
-                  <td className="py-4 px-6">
+                  <td data-label="Statut" className="py-4 px-6">
                     <Badge
                       variant={
                         tenant.status === 'ACTIVE'
@@ -128,13 +128,13 @@ export function AdminDashboard() {
                           : 'Annulé'}
                     </Badge>
                   </td>
-                  <td className="py-4 px-6 text-right font-medium text-gray-900">
+                  <td data-label="Utilisateurs" className="py-4 px-6 text-right font-medium text-gray-900">
                     {tenant.activeUsers}
                   </td>
-                  <td className="py-4 px-6 text-right font-semibold text-green-700">
+                  <td data-label="MRR" className="py-4 px-6 text-right font-semibold text-green-700">
                     {formatEur(tenant.mrr)}
                   </td>
-                  <td className="py-4 px-6 text-gray-500 text-xs">
+                  <td data-label="Inscription" className="py-4 px-6 text-gray-500 text-xs">
                     {format(new Date(tenant.createdAt), 'dd MMM yyyy', { locale: fr })}
                   </td>
                 </tr>

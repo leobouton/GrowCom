@@ -45,7 +45,7 @@ export const contestController = {
         // Responsable de secteur : voit uniquement les concours qu'il a créés
         contests = await contestRepository.findByCreatorId(user.userId, user.tenantId!);
       } else {
-        // Commercial / Recruteur : voit uniquement les concours actifs où il participe
+        // Membre commercial : voit uniquement les concours actifs où il participe
         contests = await contestRepository.findForUser(user.userId, user.tenantId!);
       }
 

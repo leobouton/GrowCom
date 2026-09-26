@@ -405,7 +405,7 @@ export function FileImportPanel() {
                 Aperçu des {preview.sample.length} premier{preview.sample.length > 1 ? 's' : ''} deal{preview.sample.length > 1 ? 's' : ''} valide{preview.sample.length > 1 ? 's' : ''}
               </p>
               <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="text-xs w-full">
+                <table className="responsive-table text-xs w-full">
                   <thead className="bg-gray-50 text-gray-500">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium">Deal</th>
@@ -418,26 +418,26 @@ export function FileImportPanel() {
                   <tbody className="divide-y divide-gray-100">
                     {preview.sample.map((row) => (
                       <tr key={row.externalId} className={row.isDuplicate ? 'bg-amber-50' : ''}>
-                        <td className="px-3 py-2 max-w-[180px]">
+                        <td data-label="Deal" className="px-3 py-2 max-w-[180px]">
                           <div className="flex items-center gap-1 min-w-0">
                             <TruncatedText text={row.dealName} className="font-medium text-gray-800" />
                             {row.isDuplicate && <span className="text-amber-500 flex-shrink-0">(doublon)</span>}
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-gray-700">
+                        <td data-label="Montant" className="px-3 py-2 text-right tabular-nums text-gray-700">
                           {row.amount.toLocaleString('fr-FR')} {row.currency}
                         </td>
-                        <td className="px-3 py-2">
+                        <td data-label="Commercial" className="px-3 py-2">
                           {row.isUnmatched ? (
                             <span className="text-amber-600">{row.commercialIdentifier} (non reconnu)</span>
                           ) : (
                             <span className="text-gray-700">{row.commercialName ?? row.commercialIdentifier}</span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-gray-500">
+                        <td data-label="Date clôture" className="px-3 py-2 text-gray-500">
                           {new Date(row.closedAt).toLocaleDateString('fr-FR')}
                         </td>
-                        <td className="px-3 py-2">
+                        <td data-label="Statut" className="px-3 py-2">
                           {row.inferredStatus === 'WON' ? (
                             <span className="inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Gagné</span>
                           ) : row.inferredStatus === 'LOST' ? (

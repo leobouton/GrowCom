@@ -625,7 +625,7 @@ export function ManagerDashboard() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="responsive-table w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500 w-10">#</th>
@@ -640,7 +640,7 @@ export function ManagerDashboard() {
                   const rank = index + 1;
                   return (
                     <tr key={item.user.id} className="border-b border-gray-50 last:border-0">
-                      <td className="py-3 px-2">
+                      <td data-label="Rang" className="py-3 px-2">
                         <span className={`font-bold text-base ${getMedalColor(rank)}`}>
                           {rank <= 3 ? (
                             <svg className={`w-5 h-5 ${getMedalColor(rank)}`} fill="currentColor" viewBox="0 0 20 20">
@@ -651,7 +651,7 @@ export function ManagerDashboard() {
                           )}
                         </span>
                       </td>
-                      <td className="py-3 px-2">
+                      <td data-label="Commercial" className="py-3 px-2">
                         <div>
                           <p className="font-medium text-gray-900">
                             {item.user.firstName} {item.user.lastName}
@@ -659,13 +659,13 @@ export function ManagerDashboard() {
                           <p className="text-xs text-gray-400">{item.user.email}</p>
                         </div>
                       </td>
-                      <td className="py-3 px-2 text-right font-semibold text-gray-900">
+                      <td data-label="CA" className="py-3 px-2 text-right font-semibold text-gray-900">
                         {formatEur(item.totalRevenue)}
                       </td>
-                      <td className="py-3 px-2 text-right text-gray-600">
+                      <td data-label="Deals" className="py-3 px-2 text-right text-gray-600">
                         {item.dealCount > 0 ? item.dealCount : <span className="text-gray-400">—</span>}
                       </td>
-                      <td className="py-3 px-2 text-right">
+                      <td data-label="Commissions" className="py-3 px-2 text-right">
                         {item.totalCommissions > 0 ? (
                           <span className="text-gray-700">{formatEur(item.totalCommissions)}</span>
                         ) : (
@@ -697,7 +697,7 @@ export function ManagerDashboard() {
             Ces commissions seront validées automatiquement à leur date de paiement prévue.
           </p>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="responsive-table w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Commercial</th>
@@ -711,22 +711,22 @@ export function ManagerDashboard() {
               <tbody>
                 {stats!.deferredCommissions.map((commission) => (
                   <tr key={commission.id} className="border-b border-gray-50 last:border-0">
-                    <td className="py-3 px-2 font-medium text-gray-900">
+                    <td data-label="Commercial" className="py-3 px-2 font-medium text-gray-900">
                       {commission.user.firstName} {commission.user.lastName}
                     </td>
-                    <td className="py-3 px-2 max-w-xs">
+                    <td data-label="Deal" className="py-3 px-2 max-w-xs">
                       <TruncatedText text={commission.deal.title} className="text-gray-600" />
                     </td>
-                    <td className="py-3 px-2 max-w-xs">
+                    <td data-label="Client" className="py-3 px-2 max-w-xs">
                       <TruncatedText text={commission.deal.clientName || '—'} className="text-gray-600" />
                     </td>
-                    <td className="py-3 px-2 text-right font-semibold text-gray-900">
+                    <td data-label="Commission" className="py-3 px-2 text-right font-semibold text-gray-900">
                       {formatEur(commission.amount)}
                     </td>
-                    <td className="py-3 px-2 text-xs text-gray-500 whitespace-nowrap">
+                    <td data-label="Date de vente" className="py-3 px-2 text-xs text-gray-500 whitespace-nowrap">
                       {commissionSaleDateLabel(commission)}
                     </td>
-                    <td className="py-3 px-2">
+                    <td data-label="Paiement prévu" className="py-3 px-2">
                       <span className="inline-flex items-center gap-1.5 text-orange-700 font-medium">
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -789,7 +789,7 @@ export function ManagerDashboard() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="responsive-table w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Commercial</th>
@@ -805,22 +805,22 @@ export function ManagerDashboard() {
               <tbody>
                 {stats.pendingCommissions.map((commission) => (
                   <tr key={commission.id} className="border-b border-gray-50 last:border-0">
-                    <td className="py-3 px-2 font-medium text-gray-900">
+                    <td data-label="Commercial" className="py-3 px-2 font-medium text-gray-900">
                       {commission.user.firstName} {commission.user.lastName}
                     </td>
-                    <td className="py-3 px-2 max-w-xs">
+                    <td data-label="Deal" className="py-3 px-2 max-w-xs">
                       <TruncatedText text={commission.deal.title} className="text-gray-600" />
                     </td>
-                    <td className="py-3 px-2 max-w-xs">
+                    <td data-label="Client" className="py-3 px-2 max-w-xs">
                       <TruncatedText text={commission.deal.clientName || '—'} className="text-gray-600" />
                     </td>
-                    <td className="py-3 px-2 text-right font-semibold text-gray-900">
+                    <td data-label="Montant" className="py-3 px-2 text-right font-semibold text-gray-900">
                       {formatEur(commission.amount)}
                     </td>
-                    <td className="py-3 px-2 text-xs text-gray-500 whitespace-nowrap">
+                    <td data-label="Date de vente" className="py-3 px-2 text-xs text-gray-500 whitespace-nowrap">
                       {commissionSaleDateLabel(commission)}
                     </td>
-                    <td className="py-3 px-2 text-xs whitespace-nowrap">
+                    <td data-label="Validation" className="py-3 px-2 text-xs whitespace-nowrap">
                       {commission.validatedAt ? (
                         <span className="text-green-600">{format(new Date(commission.validatedAt), 'dd MMM yyyy', { locale: fr })}</span>
                       ) : commission.clientPaidAt ? (
@@ -829,13 +829,13 @@ export function ManagerDashboard() {
                         <span className="text-gray-400">En attente</span>
                       )}
                     </td>
-                    <td className="py-3 px-2">
+                    <td data-label="Statut" className="py-3 px-2">
                       {commission.awaitingClientPayment
                         ? <Badge variant="orange">En attente paiement client</Badge>
                         : <CommissionStatusBadge status={commission.status} scheduledPaymentAt={commission.scheduledPaymentAt} />
                       }
                     </td>
-                    <td className="py-3 px-2 text-right">
+                    <td data-label="" className="py-3 px-2 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Button
                           size="sm"

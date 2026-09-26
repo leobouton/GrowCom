@@ -47,6 +47,7 @@ export const teamController = {
           firstName: m.firstName,
           lastName: m.lastName,
           role: m.role,
+          jobTitle: m.jobTitle,
           tenantId: m.tenantId,
           fixedSalary: m.fixedSalary,
           objectives: Array.isArray((m as Record<string, unknown>).objectives)
@@ -84,6 +85,7 @@ export const teamController = {
       const updateMemberSchema = z.object({
         firstName: z.string().min(1).max(50).optional(),
         lastName: z.string().min(1).max(50).optional(),
+        jobTitle: z.string().max(60).trim().optional(), // Fonction libre (ex : "Négociateur")
         fixedSalary: z.number().min(0).optional(), // Salaire fixe BRUT MENSUEL en euros
         objectives: z.array(z.object({
           id: z.string(),
@@ -125,7 +127,7 @@ export const teamController = {
         })).optional(),
       });
 
-      const { firstName, lastName, fixedSalary, objectives } = updateMemberSchema.parse(req.body);
+      const { firstName, lastName, jobTitle, fixedSalary, objectives } = updateMemberSchema.parse(req.body);
 
       const member = await userRepository.findById(memberId);
 
@@ -149,6 +151,7 @@ export const teamController = {
       const updateData: Record<string, unknown> = {};
       if (firstName !== undefined) updateData.firstName = firstName.trim();
       if (lastName !== undefined) updateData.lastName = lastName.trim();
+      if (jobTitle !== undefined) updateData.jobTitle = jobTitle.trim() || null;
       if (fixedSalary !== undefined) updateData.fixedSalary = fixedSalary;
 
       // ── Objectifs : la liste envoyée par le client est la SOURCE DE VÉRITÉ ──
@@ -220,6 +223,7 @@ export const teamController = {
           id: updated.id,
           firstName: updated.firstName,
           lastName: updated.lastName,
+          jobTitle: updated.jobTitle,
           fixedSalary: updated.fixedSalary,
           objectives: Array.isArray((updated as Record<string, unknown>).objectives)
               ? (updated as Record<string, unknown>).objectives

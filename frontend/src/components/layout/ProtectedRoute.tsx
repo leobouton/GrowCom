@@ -24,7 +24,6 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
       case UserRole.BU_MANAGER:
         return <Navigate to="/manager" replace />;
       case UserRole.COMMERCIAL:
-      case UserRole.RECRUITER:
         return <Navigate to="/dashboard" replace />;
     }
   }

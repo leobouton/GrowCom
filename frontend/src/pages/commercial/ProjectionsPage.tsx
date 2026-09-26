@@ -158,7 +158,7 @@ export function ProjectionsPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="responsive-table w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left py-3 px-2 font-medium text-gray-500">Deal</th>
@@ -173,27 +173,27 @@ export function ProjectionsPage() {
               <tbody>
                 {filteredCommissions.map((commission) => (
                   <tr key={commission.id} className="border-b border-gray-50 last:border-0">
-                    <td className="py-3 px-2">
+                    <td data-label="Deal" className="py-3 px-2">
                       <TruncatedText text={commission.dealTitle} className="font-medium text-gray-900 max-w-[180px]" />
                     </td>
-                    <td className="py-3 px-2">
+                    <td data-label="Client" className="py-3 px-2">
                       {commission.clientName
                         ? <TruncatedText text={commission.clientName} className="text-gray-700 text-sm max-w-[150px]" />
                         : <span className="text-gray-300 text-xs">—</span>}
                     </td>
-                    <td className="py-3 px-2 text-right text-gray-600">
+                    <td data-label="Montant vente" className="py-3 px-2 text-right text-gray-600">
                       {commission.dealAmount != null ? formatEur(commission.dealAmount) : <span className="text-gray-300">—</span>}
                     </td>
-                    <td className="py-3 px-2 text-right font-semibold text-gray-900">
+                    <td data-label="Commission" className="py-3 px-2 text-right font-semibold text-gray-900">
                       {formatEur(commission.amount)}
                     </td>
-                    <td className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
+                    <td data-label="Détail" className="py-3 px-2 text-gray-500 text-xs max-w-[200px]">
                       {commission.calculationDetail || commission.ruleName}
                     </td>
-                    <td className="py-3 px-2">
+                    <td data-label="Statut" className="py-3 px-2">
                       <StatusBadge commission={commission} />
                     </td>
-                    <td className="py-3 px-2 text-xs whitespace-nowrap">
+                    <td data-label="Date" className="py-3 px-2 text-xs whitespace-nowrap">
                       <p className="text-gray-400">
                         <span className="text-gray-500 font-medium">Signé </span>
                         {commission.dealClosedAt

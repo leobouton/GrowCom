@@ -43,7 +43,6 @@ export function LoginPage() {
           navigate('/manager');
           break;
         case UserRole.COMMERCIAL:
-        case UserRole.RECRUITER:
           navigate('/dashboard');
           break;
       }
@@ -57,10 +56,12 @@ export function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-primary-600 rounded-xl mb-3">
-            <span className="text-white font-bold text-xl">G</span>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">Bienvenue sur GrowCom</h1>
+          <img
+            src="/logo.png"
+            alt="GrowCom"
+            className="h-14 w-auto object-contain mx-auto mb-4"
+          />
+          <h1 className="text-2xl font-bold text-gray-900">Bienvenue</h1>
           <p className="text-gray-500 mt-1">Connectez-vous à votre espace</p>
         </div>
 

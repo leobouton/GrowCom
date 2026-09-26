@@ -130,7 +130,7 @@ function BatchDetailModal({
               Deals de cet import ({deals.length})
             </p>
             <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-64 overflow-y-auto">
-              <table className="text-xs w-full">
+              <table className="responsive-table text-xs w-full">
                 <thead className="bg-gray-50 text-gray-500 sticky top-0">
                   <tr>
                     <th className="px-3 py-2 text-left font-medium">Deal</th>
@@ -142,16 +142,16 @@ function BatchDetailModal({
                 <tbody className="divide-y divide-gray-100">
                   {deals.map((deal) => (
                     <tr key={deal.id}>
-                      <td className="px-3 py-2 max-w-[180px]">
+                      <td data-label="Deal" className="px-3 py-2 max-w-[180px]">
                         <TruncatedText text={deal.title} className="font-medium text-gray-800" />
                       </td>
-                      <td className="px-3 py-2 max-w-[140px]">
+                      <td data-label="Client" className="px-3 py-2 max-w-[140px]">
                         <TruncatedText text={deal.clientName ?? '-'} className="text-gray-600" />
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-gray-700">
+                      <td data-label="Montant" className="px-3 py-2 text-right tabular-nums text-gray-700">
                         {deal.amount.toLocaleString('fr-FR')} EUR
                       </td>
-                      <td className="px-3 py-2 text-center">
+                      <td data-label="Commissions" className="px-3 py-2 text-center">
                         {deal.commissions.length > 0 ? (
                           <span className="text-gray-600">
                             {deal.commissions.length} ({deal.commissions.reduce((s, c) => s + c.amount, 0).toLocaleString('fr-FR')} EUR)

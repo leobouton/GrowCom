@@ -44,17 +44,16 @@ import { CommissionStatus as PrismaCommissionStatus, UserRole as PrismaUserRole 
 /** Rôles considérés comme "commerciaux" éligibles à une fiche de paie variable. */
 const ELIGIBLE_ROLES = [
   PrismaUserRole.COMMERCIAL,
-  PrismaUserRole.RECRUITER,
   PrismaUserRole.TEAM_LEAD,
   PrismaUserRole.BU_MANAGER,
 ] as const;
 
+// Repli quand le membre n'a pas de fonction libre (jobTitle) saisie.
 const ROLE_LABELS: Record<string, string> = {
-  COMMERCIAL: 'Commercial',
+  COMMERCIAL: 'Membre',
   TEAM_LEAD: 'Responsable de secteur',
   BU_MANAGER: 'Manager BU',
   MANAGER: 'Manager',
-  RECRUITER: 'Recruteur',
 };
 
 const EXCLUSION_LABELS: Record<PayrollExclusionReason, string> = {
@@ -120,6 +119,7 @@ interface EligibleUser {
   lastName: string;
   email: string;
   role: string;
+  jobTitle: string | null;
   fixedSalary: number;
   createdAt: Date;
 }
@@ -189,7 +189,7 @@ async function resolveEligibleUsers(
         ? { id: teamIds !== null ? { in: teamIds.filter((id) => requestedUserIds.includes(id)) } : { in: requestedUserIds } }
         : {}),
     },
-    select: { id: true, firstName: true, lastName: true, email: true, role: true, fixedSalary: true, createdAt: true },
+    select: { id: true, firstName: true, lastName: true, email: true, role: true, jobTitle: true, fixedSalary: true, createdAt: true },
     orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
   });
 
@@ -770,7 +770,8 @@ function drawTableRow(
 
 function renderUserSection(doc: PDFKit.PDFDocument, data: UserReportData, startY: number): number {
   let y = startY;
-  const roleLabel = ROLE_LABELS[data.user.role] ?? data.user.role;
+  // On affiche la fonction libre (jobTitle) si elle existe, sinon un repli neutre.
+  const roleLabel = data.user.jobTitle?.trim() || ROLE_LABELS[data.user.role] || 'Membre';
 
   // ── Identité ──
   safeText(doc, `${data.user.firstName} ${data.user.lastName}`, MARGIN, y, {

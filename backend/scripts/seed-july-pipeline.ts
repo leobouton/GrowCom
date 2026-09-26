@@ -72,7 +72,7 @@ async function main() {
     where: {
       tenantId: TENANT,
       isActive: true,
-      role: { in: ['COMMERCIAL', 'RECRUITER', 'TEAM_LEAD'] },
+      role: { in: ['COMMERCIAL', 'TEAM_LEAD'] },
     },
     select: { id: true, firstName: true, lastName: true },
     orderBy: { createdAt: 'asc' },

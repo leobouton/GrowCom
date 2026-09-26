@@ -36,7 +36,7 @@ export function DealAssignmentModal({
   useEffect(() => {
     void api.get<{ success: true; data: PublicUser[] }>('/auth/team').then((res) => {
       const commercials = res.data.data.filter(
-        (u) => u.role === 'COMMERCIAL' || u.role === 'RECRUITER',
+        (u) => u.role === 'COMMERCIAL',
       );
       setTeamMembers(commercials);
 

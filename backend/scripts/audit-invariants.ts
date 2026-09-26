@@ -188,7 +188,7 @@ async function main() {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
   const users = await prisma.user.findMany({
-    where: { isActive: true, role: { in: ['COMMERCIAL', 'RECRUITER', 'TEAM_LEAD', 'BU_MANAGER'] } },
+    where: { isActive: true, role: { in: ['COMMERCIAL', 'TEAM_LEAD', 'BU_MANAGER'] } },
     select: { id: true, tenantId: true, firstName: true, lastName: true },
   });
   let sumOk = 0;

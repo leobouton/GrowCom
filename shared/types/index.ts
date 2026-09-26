@@ -10,7 +10,6 @@ export enum UserRole {
   MANAGER = 'MANAGER',
   TEAM_LEAD = 'TEAM_LEAD',
   BU_MANAGER = 'BU_MANAGER',
-  RECRUITER = 'RECRUITER',
   COMMERCIAL = 'COMMERCIAL',
 }
 
@@ -116,6 +115,7 @@ export interface Tenant {
   stripeSubscriptionId: string | null;
   plan: TenantPlan;
   status: TenantStatus;
+  defaultJobTitle: string | null; // Fonction pré-remplie à l'invitation
   createdAt: string;
 }
 
@@ -174,6 +174,7 @@ export interface User {
   firstName: string;
   lastName: string;
   role: UserRole;
+  jobTitle: string | null; // Fonction libre affichée (ex : "Négociateur")
   tenantId: string | null;
   fixedSalary: number;
   objectives: Objective[];

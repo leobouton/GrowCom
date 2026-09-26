@@ -310,7 +310,7 @@ export async function resolveTeamScope(
   const memberFilter = {
     where: {
       isActive: true,
-      role: { in: [PrismaUserRole.COMMERCIAL, PrismaUserRole.RECRUITER, PrismaUserRole.TEAM_LEAD] },
+      role: { in: [PrismaUserRole.COMMERCIAL, PrismaUserRole.TEAM_LEAD] },
     },
     select: { id: true },
   };
@@ -458,7 +458,7 @@ async function getOrCreatePlaceholderRuleId(tenantId: string, createdBy: string)
 
 // Rôles considérés comme "commerciaux" pour les stats/résumés
 // TEAM_LEAD inclus car dans certaines structures les responsables de secteur réalisent encore des ventes
-const COMMERCIAL_ROLES = [PrismaUserRole.COMMERCIAL, PrismaUserRole.RECRUITER, PrismaUserRole.TEAM_LEAD];
+const COMMERCIAL_ROLES = [PrismaUserRole.COMMERCIAL, PrismaUserRole.TEAM_LEAD];
 
 export const commissionService = {
   async findById(id: string, tenantId: string) {
