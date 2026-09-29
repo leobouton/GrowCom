@@ -1,0 +1,73 @@
+{
+  "scenarios": [
+    {
+      "prior": 0,
+      "commissions": {
+        "Par tranche": [
+          4500,
+          2400,
+          3562.5,
+          1843.75
+        ],
+        "Au taux atteint": [
+          4500,
+          2400,
+          3562.5,
+          2100
+        ],
+        "Au taux atteint rétroactif": [
+          4500,
+          2400,
+          3562.5,
+          3843.75
+        ]
+      }
+    },
+    {
+      "prior": 36500,
+      "commissions": {
+        "Par tranche": [
+          5075,
+          2800,
+          4725,
+          2400
+        ],
+        "Au taux atteint": [
+          5250,
+          2800,
+          4750,
+          2400
+        ],
+        "Au taux atteint rétroactif": [
+          7075,
+          2800,
+          7725,
+          2400
+        ]
+      }
+    },
+    {
+      "prior": 61000,
+      "commissions": {
+        "Par tranche": [
+          6000,
+          3200,
+          4750,
+          2400
+        ],
+        "Au taux atteint": [
+          6000,
+          3200,
+          4750,
+          2400
+        ],
+        "Au taux atteint rétroactif": [
+          6000,
+          3200,
+          4750,
+          2400
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+// Configuration Cloudflare Workers du site growcom.fr (voir docs/deploiement.md).
+// Les secrets (clé Brevo, clé Turnstile…) ne sont JAMAIS écrits ici : ils se définissent
+// dans le tableau de bord Cloudflare ou avec `npx wrangler secret put NOM`.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "growcom-marketing",
+  "main": "@astrojs/cloudflare/entrypoints/server",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist/client",
+    // /simulateur-commission-negociateur-immobilier sert le fichier .html correspondant
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  // Formulaire : au plus 5 demandes par minute et par adresse IP (en plus du compteur interne)
+  "ratelimits": [
+    {
+      "name": "LEAD_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 5, "period": 60 }
+    }
+  ],
+  "observability": { "enabled": true }
+}

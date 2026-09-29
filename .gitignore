@@ -6,3 +6,5 @@ build/
 .next/
 *.log
 .astro/
+.wrangler/
+.dev.vars

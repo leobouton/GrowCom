@@ -23,6 +23,8 @@ import {
 import { formatEurSmart } from '../../lib/format';
 import { AddButton, ChoiceCards, FormSection, IconButton, NumberField, RemoveIcon, Segmented, SelectField } from './fields';
 import { ResultsPanel } from './ResultsPanel';
+import { LeadDialog } from '../lead/LeadDialog';
+import { DEMO_HREF } from '../../lib/site';
 
 /** Paramètres d'URL gérés par le simulateur (les autres, comme les UTM, sont préservés). */
 const SIM_KEYS = ['prix', 'hon', 'honu', 'tva', 'statut', 'rem', 'taux', 'forfait', 'pal', 'mode', 'ca', 'parts', 'ret', 'ventes'];
@@ -471,6 +473,8 @@ export default function Simulator() {
           status={state.status}
           salesPerYear={state.salesPerYear}
           actions={
+            <div className="space-y-4">
+            <LeadDialog simulation={result ? { state, result } : null} />
             <button
               type="button"
               onClick={copyLink}
@@ -493,6 +497,14 @@ export default function Simulator() {
                     : 'Copier le lien de cette simulation'}
               </span>
             </button>
+            {/* Appel secondaire, volontairement discret */}
+            <p className="border-t border-line pt-4 text-[0.85rem] leading-snug text-muted">
+              Vous gérez une équipe ?{' '}
+              <a href={DEMO_HREF} className="font-semibold text-ink underline decoration-lime decoration-2 underline-offset-4 hover:decoration-ink">
+                Automatiser ce calcul pour tous vos négociateurs
+              </a>
+            </p>
+            </div>
           }
         />
       </div>

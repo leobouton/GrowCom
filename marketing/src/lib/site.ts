@@ -21,6 +21,12 @@ export const ROUTES = {
   privacy: '/politique-de-confidentialite',
 } as const;
 
+/** Modèle de grille téléchargeable (fichiers générés par scripts/generate-templates.mjs). */
+export const TEMPLATE_FILES = {
+  xlsx: '/modele/grille-de-commissionnement-growcom.xlsx',
+  pdf: '/modele/grille-de-commissionnement-growcom.pdf',
+} as const;
+
 /** Lien « Demander une démo » : un email pré-rempli tant qu'il n'y a pas d'outil de prise de rendez-vous. */
 export const DEMO_HREF = `mailto:${SITE.contactEmail}?subject=${encodeURIComponent('Démo GrowCom')}`;
 

@@ -1,0 +1,6 @@
+# Fichiers binaires : jamais de conversion des fins de ligne (sinon PDF et Excel sont corrompus sous Windows)
+*.pdf binary
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.woff2 binary

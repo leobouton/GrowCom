@@ -1,0 +1,31 @@
+# Variables du serveur (formulaire /api/lead) pour le développement local.
+# Copier ce fichier en « .dev.vars » (jamais enregistré dans Git) et adapter.
+# En production, ces valeurs se définissent dans Cloudflare : voir docs/deploiement.md.
+
+# Sans clé Brevo, « 1 » accepte les demandes sans rien envoyer (pour tester le formulaire).
+LEAD_TEST_MODE=1
+
+# Clé API Brevo (v3) — Brevo > Paramètres > SMTP & API > Clés API. SECRET.
+# BREVO_API_KEY=xkeysib-...
+
+# Identifiant numérique de la liste Brevo qui reçoit les contacts du site.
+# BREVO_LIST_ID=3
+
+# Nom de l'attribut « prénom » dans Brevo : PRENOM (compte en français, par défaut) ou FIRSTNAME.
+# BREVO_FIRSTNAME_ATTRIBUTE=PRENOM
+
+# Expéditeur des emails (adresse validée dans Brevo > Expéditeurs et domaines).
+# BREVO_SENDER_EMAIL=bonjour@growcom.fr
+# BREVO_SENDER_NAME=GrowCom
+
+# Adresse qui reçoit une alerte quand un visiteur laisse son numéro pour être rappelé (facultatif).
+# LEAD_NOTIFY_EMAIL=leo@growcom.fr
+
+# Anti-robot Cloudflare Turnstile : DEUX clés qui vont ensemble.
+# - la clé secrète ci-dessous (serveur, SECRET) ;
+# - la clé de site PUBLIC_TURNSTILE_SITE_KEY, lue au moment de la construction du site
+#   (variable d'environnement de build, voir docs/deploiement.md).
+# Sans elles, le formulaire fonctionne sans vérification anti-robot (pratique en local).
+# Clés de test officielles Cloudflare, toujours acceptées :
+#   PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA
+# TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA

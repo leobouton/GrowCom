@@ -54,6 +54,28 @@ Les paramètres de la simulation sont gardés dans l'adresse de la page (`?prix=
 
 Tests du site : `cd marketing && npm test`.
 
+## Le formulaire « Recevoir ce calcul en PDF »
+
+Le formulaire envoie les demandes à `/api/lead`, la seule partie du site exécutée sur un serveur (un Cloudflare Worker).
+
+Pour le tester sur ton ordinateur **sans rien envoyer à Brevo** :
+
+```bash
+cd marketing
+cp .dev.vars.example .dev.vars   # une seule fois ; contient LEAD_TEST_MODE=1
+npm run build
+npx astro preview                # le site tourne dans le moteur de Cloudflare, sur http://localhost:4321
+```
+
+Le fichier `.dev.vars` n'est jamais enregistré dans Git. Pour tester avec le vrai Brevo, renseigne-y `BREVO_API_KEY`, `BREVO_LIST_ID` et `BREVO_SENDER_EMAIL` (voir `docs/deploiement.md`, étape 1) et retire `LEAD_TEST_MODE`.
+
+| Je veux… | Fichier |
+| --- | --- |
+| Changer les textes du formulaire | `marketing/src/components/lead/LeadForm.tsx` |
+| Changer l'email envoyé (au visiteur, ou l'alerte de rappel) | `marketing/src/lib/lead/emails.ts` |
+| Changer le PDF du calcul | `marketing/src/lib/pdf/simulation-pdf.ts` |
+| Changer le modèle de grille (Excel + PDF) | `marketing/scripts/generate-templates.ts`, puis `npm run generate:templates` |
+
 ## Règle importante
 
 Le site n'a **aucun calcul de commission à lui**. Tous les montants (y compris l'exemple de la page d'accueil) sont calculés par le moteur partagé `shared/commission-engine`, le même que celui de l'app. Pour modifier un calcul, c'est là qu'il faut intervenir, avec des tests (`cd backend && npm test`).

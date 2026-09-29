@@ -1,44 +1,70 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import PageHero from '../components/PageHero.astro';
 import ArrowIcon from '../components/ArrowIcon.astro';
+import LeadForm from '../components/lead/LeadForm';
 import { ROUTES } from '../lib/site';
 
 const contents = [
   {
-    title: 'La grille de paliers',
-    text: "Tranches d'honoraires et taux, avec le mode de calcul (par tranche ou au taux atteint) écrit noir sur blanc.",
+    title: 'Un calculateur Excel prêt à l’emploi',
+    text: 'Saisissez vos paliers une fois, puis chaque vente : la commission se calcule toute seule, par tranche, au taux atteint ou avec effet rétroactif.',
   },
   {
-    title: 'Les règles de partage',
-    text: 'Répartition entre prise de mandat, vente et apporteur, pour les ventes réalisées à plusieurs.',
+    title: 'La grille à annexer au contrat',
+    text: 'Une version PDF à compléter : paliers, base de calcul, période de référence, fait générateur, signatures.',
   },
   {
-    title: 'Les points qui évitent les litiges',
-    text: 'Base HT ou TTC, fait générateur, période de référence, remise à zéro annuelle : la liste des clauses à préciser.',
+    title: 'Les ventes partagées',
+    text: 'La répartition entre prise de mandat, vente et apporteur, et la règle à préciser pour les paliers de chacun.',
   },
   {
-    title: 'Un calculateur prêt à l’emploi',
-    text: 'Le fichier Excel calcule la commission de chaque vente à partir de votre grille, avec des formules que vous pouvez adapter.',
+    title: 'Les clauses qui évitent les litiges',
+    text: 'Base HT ou TTC, honoraires encaissés ou facturés, remise à zéro annuelle, retenues : tout ce qui doit être écrit noir sur blanc.',
   },
 ];
 ---
 
-<!-- Lot 4 : génération du modèle (XLSX + PDF) et formulaire de téléchargement. -->
+<!-- Lot 5 : contenu éditorial et données structurées. -->
 <BaseLayout
   title="Modèle de grille de commissionnement agence immobilière (Excel) | GrowCom"
-  description="Téléchargez un modèle de grille de commissionnement pour agence immobilière : paliers, partage mandat / vente et clauses à préciser. Format Excel et PDF."
+  description="Téléchargez un modèle de grille de commissionnement pour agence immobilière : calculateur Excel des paliers, grille PDF à annexer au contrat. Gratuit."
 >
-  <PageHero
-    eyebrow="Modèle gratuit"
-    title="Le modèle de <em>grille de commissionnement</em> pour votre agence."
-    lead="Une base claire pour rédiger ou remettre à plat la rémunération de vos négociateurs : paliers, partage des ventes et clauses à ne pas oublier. Fichier Excel modifiable et version PDF."
-  >
-    <a href={ROUTES.simulator} class="btn btn-primary mt-9">
-      Tester votre grille dans le simulateur
-      <ArrowIcon />
-    </a>
-  </PageHero>
+  <section class="relative isolate overflow-hidden border-b border-line">
+    <div aria-hidden="true" class="absolute -right-24 -top-32 -z-10 h-80 w-80 rounded-full bg-lime/30 blur-3xl"></div>
+    <div class="mx-auto grid max-w-6xl items-start gap-12 px-5 pb-16 pt-12 sm:px-8 md:pt-16 lg:grid-cols-[1fr_27rem] lg:gap-14">
+      <div>
+        <p class="eyebrow">Modèle gratuit</p>
+        <h1 class="display mt-5 text-[2.35rem] text-ink sm:text-[3.3rem]">
+          Le modèle de <em>grille de commissionnement</em> pour votre agence.
+        </h1>
+        <p class="mt-6 max-w-xl text-[1.08rem] leading-relaxed text-ink-soft">
+          Une base claire pour rédiger ou remettre à plat la rémunération de vos négociateurs : un fichier Excel qui calcule les
+          commissions palier par palier, et une grille PDF à annexer au contrat.
+        </p>
+        <ul class="mt-8 space-y-3">
+          {
+            ['Excel modifiable, formules incluses', 'Les 3 modes de calcul des paliers', 'PDF à compléter et signer'].map((item) => (
+              <li class="flex items-center gap-3 text-[0.98rem] text-ink">
+                <span aria-hidden="true" class="h-2 w-2 rounded-full bg-lime ring-[1.5px] ring-ink" />
+                {item}
+              </li>
+            ))
+          }
+        </ul>
+        <a href={ROUTES.simulator} class="link mt-8 inline-flex items-center gap-2 text-[0.95rem] font-medium">
+          Tester d’abord votre grille dans le simulateur <ArrowIcon />
+        </a>
+      </div>
+
+      <div id="telecharger" class="scroll-mt-24 rounded-[1.4rem] border border-line bg-card p-6 shadow-[var(--shadow-slip)] sm:p-8">
+        <h2 class="font-display text-[1.45rem] leading-tight" style="font-weight: 480">Recevoir le modèle</h2>
+        <p class="mt-2 text-[0.9rem] text-ink-soft">Téléchargement immédiat, et une copie des liens par email.</p>
+        <div class="mt-6">
+          <LeadForm client:visible source="modele-grille" submitLabel="Recevoir le modèle" />
+        </div>
+      </div>
+    </div>
+  </section>
 
   <section class="mx-auto max-w-6xl px-5 py-20 sm:px-8">
     <h2 class="display text-[2rem] sm:text-[2.5rem]">Ce que contient le modèle</h2>
