@@ -380,7 +380,7 @@ export const authService = {
     });
 
     // Email de bienvenue en arrière-plan (ne doit pas bloquer l'activation)
-    const tenant = await tenantRepository.findById(user.tenantId);
+    const tenant = user.tenantId ? await tenantRepository.findById(user.tenantId) : null;
     emailService
       .sendCompanyWelcome(user.email, user.firstName, tenant?.name ?? 'votre entreprise')
       .catch(() => {

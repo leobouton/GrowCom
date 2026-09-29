@@ -4,6 +4,7 @@ import { Button } from '../ui/Button';
 import { commissionRuleApiService, type CommissionRuleWithCount } from '../../services/commissionRule.service';
 import type { CommissionRuleConfig, CommissionTier, CommissionExample, CommissionCalculationBasis, CommissionPaymentTrigger } from '@shared/types';
 import { CommissionRuleType } from '@shared/types';
+import { computeCommission, formatRatePercent } from '@shared/commission-engine';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -56,51 +57,35 @@ function parseExistingConfig(config: CommissionRuleConfig): Partial<WizardState>
   };
 }
 
+/** Exemples chiffrés calculés par le moteur partagé : exactement ce que le backend calculera. */
 function generateExamples(state: WizardState): CommissionExample[] {
   const amounts = [5000, 15000, 30000, 50000];
+  const scheme = buildScheme(state);
   return amounts.map((saleAmount) => {
-    let commission = 0;
-    let explanation = '';
+    const result = computeCommission({ config: scheme, basisAmount: saleAmount });
 
-    // Apply floor
-    if (state.floor && saleAmount < state.floor) {
+    if (result.skippedReason === 'BELOW_FLOOR') {
       return {
         saleAmount,
         commission: 0,
-        explanation: `Montant (${formatEur(saleAmount)}) inférieur au seuil minimum de ${formatEur(state.floor)} : pas de commission`,
+        explanation: `Montant (${formatEur(saleAmount)}) inférieur au seuil minimum de ${formatEur(state.floor ?? 0)} : pas de commission`,
       };
     }
 
     const basisLabel = state.calculationBasis === 'MARGIN' ? 'marge' : 'CA';
-
+    let explanation: string;
     if (state.ruleType === CommissionRuleType.PERCENTAGE) {
-      const rate = state.rate / 100;
-      commission = saleAmount * rate;
-      explanation = `${state.rate}% de ${formatEur(saleAmount)} (${basisLabel}) = ${formatEur(commission)}`;
+      explanation = `${state.rate}% de ${formatEur(saleAmount)} (${basisLabel}) = ${formatEur(result.amountBeforeCap)}`;
     } else if (state.ruleType === CommissionRuleType.FIXED) {
-      commission = state.fixedAmount;
       explanation = `Montant fixe de ${formatEur(state.fixedAmount)} par deal`;
-    } else if (state.ruleType === CommissionRuleType.TIERED) {
-      const sortedTiers = [...state.tiers].sort((a, b) => a.min - b.min);
-      const parts: string[] = [];
-      for (const tier of sortedTiers) {
-        const tierMax = tier.max ?? Infinity;
-        if (saleAmount <= tier.min) break;
-        const applicable = Math.min(saleAmount, tierMax) - tier.min;
-        const tierCommission = applicable * tier.rate;
-        commission += tierCommission;
-        parts.push(`${formatEur(applicable)} x ${(tier.rate * 100).toFixed(0)}% = ${formatEur(tierCommission)}`);
-      }
-      explanation = parts.join(' + ');
+    } else {
+      explanation = result.lines
+        .map((line) => `${formatEur(line.base ?? 0)} x ${formatRatePercent(line.rate ?? 0)}% = ${formatEur(line.amount)}`)
+        .join(' + ');
     }
+    if (result.capped) explanation += ` (plafonné à ${formatEur(state.cap ?? 0)})`;
 
-    // Apply cap
-    if (state.cap && commission > state.cap) {
-      explanation += ` (plafonné à ${formatEur(state.cap)})`;
-      commission = state.cap;
-    }
-
-    return { saleAmount, commission, explanation };
+    return { saleAmount, commission: result.totalAmount, explanation };
   });
 }
 
@@ -129,11 +114,12 @@ function buildDescription(state: WizardState): string {
   return parts.join('. ') + '.';
 }
 
-function buildConfig(state: WizardState): CommissionRuleConfig {
+/** Barème saisi (sans description ni exemples) : ce que le moteur de calcul utilise. */
+function buildScheme(state: WizardState): CommissionRuleConfig {
   const config: CommissionRuleConfig = {
     type: state.ruleType,
-    description: buildDescription(state),
-    examples: generateExamples(state),
+    description: '',
+    examples: [],
     calculationBasis: state.calculationBasis,
     paymentTrigger: state.paymentTrigger,
   };
@@ -150,6 +136,10 @@ function buildConfig(state: WizardState): CommissionRuleConfig {
   }
 
   return config;
+}
+
+function buildConfig(state: WizardState): CommissionRuleConfig {
+  return { ...buildScheme(state), description: buildDescription(state), examples: generateExamples(state) };
 }
 
 // ─── Composant ────────────────────────────────────────────────────────────

@@ -12,189 +12,23 @@ import { auditLogRepository } from '../repositories/auditLog.repository';
 import { objectiveSnapshotRepository } from '../repositories/objectiveSnapshot.repository';
 import { buildObjectivesProgress } from './objectiveProgress.service';
 import { AppError } from '../middlewares/errorHandler';
-import { CommissionStatus, CommissionRuleConfig, CommissionRuleType, UserRole, RecurringProjection, Objective } from '../../../shared/types';
+import { CommissionStatus, CommissionRuleConfig, UserRole, RecurringProjection, Objective } from '../../../shared/types';
 // CommissionCalculationBasis importé via CommissionRuleConfig (optionnel)
 import { CommissionStatus as PrismaCommissionStatus, UserRole as PrismaUserRole, DealStatus as PrismaDealStatus } from '@prisma/client';
 
-// ─── Calcul du montant de commission ─────────────────────────────────────────
-
-/**
- * Calcule le montant de commission sur la base donnée.
- * basisAmount = CA ou marge selon config.calculationBasis (déjà résolu par l'appelant).
- * Note : appelé sur le montant TOTAL avant split (Option A : cap sur total, puis split).
- */
-export function calculateCommissionAmount(
-  basisAmount: number,
-  config: CommissionRuleConfig,
-): { amount: number; explanation: string; skippedReason?: string } {
-  const basisLabel =
-    config.calculationBasis === 'MARGIN' ? 'Marge'
-    : config.calculationBasis === 'PER_UNIT' ? 'Forfait'
-    : 'CA';
-
-  // 1. Floor — seuil minimum pour déclencher la règle
-  // (pour PER_UNIT, basisAmount = nb de consultants ; le floor devient un nb minimum)
-  if (config.floor !== undefined && config.floor !== null && basisAmount < config.floor) {
-    return {
-      amount: 0,
-      explanation: `Sous le seuil minimum (${config.floor.toFixed(2)}) : ${basisLabel} ${basisAmount.toFixed(2)}`,
-      skippedReason: 'BELOW_FLOOR',
-    };
-  }
-
-  // 2. Calcul selon le type de règle
-  let amount = 0;
-  let explanation = '';
-
-  // Base "forfait par unité" (Session F) : montant fixe × nb de consultants placés.
-  // basisAmount porte ici le nb de consultants. Prioritaire sur le type de règle.
-  if (config.calculationBasis === 'PER_UNIT') {
-    const unit = config.fixedAmount ?? 0;
-    amount = unit * basisAmount;
-    explanation = `${basisAmount} consultant${basisAmount > 1 ? 's' : ''} × ${unit.toFixed(2)}€ = ${amount.toFixed(2)}€`;
-  } else if (config.type === CommissionRuleType.FIXED) {
-    amount = config.fixedAmount ?? 0;
-    explanation = `Commission fixe : ${amount.toFixed(2)}€`;
-  } else if (config.type === CommissionRuleType.PERCENTAGE) {
-    const rate = config.rate ?? 0;
-    amount = basisAmount * rate;
-    explanation = `${basisLabel} ${basisAmount.toFixed(2)}€ × ${(rate * 100).toFixed(0)}% = ${amount.toFixed(2)}€`;
-  } else if (config.type === CommissionRuleType.TIERED && config.tiers) {
-    let totalCommission = 0;
-    const parts: string[] = [];
-    const sortedTiers = [...config.tiers].sort((a, b) => a.min - b.min);
-
-    for (const tier of sortedTiers) {
-      if (basisAmount < tier.min) break;
-      const tierMax = tier.max ?? Infinity;
-      const applicable = Math.min(basisAmount, tierMax) - tier.min;
-      if (applicable <= 0) continue;
-      const tierAmount = applicable * tier.rate;
-      totalCommission += tierAmount;
-      parts.push(
-        `${applicable.toFixed(2)}€ × ${(tier.rate * 100).toFixed(0)}% = ${tierAmount.toFixed(2)}€`,
-      );
-    }
-
-    amount = totalCommission;
-    explanation =
-      parts.length > 0
-        ? `${basisLabel} ${basisAmount.toFixed(2)}€ par paliers : ${parts.join(' + ')} = ${totalCommission.toFixed(2)}€`
-        : `${basisLabel} ${basisAmount.toFixed(2)}€ — aucun palier atteint`;
-  } else {
-    return { amount: 0, explanation: 'Règle non reconnue' };
-  }
-
-  // 3. Cap — plafond absolu en €
-  if (config.cap !== undefined && config.cap !== null && amount > config.cap) {
-    explanation = `${explanation} (plafonné à ${config.cap.toFixed(2)}€)`;
-    amount = config.cap;
-  }
-
-  // 4. Une commission n'est jamais négative : une base négative (ex. marge
-  // négative sur une affaire à perte) donne 0 €, jamais une retenue.
-  if (amount < 0) {
-    explanation = `${explanation} → borné à 0€ (base négative)`;
-    amount = 0;
-  }
-
-  return { amount, explanation };
-}
-
-// ─── Résolution de la base de calcul (event deal OU mission) ─────────────────
-
-/**
- * Entrée générique du moteur : facts d'un CommissionableEvent, qu'il vienne d'un
- * deal WON (amount/margin) ou d'un mois de mission (monthlyAmount/margin/consultants).
- */
-export interface CommissionBasisInput {
-  amount: number;             // base CA/revenu (deal.amount ou mission.monthlyAmount)
-  marginAmount?: number | null;
-  costAmount?: number | null;
-  unitCount?: number | null;  // nb de consultants placés (forfait)
-}
-
-/**
- * Résout la base de calcul selon config.calculationBasis.
- * - PER_UNIT : nb de consultants placés
- * - MARGIN   : marge fournie, sinon amount - coût, sinon 0 (décision Léo
- *   2026-07-06 : marge inconnue = commission à 0, JAMAIS de repli sur le CA —
- *   un % de marge calculé sur le CA entier surpayait systématiquement)
- * - REVENUE  : amount
- */
-export function resolveBasisAmount(
-  config: CommissionRuleConfig,
-  input: CommissionBasisInput,
-): { basisAmount: number; basisLabel: string } {
-  if (config.calculationBasis === 'PER_UNIT') {
-    return { basisAmount: input.unitCount ?? 0, basisLabel: 'consultants' };
-  }
-  if (config.calculationBasis === 'MARGIN') {
-    let margin: number;
-    if (input.marginAmount !== null && input.marginAmount !== undefined) {
-      margin = input.marginAmount;
-    } else if (input.costAmount !== null && input.costAmount !== undefined) {
-      margin = input.amount - input.costAmount;
-    } else {
-      margin = 0;
-    }
-    return { basisAmount: margin, basisLabel: 'marge' };
-  }
-  return { basisAmount: input.amount, basisLabel: 'CA' };
-}
-
-/**
- * Agrégation d'un plan = SOMME de ses composants (v1). L'opérateur est isolé ici
- * pour rester extensible (max, moyenne pondérée…) sans toucher aux appelants.
- * Chaque composant est calculé sur la base résolue puis multiplié par la part (share).
- * Cap appliqué par composant avant le share (Option A, cohérent avec l'existant).
- */
-export function computePlanComponentsAmount(
-  configs: CommissionRuleConfig[],
-  input: CommissionBasisInput,
-  share = 1,
-): { total: number; breakdown: Array<{ amount: number; explanation: string; skippedReason?: string }> } {
-  let total = 0;
-  const breakdown: Array<{ amount: number; explanation: string; skippedReason?: string }> = [];
-  for (const config of configs) {
-    const { basisAmount } = resolveBasisAmount(config, input);
-    const res = calculateCommissionAmount(basisAmount, config);
-    const amount = res.amount * share;
-    total += amount;
-    breakdown.push({ amount, explanation: res.explanation, skippedReason: res.skippedReason });
-  }
-  return { total, breakdown };
-}
-
-// ─── Résolution template + override (assignation) ────────────────────────────
-
-/**
- * Paramètres surchargeables par assignation. Les champs sémantiques (type,
- * calculationBasis, appliesToEventType, description, examples) ne le sont PAS :
- * un override ne change que les valeurs numériques du barème.
- */
-const OVERRIDABLE_KEYS = ['rate', 'fixedAmount', 'cap', 'floor', 'tiers'] as const;
-
-/**
- * Applique un override d'assignation sur la config de base d'une règle.
- * Retourne une NOUVELLE config (ne mute pas la base). Seuls les champs surchargeables
- * présents dans l'override sont remplacés.
- */
-export function resolveEffectiveConfig(
-  baseConfig: CommissionRuleConfig,
-  overrides?: Partial<CommissionRuleConfig> | null,
-): CommissionRuleConfig {
-  if (!overrides) return baseConfig;
-  const effective: CommissionRuleConfig = { ...baseConfig };
-  for (const key of OVERRIDABLE_KEYS) {
-    const value = overrides[key];
-    if (value !== undefined && value !== null) {
-      // Réaffectation champ à champ ; les clés sont contraintes à OVERRIDABLE_KEYS
-      (effective as unknown as Record<string, unknown>)[key] = value;
-    }
-  }
-  return effective;
-}
+// ─── Moteur de calcul (partagé) ──────────────────────────────────────────────
+// Le calcul pur (base, override, montant, paliers, arrondi) vit dans
+// shared/commission-engine, source unique partagée avec le frontend et le site
+// marketing. Ré-exporté ici pour les appelants historiques du backend.
+import {
+  applyShare,
+  calculateCommissionAmount,
+  resolveBasisAmount,
+  computePlanComponentsAmount,
+  resolveEffectiveConfig,
+} from '../../../shared/commission-engine';
+export { calculateCommissionAmount, resolveBasisAmount, computePlanComponentsAmount, resolveEffectiveConfig };
+export type { CommissionBasisInput } from '../../../shared/commission-engine';
 
 /** Lit et type l'override d'une assignation (colonne JSON Prisma). */
 function readOverrides(overrides: unknown): Partial<CommissionRuleConfig> | null {
@@ -1248,8 +1082,8 @@ export const commissionService = {
           continue;
         }
 
-        // ── Appliquer le share APRÈS le cap (Option A) ──
-        const amount = totalAmount * target.share;
+        // ── Appliquer le share APRÈS le cap (Option A), arrondi au centime ──
+        const amount = applyShare(totalAmount, target.share);
         const splitDetail = target.share < 1.0
           ? `Part ${target.shareLabel} sur ${basisLabel} ${fullBasisAmount.toFixed(2)}€ → `
           : '';

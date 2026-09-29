@@ -199,10 +199,20 @@ export interface CommissionExample {
   explanation: string;
 }
 
+/**
+ * Mode de calcul des paliers (règles TIERED) :
+ * - MARGINAL            : chaque tranche est payée à son propre taux (défaut, comportement historique)
+ * - REACHED             : toute la vente est payée au taux du palier atteint, sans effet rétroactif
+ * - REACHED_RETROACTIVE : en franchissant un palier, tout le CA de la période passe au nouveau taux
+ *                         (la vente déclenche un rattrapage sur le CA déjà réalisé)
+ */
+export type TierMode = 'MARGINAL' | 'REACHED' | 'REACHED_RETROACTIVE';
+
 export interface CommissionRuleConfig {
   type: CommissionRuleType;
   description: string;
   tiers?: CommissionTier[];
+  tierMode?: TierMode;   // Défaut: 'MARGINAL'
   rate?: number;         // Pour PERCENTAGE simple
   fixedAmount?: number;  // Pour FIXED
   examples: CommissionExample[];
