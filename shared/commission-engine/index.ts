@@ -19,3 +19,31 @@ export {
   computePlanComponentsAmount,
 } from './basis';
 export type { CommissionBasisInput } from './basis';
+export {
+  simulateAgencySale,
+  validateSimulationInput,
+  computeFees,
+  buildRemunerationConfig,
+  projectYear,
+  tiersFromThresholds,
+  DEFAULT_VAT_RATE,
+  MAX_SALES_PER_YEAR,
+} from './simulator';
+export type {
+  AgencySaleSimulationInput,
+  AgencySaleSimulationResult,
+  AnnualProjection,
+  DeductionAmount,
+  DeductionInput,
+  DeductionMode,
+  FeesBreakdown,
+  FeesInputMode,
+  FeesTaxBasis,
+  NegotiatorStatus,
+  ParticipantNet,
+  ProjectionSale,
+  RemunerationInput,
+  RemunerationMode,
+  SimulationIssue,
+  SimulationOutcome,
+} from './simulator';

@@ -1,27 +1,42 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import PageHero from '../components/PageHero.astro';
+import Simulator from '../components/simulator/Simulator';
 import { ROUTES } from '../lib/site';
 ---
 
-<!-- Lot 3 : l'îlot React du simulateur remplace l'encart ci-dessous. Lot 5 : contenu éditorial, FAQ et données structurées. -->
+<!-- Lot 4 : capture de lead (PDF + modèle). Lot 5 : contenu éditorial, FAQ et données structurées. -->
 <BaseLayout
   title="Simulateur de commission négociateur immobilier · Gratuit | GrowCom"
   description="Calculez la commission d'un négociateur immobilier : honoraires, paliers par tranche ou au taux atteint, partage mandat / vente. Gratuit, sans inscription."
 >
-  <PageHero
-    eyebrow="Simulateur gratuit"
-    title="Calculez la commission <em>d'un négociateur immobilier.</em>"
-    lead="Prix de vente, honoraires, grille à paliers, partage entre intervenants : obtenez la commission, le détail palier par palier et la projection sur l'année. Sans inscription, tout se calcule dans votre navigateur."
-  />
-
-  <section class="mx-auto max-w-6xl px-5 py-16 sm:px-8">
-    <div class="rounded-[1.4rem] border-[1.5px] border-dashed border-line-strong bg-card/60 px-6 py-16 text-center">
-      <p class="font-display text-2xl">Le simulateur arrive ici.</p>
-      <p class="mx-auto mt-3 max-w-md text-ink-soft">
-        En attendant, découvrez comment se calculent les différents types de paliers dans{" "}
-        <a class="link" href={`${ROUTES.blog}/paliers-marginaux-ou-taux-atteint`}>notre article dédié</a>.
+  <section class="relative isolate overflow-hidden border-b border-line">
+    <div aria-hidden="true" class="absolute -right-24 -top-32 -z-10 h-80 w-80 rounded-full bg-lime/30 blur-3xl"></div>
+    <div class="mx-auto max-w-6xl px-5 pb-10 pt-12 sm:px-8 md:pb-12 md:pt-16">
+      <p class="eyebrow">Simulateur gratuit</p>
+      <h1 class="display mt-5 max-w-3xl text-[2.25rem] text-ink sm:text-[3.2rem]">
+        Calculez la commission <em>d'un négociateur immobilier.</em>
+      </h1>
+      <p class="mt-5 max-w-2xl text-[1.08rem] leading-relaxed text-ink-soft">
+        Honoraires, grille à paliers, partage mandat / vente, retenues : le résultat se met à jour à chaque saisie, avec le détail palier
+        par palier.
+      </p>
+      <p class="mt-4 flex items-center gap-2 text-sm text-muted">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" class="shrink-0 text-growth">
+          <path d="M4 7V5a4 4 0 0 1 8 0v2M3.5 7h9v6.5h-9z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path>
+        </svg>
+        Sans inscription. Vos chiffres restent dans votre navigateur.
       </p>
     </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-5 pb-28 pt-10 sm:px-8 lg:pb-10">
+    <Simulator client:idle />
+  </section>
+
+  <section class="mx-auto max-w-6xl px-5 sm:px-8">
+    <p class="max-w-2xl text-[0.9rem] leading-relaxed text-muted">
+      Les montants sont indicatifs et dépendent entièrement des paramètres saisis. Pour comprendre les différents modes de calcul des
+      paliers, lisez <a class="link" href={`${ROUTES.blog}/paliers-marginaux-ou-taux-atteint`}>notre article détaillé</a>.
+    </p>
   </section>
 </BaseLayout>

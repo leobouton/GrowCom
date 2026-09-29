@@ -42,6 +42,18 @@ npm run preview    # sert le contenu de marketing/dist sur http://localhost:4321
 
 Les articles de blog reçoivent automatiquement la typographie française (espaces insécables dans les nombres, devant « € », « % », « : », « ? »…) : on peut écrire normalement.
 
+## Le simulateur
+
+| Je veux… | Fichier |
+| --- | --- |
+| Changer les valeurs par défaut ou les scénarios pré-remplis | `marketing/src/simulator/state.ts` (`DEFAULT_STATE`, `SCENARIOS`) |
+| Changer l'apparence du formulaire | `marketing/src/components/simulator/Simulator.tsx` |
+| Changer l'apparence du résultat (bordereau, projection) | `marketing/src/components/simulator/ResultsPanel.tsx` |
+
+Les paramètres de la simulation sont gardés dans l'adresse de la page (`?prix=285000&hon=5…`) : on peut la recharger ou envoyer le lien. Les paramètres de campagne (`utm_source`…) présents dans l'adresse sont conservés.
+
+Tests du site : `cd marketing && npm test`.
+
 ## Règle importante
 
 Le site n'a **aucun calcul de commission à lui**. Tous les montants (y compris l'exemple de la page d'accueil) sont calculés par le moteur partagé `shared/commission-engine`, le même que celui de l'app. Pour modifier un calcul, c'est là qu'il faut intervenir, avec des tests (`cd backend && npm test`).

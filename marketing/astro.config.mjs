@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import mdx from '@astrojs/mdx';
+import react from '@astrojs/react';
 import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 import remarkFrenchTypography from './src/lib/remark-french-typography.mjs';
@@ -13,7 +14,8 @@ export default defineConfig({
   // URL sans barre finale ni .html : growcom.fr/simulateur-commission-negociateur-immobilier
   trailingSlash: 'never',
   build: { format: 'file' },
-  integrations: [mdx()],
+  // React uniquement pour les îlots interactifs (simulateur) : les autres pages restent sans JavaScript
+  integrations: [mdx(), react()],
   markdown: {
     // Espaces insécables à la française dans les articles (nombres, €, %, : ; ? !, guillemets)
     remarkPlugins: [remarkFrenchTypography],
