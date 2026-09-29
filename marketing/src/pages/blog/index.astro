@@ -5,6 +5,7 @@ import PageHero from '../../components/PageHero.astro';
 import ArrowIcon from '../../components/ArrowIcon.astro';
 import { formatDate } from '../../lib/format';
 import { ROUTES } from '../../lib/site';
+import { breadcrumbLd, graph } from '../../lib/seo';
 
 const posts = (await getCollection('blog', ({ data }) => !data.draft)).sort(
   (a, b) => b.data.publishedAt.getTime() - a.data.publishedAt.getTime(),
@@ -12,7 +13,9 @@ const posts = (await getCollection('blog', ({ data }) => !data.draft)).sort(
 ---
 
 <BaseLayout
-  title="Blog · Rémunération et commissions des négociateurs immobiliers | GrowCom"
+  title="Rémunération des négociateurs immobiliers : le blog GrowCom"
+  ogImage="/og/blog.png"
+  jsonLd={graph(breadcrumbLd([{ name: 'Blog', path: ROUTES.blog }]))}
   description="Grilles de commissionnement, paliers, partage des ventes, statut des négociateurs : des articles concrets pour les directeurs d'agence immobilière."
 >
   <PageHero

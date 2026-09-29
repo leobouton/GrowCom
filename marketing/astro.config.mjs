@@ -4,6 +4,7 @@ import mdx from '@astrojs/mdx';
 import react from '@astrojs/react';
 import cloudflare from '@astrojs/cloudflare';
 import { unified } from '@astrojs/markdown-remark';
+import sitemap from '@astrojs/sitemap';
 import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 import remarkFrenchTypography from './src/lib/remark-french-typography.mjs';
@@ -16,12 +17,20 @@ export default defineConfig({
   // URL sans barre finale ni .html : growcom.fr/simulateur-commission-negociateur-immobilier
   trailingSlash: 'never',
   build: { format: 'file' },
+  // Compression désactivée : elle supprimait l'espace entre un mot et un lien placé à la ligne
+  // (« dansnotre article »). Le gain de poids était négligeable.
+  compressHTML: false,
   // Site statique, sauf /api/lead (formulaire) exécuté par un Cloudflare Worker
   // (pas de sessions ni de service d'images : rien à configurer chez Cloudflare au-delà du Worker)
   adapter: cloudflare({ prerenderEnvironment: 'node', imageService: 'passthrough' }),
   session: false,
   // React uniquement pour les îlots interactifs (simulateur) : les autres pages restent sans JavaScript
-  integrations: [mdx(), react()],
+  integrations: [
+    mdx(),
+    react(),
+    // Plan du site pour les moteurs de recherche (sitemap-index.xml), sans la page 404
+    sitemap({ filter: (page) => !page.includes('/404') }),
+  ],
   markdown: {
     // Espaces insécables à la française dans les articles (nombres, €, %, : ; ? !, guillemets).
     // Astro 7 lit le Markdown avec « Sätteri » par défaut ; les plugins remark passent par unified.

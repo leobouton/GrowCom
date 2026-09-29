@@ -10,6 +10,10 @@ const blog = defineCollection({
   loader: glob({ pattern: '**/*.{md,mdx}', base: './src/content/blog' }),
   schema: z.object({
     title: z.string(),
+    /** Titre pour Google (balise <title>, ≈ 60 caractères) si le titre de l'article est plus long. */
+    seoTitle: z.string().optional(),
+    /** Image de partage (1200 × 630) dans public/og/ ; défaut : image générique du blog. */
+    image: z.string().optional(),
     /** Meta description (≈ 150 caractères), aussi utilisée comme chapô. */
     description: z.string(),
     publishedAt: z.coerce.date(),

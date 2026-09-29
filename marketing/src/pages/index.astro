@@ -3,6 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import CommissionSlip from '../components/CommissionSlip.astro';
 import ArrowIcon from '../components/ArrowIcon.astro';
 import { ROUTES, DEMO_HREF } from '../lib/site';
+import { graph, organizationLd, websiteLd } from '../lib/seo';
 
 const problems = [
   {
@@ -69,8 +70,9 @@ const steps = [
 ---
 
 <BaseLayout
-  title="GrowCom · Calcul automatique des commissions pour agences immobilières"
+  title="Logiciel de commissions pour agences immobilières | GrowCom"
   description="GrowCom calcule automatiquement les commissions de vos négociateurs immobiliers, palier par palier, et leur montre le détail de chaque euro. Simulateur gratuit."
+  jsonLd={graph(organizationLd(), websiteLd())}
 >
   <!-- ═══ Hero ═══ -->
   <section class="relative isolate overflow-hidden">

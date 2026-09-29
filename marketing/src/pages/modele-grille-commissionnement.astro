@@ -3,6 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import ArrowIcon from '../components/ArrowIcon.astro';
 import LeadForm from '../components/lead/LeadForm';
 import { ROUTES } from '../lib/site';
+import { breadcrumbLd, graph } from '../lib/seo';
 
 const contents = [
   {
@@ -24,9 +25,11 @@ const contents = [
 ];
 ---
 
-<!-- Lot 5 : contenu éditorial et données structurées. -->
 <BaseLayout
-  title="Modèle de grille de commissionnement agence immobilière (Excel) | GrowCom"
+  title="Grille de commissionnement agence immobilière : modèle Excel"
+  ogImage="/og/modele.png"
+  ogImageAlt="Modèle de grille de commissionnement GrowCom (Excel et PDF)"
+  jsonLd={graph(breadcrumbLd([{ name: 'Modèle de grille de commissionnement', path: ROUTES.template }]))}
   description="Téléchargez un modèle de grille de commissionnement pour agence immobilière : calculateur Excel des paliers, grille PDF à annexer au contrat. Gratuit."
 >
   <section class="relative isolate overflow-hidden border-b border-line">

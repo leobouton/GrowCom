@@ -1,14 +1,108 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Simulator from '../components/simulator/Simulator';
-import { ROUTES } from '../lib/site';
+import ArrowIcon from '../components/ArrowIcon.astro';
+import FaqList from '../components/FaqList.astro';
+import { ROUTES, DEMO_HREF } from '../lib/site';
+import { breadcrumbLd, faqLd, graph, simulatorLd, type FaqItem } from '../lib/seo';
+import { formatEurSmart } from '../lib/format';
+import { computeCommission, tiersFromThresholds } from '@shared/commission-engine';
+import { CommissionRuleType, type TierMode } from '@shared/types';
+
+const title = 'Calcul commission négociateur immobilier : simulateur gratuit';
+const description =
+  'Calculez la commission d’un négociateur immobilier : honoraires HT, paliers par tranche ou au taux atteint, partage mandat / vente. Gratuit, sans inscription.';
+
+// Exemple chiffré de la FAQ, calculé par le moteur (mêmes valeurs que l'article de blog)
+const exampleTiers = tiersFromThresholds([
+  { from: 0, rate: 0.3 },
+  { from: 40000, rate: 0.35 },
+  { from: 60000, rate: 0.4 },
+]);
+const exampleFor = (tierMode: TierMode) =>
+  formatEurSmart(
+    computeCommission({
+      config: { type: CommissionRuleType.TIERED, description: '', examples: [], tiers: exampleTiers, tierMode },
+      basisAmount: 11875,
+      priorBasisAmount: 36500,
+    }).totalAmount,
+  );
+
+const LEGIFRANCE_ANNEXE_IV = 'https://www.legifrance.gouv.fr/conv_coll/id/KALISCTA000005731738/';
+const LEGIFRANCE_DROIT_DE_SUITE = 'https://www.legifrance.gouv.fr/conv_coll/article/KALIARTI000042096767';
+
+const faq: FaqItem[] = [
+  {
+    question: 'Comment calculer la commission d’un négociateur immobilier ?',
+    answer:
+      'Partez des honoraires de l’agence hors taxes, et non du prix de vente. Appliquez ensuite le taux, le forfait ou la grille à paliers prévus au contrat, puis répartissez le montant entre les intervenants si la vente est partagée. Avec une grille à paliers, le chiffre d’affaires déjà réalisé dans l’année détermine le taux applicable. Le simulateur de cette page fait ce calcul et en affiche le détail palier par palier.',
+  },
+  {
+    question: 'Quel pourcentage des honoraires touche un négociateur immobilier ?',
+    answer:
+      'Aucun taux n’est fixé par la loi : il dépend du contrat. Un négociateur salarié perçoit en général une part plus faible des honoraires, en contrepartie d’un salaire minimum garanti et de frais pris en charge. Un agent commercial ou un mandataire perçoit une part plus élevée, mais paie lui-même ses frais et ses cotisations. Le simulateur permet de comparer plusieurs grilles sur les mêmes ventes.',
+  },
+  {
+    question: 'La commission se calcule-t-elle sur les honoraires HT ou TTC ?',
+    answer:
+      'Le plus souvent sur les honoraires hors taxes. Pour un négociateur salarié, la convention collective de l’immobilier retient les honoraires hors TVA effectivement encaissés par l’agence. Pour un agent commercial, c’est son contrat qui le précise : vérifiez-le, c’est une source fréquente d’écart.',
+  },
+  {
+    question: 'Quelle différence entre des paliers par tranche et au taux atteint ?',
+    answer: `Par tranche, chaque tranche de chiffre d’affaires est payée à son propre taux. Au taux atteint, toute la vente est payée au taux du palier atteint, avec ou sans rattrapage sur le chiffre d’affaires déjà réalisé. Avec une grille à 30 %, 35 % puis 40 %, un négociateur qui a réalisé 36 500 € et vend pour 11 875 € HT d’honoraires touche ${exampleFor('MARGINAL')} par tranche, ${exampleFor('REACHED')} au taux atteint et ${exampleFor('REACHED_RETROACTIVE')} avec effet rétroactif.`,
+  },
+  {
+    question: 'Qu’est-ce que le droit de suite d’un négociateur immobilier ?',
+    answer:
+      'C’est le droit, après la fin du contrat, de percevoir les commissions des ventes qui sont la suite et la conséquence de son travail. Pour un négociateur salarié, la convention collective de l’immobilier le prévoit : les ventes doivent être conclues pendant la durée du droit de suite, et l’agence doit en avoir effectivement encaissé les honoraires. La durée est précisée dans le contrat.',
+  },
+  {
+    question: 'Les chiffres saisis dans le simulateur sont-ils enregistrés ?',
+    answer:
+      'Non. Le calcul se fait entièrement dans votre navigateur et rien n’est envoyé tant que vous ne demandez pas le PDF par email. Les paramètres sont seulement conservés dans l’adresse de la page, pour la recharger ou la partager.',
+  },
+];
+
+const jsonLd = graph(simulatorLd(description), faqLd(faq), breadcrumbLd([{ name: 'Simulateur de commission', path: ROUTES.simulator }]));
+
+const comparison = [
+  {
+    label: 'Contrat',
+    salaried: 'Contrat de travail, relevant de la convention collective de l’immobilier (IDCC 1527).',
+    agent: 'Contrat d’agent commercial avec l’agence ou le réseau ; indépendant immatriculé au registre spécial des agents commerciaux (RSAC).',
+  },
+  {
+    label: 'Rémunération',
+    salaried: 'Principalement à la commission, avec un salaire minimum conventionnel garanti.',
+    agent: 'Commissions uniquement, fixées par le contrat, sans minimum garanti.',
+  },
+  {
+    label: 'Ce qu’affiche le simulateur',
+    salaried: 'Un montant brut, avant cotisations salariales.',
+    agent: 'Un montant HT à facturer, avant cotisations sociales, impôt et éventuelle TVA.',
+  },
+  {
+    label: 'Frais professionnels',
+    salaried: 'Selon le contrat de travail.',
+    agent: 'À la charge de l’agent : véhicule, téléphone, pack ou redevance de réseau…',
+  },
+  {
+    label: 'Après un départ',
+    salaried: 'Droit de suite sur les ventes issues de son travail, dans la durée prévue au contrat.',
+    agent: 'Selon le contrat ; le Code de commerce prévoit en principe une indemnité de fin de contrat quand l’agence y met fin, sauf faute grave.',
+  },
+];
+
+const disputes = [
+  ['Une grille ambiguë', 'Paliers « au taux atteint » : avec ou sans rattrapage ? Sur l’année civile ou la date anniversaire ? Une phrase manquante suffit.'],
+  ['Une base mal définie', 'Honoraires TTC ou HT, facturés ou encaissés, avant ou après rétrocession à un apporteur.'],
+  ['Des ventes partagées sans règle écrite', 'Qui touche quoi entre la prise de mandat et la vente, et sur quel CA comptent les paliers de chacun.'],
+  ['Des calculs refaits à la main', 'Un tableur recopié chaque mois, une formule cassée, un palier oublié : l’erreur passe inaperçue jusqu’à la paie.'],
+  ['Une commission découverte sur la fiche de paie', 'Sans détail du calcul, le négociateur ne peut pas vérifier. Le doute s’installe, même quand le montant est juste.'],
+];
 ---
 
-<!-- Lot 4 : capture de lead (PDF + modèle). Lot 5 : contenu éditorial, FAQ et données structurées. -->
-<BaseLayout
-  title="Simulateur de commission négociateur immobilier · Gratuit | GrowCom"
-  description="Calculez la commission d'un négociateur immobilier : honoraires, paliers par tranche ou au taux atteint, partage mandat / vente. Gratuit, sans inscription."
->
+<BaseLayout title={title} description={description} ogImage="/og/simulateur.png" ogImageAlt="Simulateur de commission négociateur immobilier GrowCom" jsonLd={jsonLd}>
   <section class="relative isolate overflow-hidden border-b border-line">
     <div aria-hidden="true" class="absolute -right-24 -top-32 -z-10 h-80 w-80 rounded-full bg-lime/30 blur-3xl"></div>
     <div class="mx-auto max-w-6xl px-5 pb-10 pt-12 sm:px-8 md:pb-12 md:pt-16">
@@ -29,14 +123,157 @@ import { ROUTES } from '../lib/site';
     </div>
   </section>
 
-  <section class="mx-auto max-w-6xl px-5 pb-28 pt-10 sm:px-8 lg:pb-10">
-    <Simulator client:idle />
+  <section class="mx-auto max-w-6xl px-5 pb-28 pt-10 sm:px-8 lg:pb-16">
+    <Simulator client:idle={{ timeout: 500 }} />
   </section>
 
-  <section class="mx-auto max-w-6xl px-5 sm:px-8">
-    <p class="max-w-2xl text-[0.9rem] leading-relaxed text-muted">
-      Les montants sont indicatifs et dépendent entièrement des paramètres saisis. Pour comprendre les différents modes de calcul des
-      paliers, lisez <a class="link" href={`${ROUTES.blog}/paliers-marginaux-ou-taux-atteint`}>notre article détaillé</a>.
+  <!-- ═══ Contenu éditorial ═══ -->
+  <div class="render-later border-t border-line bg-paper-deep/50">
+    <div class="mx-auto grid max-w-6xl gap-14 px-5 py-20 sm:px-8 lg:grid-cols-[1fr_18rem] lg:gap-16">
+      <article class="prose-gc min-w-0">
+        <h2 id="calcul">Comment se calcule la commission d’un négociateur immobilier ?</h2>
+        <p>Le calcul tient en trois questions, et chacune doit avoir une réponse écrite dans le contrat.</p>
+        <ol>
+          <li>
+            <strong>Sur quelle base ?</strong> Presque toujours sur les <strong>honoraires de l’agence hors taxes</strong>, et non sur
+            le prix de vente. Un bien vendu 285 000 € avec 5 % d’honoraires TTC rapporte 14 250 € TTC, soit 11 875 € HT : c’est ce
+            montant qui sert de base.
+          </li>
+          <li>
+            <strong>À quel taux ?</strong> Un pourcentage fixe des honoraires, un forfait par vente, ou une <strong>grille à paliers</strong>
+            dont le taux augmente avec le chiffre d’affaires cumulé depuis le début de la période de référence.
+          </li>
+          <li>
+            <strong>Partagé avec qui ?</strong> Quand plusieurs personnes interviennent (prise de mandat, vente, apporteur), la commission
+            est répartie selon les parts prévues.
+          </li>
+        </ol>
+        <p>
+          Les grilles à paliers se lisent de trois façons (par tranche, au taux atteint, ou avec effet rétroactif), et l’écart peut
+          atteindre plusieurs milliers d’euros sur une seule vente. Nous détaillons un exemple chiffré dans
+          <a href={`${ROUTES.blog}/paliers-marginaux-ou-taux-atteint`}>notre article sur les paliers</a>.
+        </p>
+
+        <h2 id="statut">Salarié ou agent commercial : ce qui change</h2>
+        <p>
+          Le statut du négociateur ne change pas la formule de calcul, mais il change ce que représente le montant obtenu et les règles
+          qui l’entourent.
+        </p>
+        <div class="not-prose overflow-x-auto rounded-[1.1rem] border border-line bg-card">
+          <table class="w-full min-w-[36rem] text-left text-[0.92rem] leading-relaxed">
+            <caption class="sr-only">Comparaison entre négociateur salarié et agent commercial</caption>
+            <thead class="bg-ink text-paper">
+              <tr>
+                <th scope="col" class="w-[22%] px-4 py-3 font-semibold text-paper"><span class="sr-only">Critère</span></th>
+                <th scope="col" class="px-4 py-3 font-semibold text-paper">Négociateur salarié (VRP ou non)</th>
+                <th scope="col" class="px-4 py-3 font-semibold text-paper">Agent commercial / mandataire</th>
+              </tr>
+            </thead>
+            <tbody>
+              {
+                comparison.map((row) => (
+                  <tr class="border-t border-line align-top">
+                    <th scope="row" class="px-4 py-3.5 font-semibold text-ink">{row.label}</th>
+                    <td class="px-4 py-3.5 text-ink-soft">{row.salaried}</td>
+                    <td class="px-4 py-3.5 text-ink-soft">{row.agent}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="convention">Ce que prévoit la convention collective de l’immobilier</h2>
+        <p>
+          Les négociateurs salariés des agences relèvent de la convention collective nationale de l’immobilier (IDCC 1527). Son
+          <a href={LEGIFRANCE_ANNEXE_IV} rel="noopener">annexe IV</a>, issue de l’avenant n° 31 du 15 juin 2006, fixe le statut du
+          négociateur immobilier, VRP ou non, rémunéré principalement à la commission. Elle prévoit notamment :
+        </p>
+        <ul>
+          <li>une commission calculée sur les <strong>honoraires hors TVA effectivement encaissés</strong> par l’agence ;</li>
+          <li>
+            un <strong>salaire minimum conventionnel</strong> brut mensuel : si les commissions du mois ne l’atteignent pas, l’employeur
+            verse la différence. Selon le contrat, ce complément est définitivement acquis ou constitue une <strong>avance</strong> à
+            déduire des commissions suivantes ;
+          </li>
+          <li>un minimum annuel égal à <strong>13 fois</strong> ce salaire minimum mensuel ;</li>
+          <li>
+            un <a href={LEGIFRANCE_DROIT_DE_SUITE} rel="noopener">droit de suite</a> : après son départ, le négociateur perçoit les
+            commissions des ventes qui sont la suite de son travail, conclues pendant la durée du droit de suite et dont l’agence a
+            effectivement encaissé les honoraires.
+          </li>
+        </ul>
+        <p>
+          Les montants minimums sont revalorisés régulièrement par avenant : reportez-vous à la version en vigueur sur Légifrance. Ces
+          repères sont généraux et ne remplacent pas l’avis d’un juriste ou de votre expert-comptable pour un cas précis.
+        </p>
+
+        <h2 id="litiges">Pourquoi les commissions finissent en litige</h2>
+        <p>Les désaccords naissent rarement d’un calcul faux. Ils naissent d’une règle que chacun lit à sa façon :</p>
+        <dl class="not-prose mt-6 grid gap-3 sm:grid-cols-2">
+          {
+            disputes.map(([term, detail], index) => (
+              <div class="rounded-[1rem] border border-line bg-card p-5">
+                <dt class="flex items-baseline gap-3 font-semibold text-ink">
+                  <span class="num font-display text-[1.1rem] text-muted">0{index + 1}</span>
+                  {term}
+                </dt>
+                <dd class="mt-2 text-[0.93rem] leading-relaxed text-ink-soft">{detail}</dd>
+              </div>
+            ))
+          }
+        </dl>
+        <p>
+          Deux remèdes : une grille écrite sans ambiguïté (c’est l’objet de notre
+          <a href={ROUTES.template}>modèle de grille de commissionnement</a>), et un calcul que le négociateur peut vérifier lui-même.
+          C’est ce que fait GrowCom : chaque commission est calculée automatiquement, avec son détail ligne par ligne, et le négociateur
+          peut signaler un écart en un clic.
+        </p>
+      </article>
+
+      <!-- Sommaire et prolongements -->
+      <aside class="lg:sticky lg:top-24 lg:self-start">
+        <nav aria-label="Sommaire de la page" class="rounded-[1.2rem] border border-line bg-card p-6">
+          <p class="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-muted">Sur cette page</p>
+          <ul class="mt-4 space-y-2.5 text-[0.93rem]">
+            <li><a class="text-ink-soft hover:text-ink" href="#calcul">Le calcul d’une commission</a></li>
+            <li><a class="text-ink-soft hover:text-ink" href="#statut">Salarié ou agent commercial</a></li>
+            <li><a class="text-ink-soft hover:text-ink" href="#convention">La convention collective</a></li>
+            <li><a class="text-ink-soft hover:text-ink" href="#litiges">Pourquoi les litiges arrivent</a></li>
+            <li><a class="text-ink-soft hover:text-ink" href="#faq">Questions fréquentes</a></li>
+          </ul>
+        </nav>
+        <a href={ROUTES.template} class="group mt-4 block rounded-[1.2rem] bg-ink p-6 text-paper">
+          <p class="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-lime">Modèle gratuit</p>
+          <p class="mt-2 font-display text-[1.25rem] leading-snug text-paper" style="font-weight: 460">La grille de commissionnement, prête à l’emploi</p>
+          <span class="mt-4 inline-flex items-center gap-2 text-[0.88rem] font-semibold text-lime">Excel + PDF <ArrowIcon /></span>
+        </a>
+      </aside>
+    </div>
+  </div>
+
+  <section id="faq" class="render-later mx-auto max-w-3xl scroll-mt-24 px-5 pt-20 sm:px-8">
+    <p class="eyebrow">Questions fréquentes</p>
+    <h2 class="display mt-5 text-[2rem] sm:text-[2.6rem]">Commission des négociateurs : <em>vos questions.</em></h2>
+    <FaqList items={faq} />
+  </section>
+
+  <section class="mx-auto max-w-6xl px-5 pt-20 sm:px-8">
+    <div class="grid gap-8 border-t-2 border-ink pt-10 md:grid-cols-[1.2fr_0.8fr] md:items-center">
+      <div>
+        <h2 class="display text-[1.8rem] sm:text-[2.3rem]">Faire ce calcul pour toute une équipe, chaque mois ?</h2>
+        <p class="mt-4 max-w-xl text-[1.02rem] leading-relaxed text-ink-soft">
+          GrowCom applique votre grille à chaque vente, montre à chaque négociateur le détail de sa commission et son prochain palier,
+          et prépare les montants pour la paie.
+        </p>
+      </div>
+      <div class="flex flex-col gap-3 md:items-end">
+        <a href={DEMO_HREF} class="btn btn-primary">Demander une démo <ArrowIcon /></a>
+        <a href={ROUTES.home} class="link text-[0.92rem]">Découvrir GrowCom</a>
+      </div>
+    </div>
+    <p class="mt-10 max-w-2xl text-[0.85rem] leading-relaxed text-muted">
+      Les montants du simulateur sont indicatifs et dépendent entièrement des paramètres saisis.
     </p>
   </section>
 </BaseLayout>

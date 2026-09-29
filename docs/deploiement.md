@@ -119,6 +119,8 @@ Le plus simple : Cloudflare construit et publie le site à chaque `git push` sur
 - [ ] Une adresse inexistante (ex. `/test`) affiche la page « Cette page n'est dans aucun palier ».
 - [ ] Formulaire du simulateur avec **ta propre adresse** et ton numéro : l'écran « C'est prêt » apparaît, le PDF se télécharge, tu reçois l'email avec les liens **et** l'alerte de rappel.
 - [ ] Dans Brevo, le contact apparaît dans la liste avec ses attributs (dont `UTM_SOURCE` si tu as testé avec `?utm_source=test` dans l'adresse).
+- [ ] Mesure de performance réelle : [pagespeed.web.dev](https://pagespeed.web.dev) sur l'accueil et le simulateur (objectif ≥ 95 en Performance, Accessibilité, SEO ; mesurés en local à 94-98 et 100).
+- [ ] Référencement : [Google Search Console](https://search.google.com/search-console) › ajouter `growcom.fr` (vérification par enregistrement DNS dans Cloudflare) › *Sitemaps* › soumettre `https://growcom.fr/sitemap-index.xml`.
 - [ ] En cas de souci : Worker › *Journaux* (Observability) ; les messages commencent par `[lead]`.
 
 ---

@@ -1,5 +1,7 @@
 ---
 title: "Commission par paliers : paliers marginaux ou taux atteint, quelle différence ?"
+seoTitle: "Commission par paliers : par tranche ou au taux atteint ?"
+image: "/og/blog-paliers-marginaux-ou-taux-atteint.png"
 description: "Deux grilles identiques peuvent donner des commissions très différentes selon le mode de calcul des paliers. Exemple chiffré et conseils pour bien rédiger votre grille."
 publishedAt: 2026-09-29
 ---

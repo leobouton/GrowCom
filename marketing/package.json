@@ -6,17 +6,19 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro check && astro build",
+    "build": "astro check && astro build && node scripts/check-seo.mjs",
     "preview": "astro preview",
     "check": "astro check",
     "test": "vitest run",
-    "generate:templates": "tsx scripts/generate-templates.ts"
+    "generate:templates": "tsx scripts/generate-templates.ts",
+    "generate:og": "tsx scripts/generate-og.ts"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.3.3",
     "@astrojs/markdown-remark": "^7.3.1",
     "@astrojs/mdx": "^8.0.2",
     "@astrojs/react": "^7.0.0",
+    "@astrojs/sitemap": "^3.7.4",
     "@fontsource-variable/fraunces": "^5.3.0",
     "@fontsource-variable/inter": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
@@ -32,6 +34,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "exceljs": "^4.4.0",
+    "puppeteer-core": "^25.12.0",
     "tsx": "^4.23.15",
     "typescript": "^5.7.3",
     "vitest": "^5.0.2",

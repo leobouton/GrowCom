@@ -48,13 +48,27 @@ export default function Simulator() {
   const touched = useRef(false);
   const hydrated = useRef(false);
 
-  // Barre de résumé mobile masquée quand le bordereau complet est à l'écran
+  // Barre de résumé mobile : affichée seulement tant que le bordereau est plus bas dans la page
+  // (masquée quand il est à l'écran ou déjà dépassé, y compris après un saut vers une ancre)
   useEffect(() => {
     const node = resultRef.current;
-    if (!node || typeof IntersectionObserver === 'undefined') return;
-    const observer = new IntersectionObserver(([entry]) => setResultVisible(entry.isIntersecting), { threshold: 0.15 });
-    observer.observe(node);
-    return () => observer.disconnect();
+    if (!node) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      setResultVisible(node.getBoundingClientRect().top < window.innerHeight * 0.85);
+    };
+    const schedule = () => {
+      if (!frame) frame = window.requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    return () => {
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, []);
 
   // Au chargement : reprendre la simulation contenue dans l'URL (lien partagé, rechargement)

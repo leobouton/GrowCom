@@ -2,10 +2,12 @@
  * Bouton « Recevoir ce calcul en PDF + le modèle de grille » et sa fenêtre (<dialog> natif :
  * focus piégé, touche Échap, fond assombri). Le formulaire n'est monté qu'à l'ouverture.
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react';
 import type { AgencySaleSimulationResult } from '@shared/commission-engine';
 import type { SimulatorState } from '../../simulator/state';
-import LeadForm from './LeadForm';
+
+// Formulaire chargé seulement à l'ouverture de la fenêtre : rien ne pèse sur l'affichage du simulateur
+const LeadForm = lazy(() => import('./LeadForm'));
 
 interface Props {
   simulation: { state: SimulatorState; result: AgencySaleSimulationResult } | null;
@@ -73,7 +75,13 @@ export function LeadDialog({ simulation }: Props) {
             Le détail de cette simulation, palier par palier, et un modèle de grille de commissionnement prêt à l’emploi (Excel qui
             calcule tout seul + PDF à annexer au contrat).
           </p>
-          <div className="mt-6">{open && <LeadForm source="simulateur" simulation={snapshot} submitLabel="Recevoir mon calcul et le modèle" />}</div>
+          <div className="mt-6">
+            {open && (
+              <Suspense fallback={<p className="py-10 text-center text-[0.9rem] text-muted">Chargement du formulaire…</p>}>
+                <LeadForm source="simulateur" simulation={snapshot} submitLabel="Recevoir mon calcul et le modèle" />
+              </Suspense>
+            )}
+          </div>
         </div>
       </dialog>
     </>

@@ -171,6 +171,13 @@
   }
   .link:hover { text-decoration-color: var(--color-primary-700); }
 
+  /* Sections sous la ligne de flottaison : mises en page seulement à l'approche du défilement
+     (le navigateur les rend normalement pour la recherche dans la page et les ancres) */
+  .render-later {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 900px;
+  }
+
   /* Lignes à points de conduite (« Honoraires ........ 11 875 € ») */
   .leader {
     display: flex;
@@ -245,6 +252,8 @@
     font-size: 0.95rem;
     font-variant-numeric: tabular-nums;
   }
+  /* Blocs mis en forme à part (tableau comparatif…) : pas de style d'article */
+  .prose-gc .not-prose table { display: table; max-width: none; overflow: visible; }
   .prose-gc th, .prose-gc td {
     text-align: left;
     padding: 0.6em 0.8em;

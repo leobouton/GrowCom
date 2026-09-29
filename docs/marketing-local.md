@@ -42,6 +42,20 @@ npm run preview    # sert le contenu de marketing/dist sur http://localhost:4321
 
 Les articles de blog reçoivent automatiquement la typographie française (espaces insécables dans les nombres, devant « € », « % », « : », « ? »…) : on peut écrire normalement.
 
+## Écrire un article de blog (et bien le référencer)
+
+1. Copier `marketing/src/content/blog/paliers-marginaux-ou-taux-atteint.md` sous un nouveau nom, par exemple `rémunération-agent-commercial.md` → l'article sera à l'adresse `/blog/remuneration-agent-commercial` (préférer un nom sans accents).
+2. En tête du fichier, remplir :
+   - `title` : le titre affiché ;
+   - `seoTitle` (facultatif) : le titre pour Google, 60 caractères maximum, si `title` est plus long ;
+   - `description` : le résumé affiché par Google (110 à 160 caractères) ;
+   - `publishedAt` : la date, au format `2026-10-15` ;
+   - `image` (facultatif) : l'image de partage (voir ci-dessous) ;
+   - `draft: true` pour préparer un article sans le publier.
+3. `npm run build` : un **contrôle SEO automatique** bloque la construction si un titre ou une description manque, est en double, ou si un lien interne est cassé.
+
+**Images de partage** (celles qui s'affichent quand on colle un lien dans LinkedIn, WhatsApp, un email) : elles sont décrites dans `marketing/scripts/generate-og.ts`. Pour en ajouter une, copier un bloc de la liste `CARDS`, puis `npm run generate:og` (Chrome doit être installé) et committer le fichier créé dans `public/og/`.
+
 ## Le simulateur
 
 | Je veux… | Fichier |
