@@ -1,0 +1,271 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import CommissionSlip from '../components/CommissionSlip.astro';
+import ArrowIcon from '../components/ArrowIcon.astro';
+import { ROUTES, DEMO_HREF } from '../lib/site';
+
+const problems = [
+  {
+    title: 'Une grille que personne ne relit',
+    text: "Elle est dans un Excel ou dans l'annexe du contrat signé à l'embauche. Au moment de la paie, chacun refait le calcul de son côté, et rarement de la même façon.",
+  },
+  {
+    title: 'Des écarts qui tournent au litige',
+    text: "Un palier mal appliqué, une vente partagée oubliée, une base HT confondue avec du TTC : quelques centaines d'euros suffisent à abîmer la confiance.",
+  },
+  {
+    title: 'Des objectifs qui restent abstraits',
+    text: "Sans savoir combien il manque pour le prochain palier, le négociateur avance à l'aveugle. Et un bon négociateur qui doute de sa paie finit par regarder ailleurs.",
+  },
+];
+
+const features = [
+  {
+    title: 'Calcul automatique à chaque vente',
+    text: 'Pourcentage, forfait, paliers par tranche ou au taux atteint, seuils et plafonds : vos règles, appliquées sans ressaisie.',
+    icon: 'M4 17l5-5 4 4 7-8M15 8h5v5',
+  },
+  {
+    title: 'Un détail que tout le monde comprend',
+    text: "Chaque commission est accompagnée de son calcul ligne par ligne. Le négociateur voit d'où vient chaque euro.",
+    icon: 'M6 4h12v16l-3-2-3 2-3-2-3 2V4zM9 9h6M9 13h4',
+  },
+  {
+    title: 'Ventes partagées, au centime près',
+    text: 'Mandat, vente, apporteur : les parts sont réparties automatiquement, sans centime perdu ni créé.',
+    icon: 'M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5',
+  },
+  {
+    title: 'Le prochain palier, toujours visible',
+    text: "Objectifs et paliers en temps réel : « encore 6 200 € pour passer à 40 % ». C'est ce qui transforme une grille en moteur.",
+    icon: 'M4 20h16M7 16V10M12 16V6M17 16v-3',
+  },
+  {
+    title: 'Les contestations, tracées',
+    text: "Le négociateur signale un écart en un clic, le manager tranche, tout est historisé. Fini les discussions de couloir.",
+    icon: 'M5 5h14v10H9l-4 4V5zM12 8v3M12 13.5v.01',
+  },
+  {
+    title: 'Prêt pour la paie',
+    text: 'Validation par le manager, puis export des montants à verser. Les ventes arrivent par import Excel ou depuis HubSpot et Odoo.',
+    icon: 'M7 3h7l5 5v13H7V3zM14 3v5h5M10 13h6M10 17h6',
+  },
+];
+
+const steps = [
+  {
+    title: 'Vous décrivez votre grille',
+    text: "En langage courant, comme elle est rédigée dans vos contrats. GrowCom la traduit en règle de calcul et vous montre des exemples chiffrés pour vérifier.",
+  },
+  {
+    title: 'Les ventes remontent',
+    text: "Par import d'un export Excel ou CSV de votre logiciel, ou directement depuis votre CRM. Chaque vente gagnée déclenche le calcul.",
+  },
+  {
+    title: 'Chacun voit sa commission',
+    text: 'Le négociateur suit ses gains et son prochain palier ; le manager valide, gère les contestations et prépare la paie.',
+  },
+];
+---
+
+<BaseLayout
+  title="GrowCom · Calcul automatique des commissions pour agences immobilières"
+  description="GrowCom calcule automatiquement les commissions de vos négociateurs immobiliers, palier par palier, et leur montre le détail de chaque euro. Simulateur gratuit."
+>
+  <!-- ═══ Hero ═══ -->
+  <section class="relative isolate overflow-hidden">
+    <!-- Courbe de croissance du logo, dessinée au chargement -->
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 1440 640"
+      preserveAspectRatio="none"
+      class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-full w-full"
+    >
+      <path
+        d="M-40 600C300 600 420 520 560 340S820 70 1180 60"
+        fill="none"
+        stroke="#17161c"
+        stroke-opacity="0.07"
+        stroke-width="3"
+        stroke-linecap="round"
+        pathLength="1"
+        stroke-dasharray="1"
+        style="animation: gc-draw 2.2s cubic-bezier(0.45, 0, 0.2, 1) 0.1s both"
+      ></path>
+    </svg>
+    <div
+      aria-hidden="true"
+      class="absolute right-[-8rem] top-[-6rem] -z-10 h-[28rem] w-[28rem] rounded-full bg-lime/35 blur-3xl sm:right-[-4rem]"
+    >
+    </div>
+
+    <div class="mx-auto grid max-w-6xl items-center gap-14 px-5 pb-20 pt-14 sm:px-8 md:pt-20 lg:grid-cols-[1.12fr_0.88fr] lg:gap-10 lg:pb-28">
+      <div>
+        <p class="eyebrow rise">Pour les agences immobilières</p>
+        <h1 class="display mt-6 text-[2.55rem] text-ink sm:text-6xl lg:text-[4.35rem]">
+          Des commissions claires,<br />
+          <em class="marker sm:whitespace-nowrap">palier par palier.</em>
+        </h1>
+        <p class="rise mt-7 max-w-xl text-[1.13rem] leading-relaxed text-ink-soft" style="--delay: 120ms">
+          GrowCom calcule automatiquement la rémunération variable de vos négociateurs et leur montre le détail de chaque euro.
+          Moins de litiges, des objectifs concrets, et une paie qui ne se refait plus à la main.
+        </p>
+        <div class="rise mt-9 flex flex-col gap-3 sm:flex-row sm:items-center" style="--delay: 220ms">
+          <a href={ROUTES.simulator} class="btn btn-primary">
+            Simuler une commission
+            <ArrowIcon />
+          </a>
+          <a href={ROUTES.template} class="btn btn-secondary">Télécharger le modèle de grille</a>
+        </div>
+        <p class="rise mt-5 flex items-center gap-2 text-sm text-muted" style="--delay: 320ms">
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" class="text-growth">
+            <path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+          Simulateur gratuit, sans inscription, calculé dans votre navigateur.
+        </p>
+      </div>
+
+      <div class="mx-auto w-full max-w-[25rem] lg:mr-0">
+        <CommissionSlip />
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Le constat ═══ -->
+  <section class="border-y border-line bg-paper-deep/60">
+    <div class="mx-auto max-w-6xl px-5 py-20 sm:px-8 md:py-24">
+      <div class="max-w-2xl">
+        <p class="eyebrow">Le constat</p>
+        <h2 class="display mt-5 text-[2.1rem] sm:text-5xl">
+          Dans beaucoup d'agences, la commission reste <em>une boîte noire.</em>
+        </h2>
+      </div>
+      <ol class="mt-14 grid gap-10 md:grid-cols-3 md:gap-8">
+        {
+          problems.map((problem, index) => (
+            <li class="on-scroll border-t-2 border-ink pt-6">
+              <span class="num font-display text-[2.6rem] leading-none text-ink/25" style="font-weight: 400">
+                0{index + 1}
+              </span>
+              <h3 class="mt-4 text-lg font-semibold text-ink">{problem.title}</h3>
+              <p class="mt-3 leading-relaxed text-ink-soft">{problem.text}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+
+  <!-- ═══ Fonctionnalités ═══ -->
+  <section class="mx-auto max-w-6xl px-5 py-20 sm:px-8 md:py-28">
+    <div class="grid gap-6 md:grid-cols-[0.9fr_1.1fr] md:items-end">
+      <div>
+        <p class="eyebrow">Ce que fait GrowCom</p>
+        <h2 class="display mt-5 text-[2.1rem] sm:text-5xl">
+          Tout ce qui se joue entre <em>la vente</em> et la fiche de paie.
+        </h2>
+      </div>
+      <p class="max-w-md text-[1.05rem] leading-relaxed text-ink-soft md:justify-self-end">
+        Un seul outil pour calculer, expliquer, valider et verser les commissions, pensé pour le directeur d'agence comme pour le
+        négociateur.
+      </p>
+    </div>
+
+    <div class="mt-14 grid gap-px overflow-hidden rounded-[1.4rem] border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
+      {
+        features.map((feature) => (
+          <article class="on-scroll group bg-card p-7 transition-colors hover:bg-[#fffef8] sm:p-8">
+            <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-paper text-ink ring-1 ring-line transition-colors group-hover:bg-lime-soft group-hover:ring-lime">
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d={feature.icon}
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            <h3 class="mt-6 text-[1.08rem] font-semibold text-ink">{feature.title}</h3>
+            <p class="mt-2.5 leading-relaxed text-ink-soft">{feature.text}</p>
+          </article>
+        ))
+      }
+    </div>
+  </section>
+
+  <!-- ═══ Comment ça marche ═══ -->
+  <section class="mx-auto max-w-6xl px-5 pb-20 sm:px-8 md:pb-28">
+    <div class="rounded-[1.8rem] border border-line bg-card px-6 py-14 shadow-[var(--shadow-card)] sm:px-12 md:py-16">
+      <p class="eyebrow">Mise en place</p>
+      <h2 class="display mt-5 max-w-2xl text-[2.1rem] sm:text-[2.8rem]">Opérationnel en trois temps.</h2>
+      <ol class="relative mt-12 grid gap-10 md:grid-cols-3 md:gap-8">
+        <!-- fil conducteur entre les étapes -->
+        <div aria-hidden="true" class="absolute left-0 right-0 top-5 hidden border-t-[1.5px] border-dashed border-line-strong md:block"></div>
+        {
+          steps.map((step, index) => (
+            <li class="on-scroll relative">
+              <span class="relative flex h-10 w-10 items-center justify-center rounded-full border-[1.5px] border-ink bg-card font-display text-lg text-ink">
+                {index + 1}
+              </span>
+              <h3 class="mt-5 text-lg font-semibold text-ink">{step.title}</h3>
+              <p class="mt-2.5 leading-relaxed text-ink-soft">{step.text}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+
+  <!-- ═══ Simulateur ═══ -->
+  <section class="mx-auto max-w-6xl px-5 sm:px-8">
+    <div class="relative isolate overflow-hidden rounded-[1.8rem] bg-ink px-6 py-16 text-paper sm:px-12 md:py-20">
+      <svg aria-hidden="true" viewBox="0 0 600 300" class="absolute -bottom-10 right-0 -z-10 h-72 w-[36rem] max-w-none opacity-20">
+        <path d="M0 290c130 0 180-40 235-125S360 20 520 18" fill="none" stroke="#c8e45c" stroke-width="3" stroke-linecap="round"></path>
+        <circle cx="548" cy="18" r="14" fill="#c8e45c"></circle>
+      </svg>
+      <div class="grid gap-10 md:grid-cols-[1.2fr_0.8fr] md:items-center">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-lime">Outil gratuit</p>
+          <h2 class="display mt-5 text-[2.1rem] text-paper sm:text-5xl">Faites le calcul sur vos propres chiffres.</h2>
+          <p class="mt-5 max-w-lg text-[1.05rem] leading-relaxed text-paper/75">
+            Prix de vente, honoraires, paliers, partage mandat / vente : le simulateur vous donne la commission du négociateur, le
+            détail palier par palier et la projection sur l'année.
+          </p>
+        </div>
+        <div class="flex flex-col gap-4 md:items-end">
+          <a href={ROUTES.simulator} class="btn btn-lime w-full md:w-auto">
+            Ouvrir le simulateur
+            <ArrowIcon />
+          </a>
+          <ul class="space-y-1.5 text-sm text-paper/70 md:text-right">
+            <li>Sans inscription</li>
+            <li>Paliers par tranche ou au taux atteint</li>
+            <li>Lien partageable avec votre équipe</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Agences pilotes (sans fausse preuve sociale) ═══ -->
+  <section class="mx-auto max-w-6xl px-5 pt-24 sm:px-8 md:pt-28">
+    <div class="grid gap-8 border-t-2 border-ink pt-10 md:grid-cols-[1fr_1fr] md:gap-16">
+      <div>
+        <p class="eyebrow">Où en est GrowCom</p>
+        <h2 class="display mt-5 text-[2rem] sm:text-[2.6rem]">Nous construisons l'outil avec des agences pilotes.</h2>
+      </div>
+      <div class="md:pt-12">
+        <p class="text-[1.05rem] leading-relaxed text-ink-soft">
+          GrowCom est en phase de lancement. Nous cherchons quelques agences prêtes à nous confier leur grille de commissionnement
+          pour affiner l'outil avec elles. En échange : un accompagnement direct et une voix dans les choix du produit.
+        </p>
+        <a href={DEMO_HREF} class="btn btn-secondary mt-7">
+          Devenir agence pilote
+          <ArrowIcon />
+        </a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

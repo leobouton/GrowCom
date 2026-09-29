@@ -1,0 +1,61 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHero from '../components/PageHero.astro';
+import { ROUTES, SITE } from '../lib/site';
+
+/*
+ * TODO Léo : compléter les informations marquées « À compléter » avant la mise en ligne.
+ * Elles sont obligatoires (loi n° 2004-575 du 21 juin 2004, article 6).
+ */
+---
+
+<BaseLayout
+  title="Mentions légales | GrowCom"
+  description="Mentions légales du site growcom.fr : éditeur, directeur de la publication, hébergeur et conditions d'utilisation du simulateur."
+>
+  <PageHero eyebrow="Informations" title="Mentions légales" narrow />
+
+  <div class="prose-gc mx-auto max-w-3xl px-5 py-14 sm:px-8">
+    <h2>Éditeur du site</h2>
+    <p>Le site {SITE.url.replace('https://', '')} est édité par :</p>
+    <ul>
+      <li>Raison sociale : <span class="todo">À compléter</span></li>
+      <li>Forme juridique et capital social : <span class="todo">À compléter</span></li>
+      <li>Siège social : <span class="todo">À compléter</span></li>
+      <li>SIREN / RCS : <span class="todo">À compléter</span></li>
+      <li>Numéro de TVA intracommunautaire : <span class="todo">À compléter</span></li>
+      <li>Adresse email : <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a></li>
+    </ul>
+    <p>Directeur de la publication : <span class="todo">À compléter (nom du représentant légal)</span></p>
+
+    <h2>Hébergement</h2>
+    <p>
+      Le site est hébergé par Cloudflare, Inc., 101 Townsend Street, San Francisco, CA 94107, États-Unis
+      (<a href="https://www.cloudflare.com" rel="noopener">cloudflare.com</a>).{" "}
+      <span class="todo">À vérifier lors de la mise en ligne</span>
+    </p>
+
+    <h2>Simulateur et contenus</h2>
+    <p>
+      Le simulateur de commission et les articles publiés sur ce site sont fournis à titre informatif. Les résultats dépendent
+      entièrement des paramètres saisis et ne constituent ni un conseil juridique, ni un conseil social ou fiscal. La rémunération
+      d'un négociateur est régie par son contrat, la convention collective applicable et la réglementation en vigueur.
+    </p>
+
+    <h2>Propriété intellectuelle</h2>
+    <p>
+      L'ensemble des éléments de ce site (textes, graphismes, logo, code) est la propriété de l'éditeur, sauf mention contraire.
+      Le modèle de grille de commissionnement proposé au téléchargement peut être librement utilisé et adapté pour les besoins
+      internes de votre agence.
+    </p>
+
+    <h2>Données personnelles</h2>
+    <p>
+      Le traitement de vos données personnelles est décrit dans notre{" "}
+      <a href={ROUTES.privacy}>politique de confidentialité</a>.
+    </p>
+
+    <h2>Droit applicable</h2>
+    <p>Les présentes mentions légales sont régies par le droit français.</p>
+  </div>
+</BaseLayout>

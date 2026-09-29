@@ -1,0 +1,20 @@
+---
+/** En-tête des pages intérieures : surtitre, grand titre, chapô. */
+interface Props {
+  eyebrow: string;
+  title: string;
+  lead?: string;
+  narrow?: boolean;
+}
+const { eyebrow, title, lead, narrow = false } = Astro.props;
+---
+
+<section class="relative isolate overflow-hidden border-b border-line">
+  <div aria-hidden="true" class="absolute -right-24 -top-32 -z-10 h-80 w-80 rounded-full bg-lime/30 blur-3xl"></div>
+  <div class:list={['mx-auto px-5 pb-14 pt-14 sm:px-8 md:pb-16 md:pt-20', narrow ? 'max-w-3xl' : 'max-w-6xl']}>
+    <p class="eyebrow">{eyebrow}</p>
+    <h1 class="display mt-5 max-w-4xl text-[2.35rem] text-ink sm:text-[3.4rem]" set:html={title} />
+    {lead && <p class="mt-6 max-w-2xl text-[1.1rem] leading-relaxed text-ink-soft">{lead}</p>}
+    <slot />
+  </div>
+</section>

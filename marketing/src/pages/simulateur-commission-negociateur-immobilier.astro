@@ -1,0 +1,27 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHero from '../components/PageHero.astro';
+import { ROUTES } from '../lib/site';
+---
+
+<!-- Lot 3 : l'îlot React du simulateur remplace l'encart ci-dessous. Lot 5 : contenu éditorial, FAQ et données structurées. -->
+<BaseLayout
+  title="Simulateur de commission négociateur immobilier · Gratuit | GrowCom"
+  description="Calculez la commission d'un négociateur immobilier : honoraires, paliers par tranche ou au taux atteint, partage mandat / vente. Gratuit, sans inscription."
+>
+  <PageHero
+    eyebrow="Simulateur gratuit"
+    title="Calculez la commission <em>d'un négociateur immobilier.</em>"
+    lead="Prix de vente, honoraires, grille à paliers, partage entre intervenants : obtenez la commission, le détail palier par palier et la projection sur l'année. Sans inscription, tout se calcule dans votre navigateur."
+  />
+
+  <section class="mx-auto max-w-6xl px-5 py-16 sm:px-8">
+    <div class="rounded-[1.4rem] border-[1.5px] border-dashed border-line-strong bg-card/60 px-6 py-16 text-center">
+      <p class="font-display text-2xl">Le simulateur arrive ici.</p>
+      <p class="mx-auto mt-3 max-w-md text-ink-soft">
+        En attendant, découvrez comment se calculent les différents types de paliers dans{" "}
+        <a class="link" href={`${ROUTES.blog}/paliers-marginaux-ou-taux-atteint`}>notre article dédié</a>.
+      </p>
+    </div>
+  </section>
+</BaseLayout>

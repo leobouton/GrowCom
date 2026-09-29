@@ -1,0 +1,308 @@
+@import "tailwindcss";
+
+/*
+ * Identité du site GrowCom
+ * - papier chaud + encre : l'univers du bordereau de commission, sobre et lisible
+ * - indigo : couleur principale de l'app (boutons, liens), pour la continuité site → app
+ * - vert anis : le point du logo, réservé à ce qui évoque la progression
+ * - Fraunces (titres) répond au logo à empattements ; Inter (texte) est la police de l'app
+ */
+@theme {
+  --color-paper: #f7f4ee;
+  --color-paper-deep: #eee8dc;
+  --color-card: #fffdf9;
+  --color-ink: #17161c;
+  --color-ink-soft: #3b3a44;
+  --color-muted: #625f6b;
+  --color-line: #e0d8c9;
+  --color-line-strong: #cfc5b2;
+  --color-lime: #c8e45c;
+  --color-lime-soft: #eef6cf;
+  --color-growth: #45620a;
+
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
+
+  --shadow-slip: 0 1px 0 rgb(23 22 28 / 0.04), 0 12px 24px -8px rgb(23 22 28 / 0.14), 0 40px 80px -24px rgb(23 22 28 / 0.22);
+  --shadow-card: 0 1px 2px rgb(23 22 28 / 0.05), 0 8px 24px -12px rgb(23 22 28 / 0.12);
+}
+
+@layer base {
+  html {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+    /* grain très léger : donne une matière « papier » sans image à télécharger */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.09 0 0 0 0 0.086 0 0 0 0 0.11 0 0 0 0.045 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary-600);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: var(--color-lime);
+    color: var(--color-ink);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .display {
+    font-family: var(--font-display);
+    font-weight: 440;
+    letter-spacing: -0.022em;
+    line-height: 1.04;
+  }
+  .display em {
+    font-style: italic;
+    font-weight: 380;
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+  .eyebrow::before {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--color-lime);
+    box-shadow: 0 0 0 1.5px var(--color-ink);
+  }
+
+  /* Surlignage « marqueur » façon annotation de bordereau */
+  .marker {
+    background-image: linear-gradient(transparent 62%, var(--color-lime) 62%, var(--color-lime) 92%, transparent 92%);
+    padding-inline: 0.08em;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum", "cv11";
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    min-height: 3rem;
+    padding: 0.8rem 1.35rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.97rem;
+    line-height: 1.2;
+    text-decoration: none;
+    transition: transform 160ms ease, background-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn svg { transition: transform 200ms ease; }
+  .btn:hover svg { transform: translateX(3px); }
+
+  .btn-primary {
+    background: var(--color-primary-600);
+    color: #fff;
+    box-shadow: 0 1px 0 rgb(255 255 255 / 0.25) inset, 0 8px 20px -8px rgb(79 70 229 / 0.6);
+  }
+  .btn-primary:hover { background: var(--color-primary-700); }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--color-ink);
+    box-shadow: inset 0 0 0 1.5px var(--color-line-strong);
+  }
+  .btn-secondary:hover { box-shadow: inset 0 0 0 1.5px var(--color-ink); background: var(--color-card); }
+
+  .btn-lime {
+    background: var(--color-lime);
+    color: var(--color-ink);
+    box-shadow: 0 10px 30px -10px rgb(200 228 92 / 0.55);
+  }
+  .btn-lime:hover { background: #d6ee78; }
+
+  .link {
+    color: var(--color-primary-700);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    text-decoration-color: var(--color-primary-300);
+    transition: text-decoration-color 150ms ease;
+  }
+  .link:hover { text-decoration-color: var(--color-primary-700); }
+
+  /* Lignes à points de conduite (« Honoraires ........ 11 875 € ») */
+  .leader {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .leader::after {
+    content: "";
+    order: 1;
+    flex: 1;
+    border-bottom: 1.5px dotted var(--color-line-strong);
+    transform: translateY(-0.28em);
+  }
+  .leader > :last-child { order: 2; }
+
+  /* Contenu éditorial : articles de blog, pages légales */
+  .prose-gc {
+    color: var(--color-ink-soft);
+    font-size: 1.0625rem;
+    line-height: 1.75;
+  }
+  .prose-gc > * + * { margin-top: 1.15em; }
+  .prose-gc h2 {
+    font-family: var(--font-display);
+    font-weight: 480;
+    letter-spacing: -0.015em;
+    color: var(--color-ink);
+    font-size: 1.75rem;
+    line-height: 1.2;
+    margin-top: 2.2em;
+  }
+  .prose-gc h3 {
+    color: var(--color-ink);
+    font-weight: 650;
+    font-size: 1.15rem;
+    margin-top: 1.8em;
+  }
+  .prose-gc h2 + *, .prose-gc h3 + * { margin-top: 0.7em; }
+  .prose-gc a { color: var(--color-primary-700); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--color-primary-300); }
+  .prose-gc a:hover { text-decoration-color: var(--color-primary-700); }
+  .prose-gc strong { color: var(--color-ink); font-weight: 650; }
+  .prose-gc ul, .prose-gc ol { padding-left: 1.3em; }
+  .prose-gc ul { list-style: none; }
+  .prose-gc ul > li { position: relative; }
+  .prose-gc ul > li::before {
+    content: "";
+    position: absolute;
+    left: -1.05em;
+    top: 0.72em;
+    width: 0.4em;
+    height: 0.4em;
+    border-radius: 999px;
+    background: var(--color-lime);
+    box-shadow: 0 0 0 1.25px var(--color-ink);
+  }
+  .prose-gc ol { list-style: decimal; }
+  .prose-gc li + li { margin-top: 0.4em; }
+  .prose-gc blockquote {
+    border-left: 3px solid var(--color-lime);
+    padding: 0.2em 0 0.2em 1.1em;
+    color: var(--color-ink);
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    line-height: 1.5;
+  }
+  .prose-gc table {
+    /* bloc défilant : un tableau large ne fait jamais déborder la page sur mobile */
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .prose-gc th, .prose-gc td {
+    text-align: left;
+    padding: 0.6em 0.8em;
+    border-bottom: 1px solid var(--color-line);
+    vertical-align: top;
+  }
+  .prose-gc th { color: var(--color-ink); font-weight: 650; border-bottom-color: var(--color-line-strong); }
+  .prose-gc code {
+    background: var(--color-paper-deep);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  .prose-gc hr { border: 0; border-top: 1px solid var(--color-line); margin-block: 2.5em; }
+  .prose-gc .todo {
+    background: #fff4d6;
+    border: 1px dashed #d9a400;
+    border-radius: 6px;
+    padding: 0.05em 0.4em;
+    color: #6b4e00;
+    font-size: 0.92em;
+  }
+}
+
+/* ─── Animations (CSS uniquement, désactivées si « réduire les animations ») ─── */
+
+@keyframes gc-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes gc-slip-in {
+  from { opacity: 0; transform: translateY(28px) rotate(-3.5deg); }
+  to { opacity: 1; transform: rotate(-1.25deg); }
+}
+@keyframes gc-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes gc-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes gc-pop {
+  0% { transform: scale(0); }
+  70% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+.rise {
+  animation: gc-rise 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+/* Apparition au défilement, là où le navigateur sait le faire sans JavaScript */
+@supports (animation-timeline: view()) {
+  .on-scroll {
+    animation: gc-rise linear both;
+    animation-timeline: view();
+    animation-range: entry 5% cover 28%;
+  }
+}

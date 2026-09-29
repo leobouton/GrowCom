@@ -1,0 +1,19 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ArrowIcon from '../components/ArrowIcon.astro';
+import { ROUTES } from '../lib/site';
+---
+
+<BaseLayout title="Page introuvable | GrowCom" description="Cette page n'existe pas ou a été déplacée." noindex>
+  <section class="mx-auto flex max-w-3xl flex-col items-start px-5 py-24 sm:px-8 md:py-32">
+    <p class="eyebrow">Erreur 404</p>
+    <h1 class="display mt-5 text-[2.6rem] sm:text-6xl">Cette page n'est <em>dans aucun palier.</em></h1>
+    <p class="mt-6 max-w-lg text-[1.1rem] leading-relaxed text-ink-soft">
+      Elle n'existe pas ou a été déplacée. Vous trouverez sans doute ce que vous cherchez à partir de l'accueil.
+    </p>
+    <div class="mt-9 flex flex-col gap-3 sm:flex-row">
+      <a href={ROUTES.home} class="btn btn-primary">Retour à l'accueil <ArrowIcon /></a>
+      <a href={ROUTES.simulator} class="btn btn-secondary">Ouvrir le simulateur</a>
+    </div>
+  </section>
+</BaseLayout>

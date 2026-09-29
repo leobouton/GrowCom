@@ -1,0 +1,136 @@
+---
+/**
+ * Bordereau de commission d'exemple (page d'accueil).
+ * Les montants sont calculés au build par le moteur partagé : aucun chiffre écrit à la main,
+ * et aucun JavaScript envoyé au navigateur.
+ */
+import { computeCommission } from '@shared/commission-engine';
+import { CommissionRuleType } from '@shared/types';
+import type { CommissionTier } from '@shared/types';
+import { formatEur, formatEurSmart, formatPercent } from '../lib/format';
+
+const tiers: CommissionTier[] = [
+  { min: 0, max: 40000, rate: 0.3 },
+  { min: 40000, max: 60000, rate: 0.35 },
+  { min: 60000, max: null, rate: 0.4 },
+];
+const feesExclTax = 11875;
+const alreadyAchieved = 36500;
+
+const result = computeCommission({
+  config: { type: CommissionRuleType.TIERED, description: '', examples: [], tiers },
+  basisAmount: feesExclTax,
+  priorBasisAmount: alreadyAchieved,
+  basisLabel: 'Honoraires',
+});
+const progress = result.tierProgress;
+
+const tierRange = (tier?: CommissionTier) =>
+  !tier ? '' : tier.max === null ? `au-delà de ${formatEur(tier.min)}` : `${formatEur(tier.min)} → ${formatEur(tier.max)}`;
+---
+
+<figure class="relative" aria-label="Exemple de bordereau de commission calculé par GrowCom">
+  <div
+    class="slip relative rounded-[1.4rem] border border-line bg-card shadow-[var(--shadow-slip)]"
+    style="animation: gc-slip-in 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) 0.15s both; transform: rotate(-1.25deg);"
+  >
+    <!-- En-tête du bordereau -->
+    <div class="flex items-start justify-between gap-4 px-6 pb-5 pt-6 sm:px-7">
+      <div>
+        <p class="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-muted">Bordereau de commission</p>
+        <p class="mt-1.5 font-display text-[1.3rem] leading-tight" style="font-weight: 480">Vente · Appartement T3</p>
+      </div>
+      <span class="shrink-0 rounded-full border border-line-strong px-2.5 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.1em] text-muted">
+        Exemple
+      </span>
+    </div>
+
+    <dl class="num space-y-2 px-6 text-[0.92rem] sm:px-7">
+      <div class="leader">
+        <dt class="text-ink-soft">Honoraires HT de la vente</dt>
+        <dd class="font-semibold">{formatEur(feesExclTax)}</dd>
+      </div>
+      <div class="leader">
+        <dt class="text-ink-soft">Déjà réalisé depuis janvier</dt>
+        <dd class="font-semibold">{formatEur(alreadyAchieved)}</dd>
+      </div>
+    </dl>
+
+    <!-- Ligne de découpe, façon ticket -->
+    <div class="relative my-5" aria-hidden="true">
+      <div class="mx-6 border-t-[1.5px] border-dashed border-line-strong sm:mx-7"></div>
+      <span class="absolute -left-[11px] top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border border-line bg-paper [clip-path:inset(0_0_0_50%)]"></span>
+      <span class="absolute -right-[11px] top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border border-line bg-paper [clip-path:inset(0_50%_0_0)]"></span>
+    </div>
+
+    <!-- Détail palier par palier -->
+    <p class="px-6 text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-muted sm:px-7">Détail du calcul</p>
+    <ol class="num mt-3 space-y-3 px-6 sm:px-7">
+      {
+        result.lines.map((line, index) => (
+          <li class="rise flex items-start justify-between gap-4 text-[0.9rem]" style={`--delay: ${650 + index * 180}ms`}>
+            <div>
+              <p class="font-medium text-ink">
+                Palier {formatPercent(line.rate ?? 0)}
+                <span class="block whitespace-nowrap font-normal text-muted sm:inline">
+                  <span class="hidden sm:inline"> · </span>{tierRange(line.tier)}
+                </span>
+              </p>
+              <p class="mt-0.5 text-muted">
+                {formatEur(line.base ?? 0)} × {formatPercent(line.rate ?? 0)}
+              </p>
+            </div>
+            <p class="shrink-0 font-semibold text-ink">{formatEur(line.amount, 2)}</p>
+          </li>
+        ))
+      }
+    </ol>
+
+    <!-- Total -->
+    <div class="mx-6 mt-5 flex items-end justify-between gap-4 border-t-2 border-ink pt-4 sm:mx-7">
+      <p class="pb-1 text-[0.9rem] font-semibold leading-snug">Commission<br />du négociateur</p>
+      <p class="num font-display text-[2rem] leading-none tracking-tight" style="font-weight: 520">
+        {formatEurSmart(result.totalAmount)}
+      </p>
+    </div>
+
+    <!-- Progression vers le prochain palier -->
+    {
+      progress?.nextTier && progress.remainingToNextTier !== null && (
+        <div class="mx-3 mb-3 mt-6 rounded-2xl bg-lime-soft px-4 py-4 sm:mx-4 sm:px-5">
+          <p class="text-[0.88rem] leading-snug text-ink">
+            Encore <strong class="num font-semibold">{formatEur(progress.remainingToNextTier)}</strong> d'honoraires pour
+            passer à <strong class="font-semibold">{formatPercent(progress.nextTier.rate)}</strong>
+          </p>
+          <div
+            class="relative mt-3 h-2.5 rounded-full bg-[#dfe6c4]"
+            role="img"
+            aria-label={`Progression vers le prochain palier : ${Math.round(progress.progressToNextTier * 100)} %`}
+          >
+            <div
+              class="absolute inset-y-0 left-0"
+              style={`width: ${Math.max(6, progress.progressToNextTier * 100)}%`}
+            >
+              <div
+                class="h-full w-full origin-left rounded-full bg-ink"
+                style="animation: gc-fill 1.1s cubic-bezier(0.2, 0.7, 0.2, 1) 1.1s both"
+              />
+              <span
+                class="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-ink bg-lime"
+                style="animation: gc-pop 0.45s ease-out 2.1s both"
+              />
+            </div>
+          </div>
+          <div class="num mt-2 flex justify-between text-[0.75rem] text-muted">
+            <span>{formatEur(progress.currentTier?.min ?? 0)}</span>
+            <span>{formatEur(progress.nextTier.min)}</span>
+          </div>
+        </div>
+      )
+    }
+  </div>
+  <figcaption class="sr-only">
+    Exemple fictif : pour une vente de {formatEur(feesExclTax)} d'honoraires hors taxes, avec {formatEur(alreadyAchieved)} déjà réalisés
+    dans l'année, la commission calculée par paliers est de {formatEurSmart(result.totalAmount)}.
+  </figcaption>
+</figure>

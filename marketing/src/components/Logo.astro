@@ -1,0 +1,31 @@
+---
+/** Logo GrowCom : la courbe de croissance et son point vert, puis le nom en caractères à empattements. */
+interface Props {
+  class?: string;
+  tone?: 'ink' | 'paper';
+}
+const { class: className = '', tone = 'ink' } = Astro.props;
+const color = tone === 'paper' ? 'text-paper' : 'text-ink';
+---
+
+<a href="/" class:list={['group inline-flex items-center gap-2 rounded-md', color, className]} aria-label="GrowCom, retour à l'accueil">
+  <svg viewBox="0 0 44 34" width="36" height="28" aria-hidden="true" class="shrink-0 overflow-visible">
+    <path
+      d="M3 31c7.5 0 10.5-4.2 13.4-11.3C19.3 12.6 22.6 6.6 31 6.2"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="3.4"
+      stroke-linecap="round"
+    ></path>
+    <circle
+      cx="35.2"
+      cy="6.4"
+      r="4.3"
+      fill="#c8e45c"
+      stroke="currentColor"
+      stroke-width="2.4"
+      class="origin-[35px_6px] transition-transform duration-300 group-hover:scale-125"
+    ></circle>
+  </svg>
+  <span class="font-display text-[1.5rem] leading-none tracking-[-0.01em]" style="font-weight: 460">GrowCom</span>
+</a>

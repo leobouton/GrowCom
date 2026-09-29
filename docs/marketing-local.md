@@ -1,0 +1,47 @@
+# Site marketing growcom.fr — lancer le site en local
+
+Le site marketing vit dans le dossier `/marketing`. C'est un site **statique** (Astro) : il ne dépend ni du backend, ni de la base de données, et peut être mis en ligne seul, bien avant l'app.
+
+## Prérequis
+
+- Node.js 22.12 ou plus récent (`node -v` pour vérifier)
+
+## Première installation
+
+```bash
+cd marketing
+npm install
+```
+
+## Lancer le site pendant qu'on travaille dessus
+
+```bash
+cd marketing
+npm run dev
+```
+
+Puis ouvrir http://localhost:4321 dans le navigateur. Chaque modification de fichier s'affiche immédiatement.
+
+## Vérifier la version finale (celle qui sera mise en ligne)
+
+```bash
+cd marketing
+npm run build      # vérifie les types puis génère le site dans marketing/dist
+npm run preview    # sert le contenu de marketing/dist sur http://localhost:4321
+```
+
+## Où modifier quoi
+
+| Je veux… | Fichier |
+| --- | --- |
+| Changer un texte de la page d'accueil | `marketing/src/pages/index.astro` |
+| Écrire un article de blog | Créer un fichier `.md` dans `marketing/src/content/blog/` (copier l'article existant comme modèle). Le nom du fichier devient l'adresse de l'article. |
+| Changer l'email de contact, l'adresse de l'app | `marketing/src/lib/site.ts` |
+| Compléter les mentions légales | `marketing/src/pages/mentions-legales.astro` (chercher « À compléter ») |
+| Changer les couleurs ou les polices | `marketing/src/styles/global.css` (bloc `@theme`) |
+
+Les articles de blog reçoivent automatiquement la typographie française (espaces insécables dans les nombres, devant « € », « % », « : », « ? »…) : on peut écrire normalement.
+
+## Règle importante
+
+Le site n'a **aucun calcul de commission à lui**. Tous les montants (y compris l'exemple de la page d'accueil) sont calculés par le moteur partagé `shared/commission-engine`, le même que celui de l'app. Pour modifier un calcul, c'est là qu'il faut intervenir, avec des tests (`cd backend && npm test`).

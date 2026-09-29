@@ -1,0 +1,100 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHero from '../components/PageHero.astro';
+import { ROUTES, SITE } from '../lib/site';
+
+/*
+ * Version de travail. Le lot 6 (RGPD) la finalise en même temps que le formulaire :
+ * sous-traitants exacts, durées de conservation, mesure d'audience.
+ * TODO Léo : compléter les informations marquées « À compléter ».
+ */
+const lastUpdate = '29 septembre 2026';
+---
+
+<BaseLayout
+  title="Politique de confidentialité | GrowCom"
+  description="Quelles données GrowCom collecte sur growcom.fr, pourquoi, combien de temps elles sont conservées et comment exercer vos droits."
+>
+  <PageHero eyebrow="Informations" title="Politique de confidentialité" lead={`Dernière mise à jour : ${lastUpdate}`} narrow />
+
+  <div class="prose-gc mx-auto max-w-3xl px-5 py-14 sm:px-8">
+    <p>
+      <strong>En résumé :</strong> le simulateur fonctionne entièrement dans votre navigateur, sans compte et sans cookie de suivi.
+      Nous ne collectons des données personnelles que si vous remplissez le formulaire pour recevoir un document, et uniquement
+      avec votre accord.
+    </p>
+
+    <h2>Responsable du traitement</h2>
+    <p>
+      <span class="todo">À compléter : raison sociale et adresse</span>, joignable à{" "}
+      <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a>.
+    </p>
+
+    <h2>Données collectées</h2>
+    <h3>Quand vous utilisez le simulateur</h3>
+    <p>
+      Les chiffres que vous saisissez sont traités uniquement dans votre navigateur : ils ne nous sont pas transmis. Ils figurent
+      dans l'adresse de la page pour que vous puissiez la recharger ou la partager ; c'est vous qui décidez de partager ce lien.
+    </p>
+    <h3>Quand vous demandez un document</h3>
+    <p>Si vous remplissez le formulaire pour recevoir votre calcul et le modèle de grille, nous collectons :</p>
+    <ul>
+      <li>votre adresse email (obligatoire) ;</li>
+      <li>votre prénom, le nom de votre agence et votre ville (facultatifs) ;</li>
+      <li>la provenance de votre visite (par exemple la campagne d'emailing qui vous a mené ici) ;</li>
+      <li>la date et la preuve de votre consentement.</li>
+    </ul>
+    <h3>Données techniques</h3>
+    <p>
+      Comme tout site web, notre hébergeur traite des données techniques (adresse IP, type de navigateur) pour acheminer les pages
+      et protéger le site contre les abus.
+    </p>
+
+    <h2>Pourquoi, et sur quelle base légale</h2>
+    <ul>
+      <li><strong>Vous envoyer le document demandé</strong> : sur la base de votre demande.</li>
+      <li>
+        <strong>Vous recontacter au sujet de GrowCom</strong> (emails d'information sur le produit) : uniquement si vous avez coché
+        la case prévue à cet effet, sur la base de votre consentement. La case n'est jamais cochée par défaut.
+      </li>
+      <li><strong>Protéger le formulaire contre les robots et les abus</strong> : sur la base de notre intérêt légitime.</li>
+    </ul>
+
+    <h2>Destinataires</h2>
+    <p>Vos données ne sont jamais vendues. Elles sont accessibles à l'équipe GrowCom et à nos prestataires techniques :</p>
+    <ul>
+      <li><strong>Brevo</strong> (Sendinblue SAS, France) : envoi des emails et gestion de la liste de contacts ;</li>
+      <li><strong>Cloudflare</strong> : hébergement du site et protection du formulaire contre les robots.</li>
+    </ul>
+    <p><span class="todo">Lot 6 : préciser les garanties encadrant les transferts hors de l'Union européenne (Cloudflare).</span></p>
+
+    <h2>Durée de conservation</h2>
+    <p>
+      Vos données sont conservées au plus 3 ans après notre dernier échange avec vous, puis supprimées. Si vous vous désinscrivez,
+      nous cessons immédiatement de vous écrire.
+    </p>
+
+    <h2>Désinscription</h2>
+    <p>
+      Chaque email contient un lien de désinscription en un clic. Vous pouvez aussi nous écrire à{" "}
+      <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a>.
+    </p>
+
+    <h2>Vos droits</h2>
+    <p>
+      Vous disposez d'un droit d'accès, de rectification, d'effacement, de limitation, d'opposition et de portabilité de vos
+      données, ainsi que du droit de retirer votre consentement à tout moment. Pour les exercer, écrivez à{" "}
+      <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a>. Si vous estimez que vos droits ne sont pas respectés, vous
+      pouvez adresser une réclamation à la CNIL (<a href="https://www.cnil.fr" rel="noopener">cnil.fr</a>).
+    </p>
+
+    <h2>Cookies</h2>
+    <p>
+      Ce site ne dépose aucun cookie publicitaire ni de mesure d'audience. <span class="todo">Lot 6 : décrire l'outil de mesure
+      d'audience sans cookie retenu.</span>
+    </p>
+
+    <hr />
+    <p>Voir aussi nos <a href={ROUTES.legal}>mentions légales</a>.</p>
+  </div>
+</BaseLayout>

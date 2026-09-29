@@ -1,0 +1,57 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHero from '../components/PageHero.astro';
+import ArrowIcon from '../components/ArrowIcon.astro';
+import { ROUTES } from '../lib/site';
+
+const contents = [
+  {
+    title: 'La grille de paliers',
+    text: "Tranches d'honoraires et taux, avec le mode de calcul (par tranche ou au taux atteint) écrit noir sur blanc.",
+  },
+  {
+    title: 'Les règles de partage',
+    text: 'Répartition entre prise de mandat, vente et apporteur, pour les ventes réalisées à plusieurs.',
+  },
+  {
+    title: 'Les points qui évitent les litiges',
+    text: 'Base HT ou TTC, fait générateur, période de référence, remise à zéro annuelle : la liste des clauses à préciser.',
+  },
+  {
+    title: 'Un calculateur prêt à l’emploi',
+    text: 'Le fichier Excel calcule la commission de chaque vente à partir de votre grille, avec des formules que vous pouvez adapter.',
+  },
+];
+---
+
+<!-- Lot 4 : génération du modèle (XLSX + PDF) et formulaire de téléchargement. -->
+<BaseLayout
+  title="Modèle de grille de commissionnement agence immobilière (Excel) | GrowCom"
+  description="Téléchargez un modèle de grille de commissionnement pour agence immobilière : paliers, partage mandat / vente et clauses à préciser. Format Excel et PDF."
+>
+  <PageHero
+    eyebrow="Modèle gratuit"
+    title="Le modèle de <em>grille de commissionnement</em> pour votre agence."
+    lead="Une base claire pour rédiger ou remettre à plat la rémunération de vos négociateurs : paliers, partage des ventes et clauses à ne pas oublier. Fichier Excel modifiable et version PDF."
+  >
+    <a href={ROUTES.simulator} class="btn btn-primary mt-9">
+      Tester votre grille dans le simulateur
+      <ArrowIcon />
+    </a>
+  </PageHero>
+
+  <section class="mx-auto max-w-6xl px-5 py-20 sm:px-8">
+    <h2 class="display text-[2rem] sm:text-[2.5rem]">Ce que contient le modèle</h2>
+    <div class="mt-10 grid gap-5 sm:grid-cols-2">
+      {
+        contents.map((item, index) => (
+          <article class="rounded-[1.2rem] border border-line bg-card p-7 shadow-[var(--shadow-card)]">
+            <span class="num font-display text-lg text-muted">0{index + 1}</span>
+            <h3 class="mt-3 text-[1.08rem] font-semibold">{item.title}</h3>
+            <p class="mt-2 leading-relaxed text-ink-soft">{item.text}</p>
+          </article>
+        ))
+      }
+    </div>
+  </section>
+</BaseLayout>
