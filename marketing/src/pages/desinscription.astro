@@ -1,0 +1,93 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { ROUTES, SITE } from '../lib/site';
+---
+
+<BaseLayout
+  title="Se désinscrire des emails GrowCom"
+  description="Confirmez votre désinscription : vous ne recevrez plus d’emails d’information de la part de GrowCom."
+  noindex
+>
+  <section class="mx-auto max-w-2xl px-5 py-20 sm:px-8 md:py-28">
+    <p class="eyebrow">Désinscription</p>
+    <h1 class="display mt-5 text-[2.4rem] sm:text-[3rem]">Ne plus recevoir <em>nos emails.</em></h1>
+
+    <div id="desinscription" class="mt-8 rounded-[1.4rem] border border-line bg-card p-6 shadow-[var(--shadow-card)] sm:p-8">
+      <!-- État initial (sans JavaScript, ou lien incomplet) -->
+      <div data-state="missing">
+        <p class="leading-relaxed text-ink-soft">
+          Ce lien de désinscription est incomplet. Pour ne plus recevoir nos emails, écrivez-nous à
+          <a class="link" href={`mailto:${SITE.contactEmail}?subject=D%C3%A9sinscription`}>{SITE.contactEmail}</a> : nous vous
+          désinscrivons aussitôt.
+        </p>
+      </div>
+
+      <div data-state="ready" hidden>
+        <p class="leading-relaxed text-ink-soft">
+          En confirmant, votre adresse ne recevra plus aucun email d’information de GrowCom. Vous pourrez toujours utiliser le
+          simulateur, qui ne demande aucune inscription.
+        </p>
+        <button type="button" data-confirm class="btn btn-primary mt-6 disabled:cursor-wait disabled:opacity-70">
+          Confirmer ma désinscription
+        </button>
+      </div>
+
+      <div data-state="done" hidden>
+        <p class="flex items-center gap-3 font-display text-[1.4rem] text-ink" style="font-weight: 480">
+          <span aria-hidden="true" class="flex h-9 w-9 items-center justify-center rounded-full bg-lime ring-[1.5px] ring-ink">
+            <svg width="16" height="16" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          </span>
+          C’est fait.
+        </p>
+        <p class="mt-4 leading-relaxed text-ink-soft">Vous ne recevrez plus d’emails d’information de notre part.</p>
+      </div>
+
+      <p data-message role="alert" class="mt-5 rounded-xl bg-[#fff1e8] px-4 py-3 text-[0.9rem] font-medium text-[#9a3412]" hidden></p>
+    </div>
+
+    <p class="mt-8 text-[0.9rem] text-muted">
+      Plus d’informations sur vos données : <a class="link" href={ROUTES.privacy}>politique de confidentialité</a>.
+    </p>
+  </section>
+</BaseLayout>
+
+<script>
+  // Le jeton est après « # » : il reste dans le navigateur et n'apparaît dans aucun journal de serveur
+  const root = document.getElementById('desinscription');
+  const token = new URLSearchParams(window.location.hash.slice(1)).get('t');
+  const show = (state: string) =>
+    root?.querySelectorAll<HTMLElement>('[data-state]').forEach((el) => (el.hidden = el.dataset.state !== state));
+  const message = root?.querySelector<HTMLElement>('[data-message]');
+  const button = root?.querySelector<HTMLButtonElement>('[data-confirm]');
+
+  if (root && token) {
+    show('ready');
+    button?.addEventListener('click', async () => {
+      button.disabled = true;
+      if (message) message.hidden = true;
+      try {
+        const response = await fetch('/api/unsubscribe', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+        const data = (await response.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+        if (response.ok && data.ok) {
+          show('done');
+          history.replaceState(null, '', window.location.pathname);
+          return;
+        }
+        if (message) {
+          message.textContent = data.message ?? 'La désinscription n’a pas abouti. Réessayez dans un instant.';
+          message.hidden = false;
+        }
+      } catch {
+        if (message) {
+          message.textContent = 'Connexion impossible. Vérifiez votre réseau et réessayez.';
+          message.hidden = false;
+        }
+      }
+      button.disabled = false;
+    });
+  }
+</script>

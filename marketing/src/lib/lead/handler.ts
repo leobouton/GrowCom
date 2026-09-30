@@ -11,6 +11,7 @@ import { upsertContact, sendTransactionalEmail, BrevoError, type BrevoAttributes
 import { buildCallbackNotification, buildDeliveryEmail } from './emails';
 import { checkRateLimit, verifyTurnstile, type RateLimiterBinding } from './protection';
 import { validateLead, type Lead, type LeadRequestBody } from './validation';
+import { buildUnsubscribeLinks, unsubscribeSecret } from './unsubscribe';
 
 export interface LeadEnv {
   /** Clé API Brevo (secret). */
@@ -26,6 +27,8 @@ export interface LeadEnv {
   TURNSTILE_SECRET_KEY?: string;
   /** Nom de l'attribut « prénom » dans Brevo : PRENOM (compte en français, défaut) ou FIRSTNAME. */
   BREVO_FIRSTNAME_ATTRIBUTE?: string;
+  /** Secret de chiffrement des liens de désinscription (recommandé ; à défaut, dérivé de la clé Brevo). */
+  UNSUBSCRIBE_SECRET?: string;
   /** « 1 » : sans clé Brevo, la demande est acceptée sans rien envoyer (développement local). */
   LEAD_TEST_MODE?: string;
   LEAD_RATE_LIMITER?: RateLimiterBinding;
@@ -181,23 +184,35 @@ export async function handleLeadRequest(request: Request, deps: LeadDeps): Promi
   let emailSent = false;
 
   if (sender) {
+    const secret = unsubscribeSecret(env);
+    const unsubscribe = secret ? await buildUnsubscribeLinks(lead.email, secret) : null;
     const links = {
       simulation: link,
+      unsubscribe: unsubscribe?.page ?? null,
       templateXlsx: `${SITE.url}${TEMPLATE_FILES.xlsx}`,
       templatePdf: `${SITE.url}${TEMPLATE_FILES.pdf}`,
       simulator: `${SITE.url}${ROUTES.simulator}`,
     };
     const delivery = buildDeliveryEmail(lead, links, SITE.url, SITE.contactEmail);
+    const email = {
+      sender,
+      to: [{ email: lead.email, ...(lead.firstName ? { name: lead.firstName } : {}) }],
+      replyTo: { email: SITE.contactEmail, name: 'GrowCom' },
+      subject: delivery.subject,
+      htmlContent: delivery.html,
+      textContent: delivery.text,
+      tags: ['lead-magnet', lead.source],
+    };
     try {
-      await sendTransactionalEmail(deps.fetch, env.BREVO_API_KEY, {
-        sender,
-        to: [{ email: lead.email, ...(lead.firstName ? { name: lead.firstName } : {}) }],
-        replyTo: { email: SITE.contactEmail, name: 'GrowCom' },
-        subject: delivery.subject,
-        htmlContent: delivery.html,
-        textContent: delivery.text,
-        tags: ['lead-magnet', lead.source],
-      });
+      try {
+        // Bouton « Se désabonner » des messageries (RFC 8058)…
+        await sendTransactionalEmail(deps.fetch, env.BREVO_API_KEY, unsubscribe ? { ...email, headers: unsubscribe.headers } : email);
+      } catch (error) {
+        // …si Brevo refuse ces en-têtes, l'email part sans (le lien reste dans le pied de l'email)
+        if (!(unsubscribe && error instanceof BrevoError && error.status === 400)) throw error;
+        log('warn', `en-têtes de désinscription refusés par Brevo, email envoyé sans (${error.detail})`);
+        await sendTransactionalEmail(deps.fetch, env.BREVO_API_KEY, email);
+      }
       emailSent = true;
     } catch (error) {
       // Le contact est enregistré et les documents sont téléchargeables tout de suite : pas bloquant

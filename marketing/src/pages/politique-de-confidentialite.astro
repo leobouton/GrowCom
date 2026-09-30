@@ -4,11 +4,12 @@ import PageHero from '../components/PageHero.astro';
 import { ROUTES, SITE } from '../lib/site';
 
 /*
- * Version de travail. Le lot 6 (RGPD) la finalise en même temps que le formulaire :
- * sous-traitants exacts, durées de conservation, mesure d'audience.
+ * Politique de confidentialité du site growcom.fr. Elle décrit exactement ce que fait le code :
+ * à mettre à jour à chaque nouveau traitement (voir docs/rgpd.md, le registre des traitements).
  * TODO Léo : compléter les informations marquées « À compléter ».
  */
-const lastUpdate = '29 septembre 2026';
+const lastUpdate = '30 septembre 2026';
+const contact = SITE.contactEmail;
 ---
 
 <BaseLayout
@@ -19,83 +20,111 @@ const lastUpdate = '29 septembre 2026';
 
   <div class="prose-gc mx-auto max-w-3xl px-5 py-14 sm:px-8">
     <p>
-      <strong>En résumé :</strong> le simulateur fonctionne entièrement dans votre navigateur, sans compte et sans cookie de suivi.
-      Nous ne collectons des données personnelles que si vous remplissez le formulaire pour recevoir un document, et uniquement
-      avec votre accord.
+      <strong>En résumé :</strong> le simulateur fonctionne entièrement dans votre navigateur, sans compte et sans cookie. Nous ne
+      collectons des données personnelles que si vous demandez un document avec le formulaire. Vous pouvez vous désinscrire à tout
+      moment, en un clic.
     </p>
 
     <h2>Responsable du traitement</h2>
     <p>
-      <span class="todo">À compléter : raison sociale et adresse</span>, joignable à{" "}
-      <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a>.
+      <span class="todo">À compléter : raison sociale, forme juridique et adresse du siège</span>, joignable à{" "}
+      <a href={`mailto:${contact}`}>{contact}</a>.
     </p>
 
-    <h2>Données collectées</h2>
+    <h2>Les données que nous traitons</h2>
+
     <h3>Quand vous utilisez le simulateur</h3>
     <p>
-      Les chiffres que vous saisissez sont traités uniquement dans votre navigateur : ils ne nous sont pas transmis. Ils figurent
-      dans l'adresse de la page pour que vous puissiez la recharger ou la partager ; c'est vous qui décidez de partager ce lien.
+      Les chiffres que vous saisissez sont calculés dans votre navigateur et ne nous sont pas transmis. Ils figurent seulement dans
+      l’adresse de la page, pour que vous puissiez la recharger ou la partager : c’est vous qui décidez de partager ce lien.
     </p>
+
     <h3>Quand vous demandez un document</h3>
     <p>Si vous remplissez le formulaire pour recevoir votre calcul et le modèle de grille, nous collectons :</p>
     <ul>
       <li>votre adresse email (obligatoire) ;</li>
       <li>votre prénom, le nom de votre agence et votre ville (facultatifs) ;</li>
       <li>votre numéro de téléphone, uniquement si vous le donnez pour être rappelé (facultatif) ;</li>
-      <li>la provenance de votre visite (par exemple la campagne d'emailing qui vous a mené ici) et la date de la demande.</li>
+      <li>
+        la page d’où vient la demande, la date, et la provenance de votre visite quand elle figure dans l’adresse de la page (par
+        exemple la campagne d’emailing qui vous a mené ici) ;
+      </li>
+      <li>le lien vers votre simulation, si vous faites la demande depuis le simulateur.</li>
     </ul>
-    <h3>Données techniques</h3>
+
+    <h3>Mesure d’audience</h3>
+    <p>
+      Nous mesurons la fréquentation du site (pages vues, pays, type d’appareil) avec Cloudflare Web Analytics, sous forme de
+      statistiques globales. Cet outil n’utilise <strong>ni cookie, ni stockage dans votre navigateur</strong>, et ne vous suit pas
+      d’un site à l’autre.
+    </p>
+
+    <h3>Sécurité</h3>
     <p>
       Comme tout site web, notre hébergeur traite des données techniques (adresse IP, type de navigateur) pour acheminer les pages
-      et protéger le site contre les abus.
+      et protéger le site. Le formulaire est protégé contre les robots par Cloudflare Turnstile, qui analyse des signaux techniques
+      de la session sans cookie ; seulement si une vérification vous est demandée, un cookie technique d’une heure mémorise qu’elle
+      a réussi.
     </p>
 
     <h2>Pourquoi, et sur quelle base légale</h2>
     <ul>
-      <li><strong>Vous envoyer le document demandé</strong> : sur la base de votre demande.</li>
+      <li><strong>Vous envoyer le document demandé</strong> : sur la base de votre demande (mesures précontractuelles).</li>
+      <li><strong>Vous rappeler</strong>, si vous nous avez laissé votre numéro de téléphone pour cela : sur la base de votre demande.</li>
       <li>
-        <strong>Vous rappeler</strong>, si vous nous avez laissé votre numéro de téléphone pour cela : sur la base de votre demande.
+        <strong>Vous envoyer ponctuellement des informations sur GrowCom</strong>, en lien avec votre activité professionnelle : sur la
+        base de notre intérêt légitime à faire connaître notre offre à des professionnels de l’immobilier. Vous en êtes informé au
+        moment de la demande et pouvez vous y opposer à tout moment, gratuitement, en un clic depuis chaque email.
       </li>
-      <li>
-        <strong>Vous envoyer ponctuellement des informations sur GrowCom</strong>, en lien avec votre activité professionnelle :
-        sur la base de notre intérêt légitime (prospection entre professionnels). Vous en êtes informé au moment de la demande et
-        pouvez vous y opposer à tout moment, gratuitement, depuis chaque email.
-      </li>
-      <li><strong>Protéger le formulaire contre les robots et les abus</strong> : sur la base de notre intérêt légitime.</li>
+      <li><strong>Mesurer l’audience du site</strong> de façon anonyme et globale : sur la base de notre intérêt légitime.</li>
+      <li><strong>Protéger le site et le formulaire contre les abus</strong> : sur la base de notre intérêt légitime.</li>
     </ul>
 
-    <h2>Destinataires</h2>
-    <p>Vos données ne sont jamais vendues. Elles sont accessibles à l'équipe GrowCom et à nos prestataires techniques :</p>
+    <h2>Destinataires et sous-traitants</h2>
+    <p>Vos données ne sont jamais vendues ni louées. Elles sont accessibles à l’équipe GrowCom et à nos prestataires techniques :</p>
     <ul>
-      <li><strong>Brevo</strong> (Sendinblue SAS, France) : envoi des emails et gestion de la liste de contacts ;</li>
-      <li><strong>Cloudflare</strong> : hébergement du site et protection du formulaire contre les robots.</li>
+      <li>
+        <strong>Brevo</strong> (Sendinblue SAS, France) : gestion des contacts et envoi des emails. Les données sont hébergées dans
+        l’Union européenne.
+      </li>
+      <li>
+        <strong>Cloudflare, Inc.</strong> (États-Unis) : hébergement du site, protection contre les robots et mesure d’audience.
+        Les transferts de données vers les États-Unis sont encadrés par le <em>Data Privacy Framework</em> UE–États-Unis, auquel
+        Cloudflare adhère, et à défaut par les clauses contractuelles types de la Commission européenne.
+      </li>
     </ul>
-    <p><span class="todo">Lot 6 : préciser les garanties encadrant les transferts hors de l'Union européenne (Cloudflare).</span></p>
 
-    <h2>Durée de conservation</h2>
-    <p>
-      Vos données sont conservées au plus 3 ans après notre dernier échange avec vous, puis supprimées. Si vous vous désinscrivez,
-      nous cessons immédiatement de vous écrire.
-    </p>
+    <h2>Combien de temps</h2>
+    <ul>
+      <li>
+        <strong>Données du formulaire</strong> : 3 ans après notre dernier échange avec vous (dernière demande, dernier email ouvert ou
+        dernier contact de votre part), puis supprimées.
+      </li>
+      <li>
+        <strong>Après une désinscription</strong> : nous conservons seulement votre adresse email dans une liste d’opposition, pour ne
+        plus jamais vous écrire, y compris si votre adresse nous parvenait à nouveau.
+      </li>
+      <li><strong>Données techniques de sécurité</strong> : quelques jours dans les journaux de notre hébergeur.</li>
+    </ul>
 
     <h2>Désinscription</h2>
     <p>
-      Chaque email contient un lien de désinscription en un clic. Vous pouvez aussi nous écrire à{" "}
-      <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a>.
+      Chaque email contient un lien de désinscription en un clic ; la plupart des messageries affichent aussi un bouton « Se
+      désabonner ». Vous pouvez également nous écrire à <a href={`mailto:${contact}`}>{contact}</a>.
     </p>
 
     <h2>Vos droits</h2>
     <p>
-      Vous disposez d'un droit d'accès, de rectification, d'effacement, de limitation, d'opposition et de portabilité de vos
-      données, ainsi que du droit de retirer votre consentement à tout moment. Pour les exercer, écrivez à{" "}
-      <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a>. Si vous estimez que vos droits ne sont pas respectés, vous
-      pouvez adresser une réclamation à la CNIL (<a href="https://www.cnil.fr" rel="noopener">cnil.fr</a>).
+      Vous disposez d’un droit d’accès, de rectification, d’effacement, de limitation, de portabilité et d’opposition. Pour les
+      exercer, écrivez à <a href={`mailto:${contact}`}>{contact}</a> ; nous répondons dans un délai d’un mois. Si vous estimez que vos
+      droits ne sont pas respectés, vous pouvez adresser une réclamation à la CNIL (<a href="https://www.cnil.fr" rel="noopener">cnil.fr</a>).
     </p>
 
     <h2>Cookies</h2>
     <p>
-      Ce site ne dépose aucun cookie publicitaire ni de mesure d'audience. <span class="todo">Lot 6 : décrire l'outil de mesure
-      d'audience sans cookie retenu.</span>
+      Ce site ne dépose aucun cookie publicitaire ni de mesure d’audience, et n’utilise pas le stockage de votre navigateur pour vous
+      suivre. C’est pourquoi aucun bandeau de consentement ne vous est présenté. Le seul cookie possible est le cookie technique de
+      Turnstile décrit plus haut, nécessaire à la sécurité du formulaire.
     </p>
 
     <hr />

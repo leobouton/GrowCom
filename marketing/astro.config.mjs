@@ -28,8 +28,8 @@ export default defineConfig({
   integrations: [
     mdx(),
     react(),
-    // Plan du site pour les moteurs de recherche (sitemap-index.xml), sans la page 404
-    sitemap({ filter: (page) => !page.includes('/404') }),
+    // Plan du site pour les moteurs de recherche (sitemap-index.xml), sans les pages non indexées
+    sitemap({ filter: (page) => !page.includes('/404') && !page.includes('/desinscription') }),
   ],
   markdown: {
     // Espaces insécables à la française dans les articles (nombres, €, %, : ; ? !, guillemets).

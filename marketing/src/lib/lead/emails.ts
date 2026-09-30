@@ -6,6 +6,8 @@ import type { Lead } from './validation';
 
 export interface DeliveryLinks {
   simulation: string | null;
+  /** Page de désinscription en un clic (null si le secret n'est pas configuré). */
+  unsubscribe: string | null;
   templateXlsx: string;
   templatePdf: string;
   simulator: string;
@@ -73,8 +75,11 @@ export function buildDeliveryEmail(lead: Lead, links: DeliveryLinks, siteUrl: st
      <p style="margin:22px 0 0">GrowCom automatise ce calcul pour toute votre équipe : chaque négociateur voit le détail de sa commission et son prochain palier, en temps réel. Si le sujet vous intéresse, répondez simplement à cet email.</p>
      <p style="margin:22px 0 0;color:#17161c">L’équipe GrowCom</p>`,
     `Vous recevez cet email car ce document a été demandé sur <a href="${escapeHtml(siteUrl)}" style="color:#625f6b">growcom.fr</a> avec votre adresse.
-     GrowCom pourra vous envoyer ponctuellement des informations sur son offre. Pour ne plus rien recevoir, répondez « STOP » à cet email
-     ou écrivez à ${escapeHtml(contactEmail)}.`,
+     GrowCom pourra vous envoyer ponctuellement des informations sur son offre. ${
+       links.unsubscribe
+         ? `Pour ne plus rien recevoir : <a href="${escapeHtml(links.unsubscribe)}" style="color:#625f6b">se désinscrire en un clic</a>, ou écrire à ${escapeHtml(contactEmail)}.`
+         : `Pour ne plus rien recevoir, répondez « STOP » à cet email ou écrivez à ${escapeHtml(contactEmail)}.`
+     }`,
   );
 
   const text = [
@@ -91,7 +96,9 @@ export function buildDeliveryEmail(lead: Lead, links: DeliveryLinks, siteUrl: st
     '',
     'L’équipe GrowCom',
     '',
-    `Pour ne plus rien recevoir, répondez « STOP » à cet email ou écrivez à ${contactEmail}.`,
+    links.unsubscribe
+      ? `Pour ne plus rien recevoir, désinscription en un clic : ${links.unsubscribe}`
+      : `Pour ne plus rien recevoir, répondez « STOP » à cet email ou écrivez à ${contactEmail}.`,
   ]
     .filter((line, i, lines) => !(line === '' && lines[i - 1] === ''))
     .join('\n');

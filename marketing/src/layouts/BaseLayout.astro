@@ -40,6 +40,9 @@ const {
   noindex = false,
 } = Astro.props;
 const canonical = new URL(Astro.url.pathname.replace(/\/$/, '') || '/', SITE.url).href;
+// Statistiques de visite Cloudflare Web Analytics : sans cookie ni stockage dans le navigateur.
+// Activées seulement si le jeton est fourni au moment de la construction du site.
+const analyticsToken = import.meta.env.PUBLIC_CF_ANALYTICS_TOKEN as string | undefined;
 const image = absoluteUrl(ogImage);
 ---
 
@@ -79,6 +82,16 @@ const image = absoluteUrl(ogImage);
     <meta name="twitter:image:alt" content={ogImageAlt} />
 
     {jsonLd && <script type="application/ld+json" set:html={serializeJsonLd(jsonLd)} />}
+    {
+      analyticsToken && (
+        <script
+          is:inline
+          defer
+          src="https://static.cloudflareinsights.com/beacon.min.js"
+          data-cf-beacon={JSON.stringify({ token: analyticsToken })}
+        />
+      )
+    }
     <slot name="head" />
   </head>
   <body class="min-h-dvh overflow-x-clip">

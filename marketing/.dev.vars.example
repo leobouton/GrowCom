@@ -21,6 +21,10 @@ LEAD_TEST_MODE=1
 # Adresse qui reçoit une alerte quand un visiteur laisse son numéro pour être rappelé (facultatif).
 # LEAD_NOTIFY_EMAIL=leo@growcom.fr
 
+# Secret de chiffrement des liens de désinscription (une longue phrase aléatoire). SECRET.
+# Sans lui, la clé Brevo sert de secret (les anciens liens cesseraient de marcher si la clé change).
+# UNSUBSCRIBE_SECRET=une-longue-phrase-aleatoire
+
 # Anti-robot Cloudflare Turnstile : DEUX clés qui vont ensemble.
 # - la clé secrète ci-dessous (serveur, SECRET) ;
 # - la clé de site PUBLIC_TURNSTILE_SITE_KEY, lue au moment de la construction du site

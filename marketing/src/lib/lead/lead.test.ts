@@ -174,7 +174,7 @@ describe('POST /api/lead', () => {
     expect(emails).toHaveLength(2);
     expect(emails[0].to).toEqual([{ email: 'sophie@agence.fr', name: 'Sophie' }]);
     expect(emails[0].htmlContent).toContain('grille-de-commissionnement-growcom.xlsx');
-    expect(emails[0].htmlContent).toContain('STOP');
+    expect(emails[0].htmlContent).toContain('se désinscrire en un clic');
     expect(emails[1].to).toEqual([{ email: 'leo@growcom.fr' }]);
     expect(emails[1].textContent).toContain('+33612345678');
   });

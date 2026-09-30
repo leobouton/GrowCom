@@ -17,9 +17,9 @@ export class BrevoError extends Error {
 type Fetch = typeof fetch;
 export type BrevoAttributes = Record<string, string | number | boolean>;
 
-async function call(fetchFn: Fetch, apiKey: string, path: string, body: unknown): Promise<Response> {
+async function call(fetchFn: Fetch, apiKey: string, path: string, body: unknown, method: 'POST' | 'PUT' = 'POST'): Promise<Response> {
   return fetchFn(`${BREVO_API}${path}`, {
-    method: 'POST',
+    method,
     headers: { 'api-key': apiKey, 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -56,6 +56,16 @@ export async function upsertContact(
   throw new BrevoError(minimal.status, await readError(minimal));
 }
 
+/**
+ * Désinscription : le contact est marqué « ne plus recevoir d'emails » (il reste dans Brevo
+ * comme liste d'opposition, pour ne jamais être réinscrit par erreur). Contact inconnu = rien à faire.
+ */
+export async function blacklistContact(fetchFn: Fetch, apiKey: string, email: string): Promise<void> {
+  const response = await call(fetchFn, apiKey, `/contacts/${encodeURIComponent(email)}`, { emailBlacklisted: true }, 'PUT');
+  if (response.ok || response.status === 404) return;
+  throw new BrevoError(response.status, await readError(response));
+}
+
 export interface TransactionalEmail {
   sender: { email: string; name: string };
   to: Array<{ email: string; name?: string }>;
@@ -64,6 +74,8 @@ export interface TransactionalEmail {
   htmlContent: string;
   textContent: string;
   tags?: string[];
+  /** En-têtes additionnels (ex. List-Unsubscribe pour le bouton « Se désabonner » des messageries). */
+  headers?: Record<string, string>;
 }
 
 export async function sendTransactionalEmail(fetchFn: Fetch, apiKey: string, email: TransactionalEmail): Promise<void> {

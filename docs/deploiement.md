@@ -89,6 +89,7 @@ Le plus simple : Cloudflare construit et publie le site à chaque `git push` sur
    | --- | --- | --- |
    | `BREVO_API_KEY` | **Secret** | clé API Brevo (étape 1) |
    | `TURNSTILE_SECRET_KEY` | **Secret** | clé secrète Turnstile (étape 3) |
+   | `UNSUBSCRIBE_SECRET` | **Secret** | une longue phrase aléatoire, inventée par toi (chiffre les liens de désinscription ; ne jamais la changer ensuite, sinon les liens des anciens emails ne marchent plus) |
    | `BREVO_LIST_ID` | Texte | identifiant de la liste (étape 1) |
    | `BREVO_SENDER_EMAIL` | Texte | ex. `bonjour@growcom.fr` |
    | `BREVO_SENDER_NAME` | Texte | `GrowCom` |
@@ -112,12 +113,22 @@ Le plus simple : Cloudflare construit et publie le site à chaque `git push` sur
 
 ---
 
+## Étape 5 bis — Activer les statistiques de visite (sans cookie)
+
+Cloudflare › *Analytics & Logs* › *Web Analytics* › *Ajouter un site* › `growcom.fr`.
+- Si Cloudflare propose l'**installation automatique**, active-la : rien d'autre à faire.
+- Sinon, copie le **jeton** affiché (dans l'extrait de code, la valeur de `"token"`) et ajoute la variable de build `PUBLIC_CF_ANALYTICS_TOKEN` (Worker › *Paramètres* › *Build* › *Variables*), puis redéploie. Le site n'ajoute le script de mesure que si ce jeton existe.
+
+Cet outil ne dépose aucun cookie : pas de bandeau de consentement à prévoir (voir `docs/rgpd.md`).
+
 ## Étape 6 — Vérifier après la mise en ligne
 
 - [ ] `https://growcom.fr` s'affiche, en HTTPS ; `https://www.growcom.fr` redirige vers `https://growcom.fr`.
 - [ ] `https://growcom.fr/simulateur-commission-negociateur-immobilier` calcule en direct.
 - [ ] Une adresse inexistante (ex. `/test`) affiche la page « Cette page n'est dans aucun palier ».
 - [ ] Formulaire du simulateur avec **ta propre adresse** et ton numéro : l'écran « C'est prêt » apparaît, le PDF se télécharge, tu reçois l'email avec les liens **et** l'alerte de rappel.
+- [ ] Dans l'email reçu, le lien « se désinscrire en un clic » mène à la page de confirmation ; après confirmation, le contact apparaît « désinscrit » dans Brevo. (Refais ensuite une demande avec une autre adresse pour la suite des tests.)
+- [ ] [securityheaders.com](https://securityheaders.com) sur `https://growcom.fr` : note A attendue.
 - [ ] Dans Brevo, le contact apparaît dans la liste avec ses attributs (dont `UTM_SOURCE` si tu as testé avec `?utm_source=test` dans l'adresse).
 - [ ] Mesure de performance réelle : [pagespeed.web.dev](https://pagespeed.web.dev) sur l'accueil et le simulateur (objectif ≥ 95 en Performance, Accessibilité, SEO ; mesurés en local à 94-98 et 100).
 - [ ] Référencement : [Google Search Console](https://search.google.com/search-console) › ajouter `growcom.fr` (vérification par enregistrement DNS dans Cloudflare) › *Sitemaps* › soumettre `https://growcom.fr/sitemap-index.xml`.
