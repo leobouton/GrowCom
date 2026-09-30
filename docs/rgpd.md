@@ -5,7 +5,7 @@ Ce document est le **registre des traitements** du site marketing (article 30 du
 > À mettre à jour à chaque nouveau traitement (nouveau formulaire, nouvel outil, nouvel usage des données).
 > L'app (app.growcom.fr) aura son propre registre : elle traite les données des clients et de leurs négociateurs.
 
-**Responsable du traitement** : Léo BOUTON, à titre personnel (GrowCom est en cours de création) — _adresse à compléter_. À la création de la société : la désigner comme responsable, lui transférer les contacts, mettre à jour ce registre et les pages légales.
+**Responsable du traitement** : Léo BOUTON, à titre personnel (GrowCom est en cours de création) — coordonnées dans les mentions légales. À la création de la société : la désigner comme responsable, lui transférer les contacts, mettre à jour ce registre et les pages légales.
 **Contact pour les droits** : l'adresse de contact de `marketing/src/lib/site.ts` (actuellement `leo.bouton@growcom.fr`).
 
 ---
@@ -51,7 +51,7 @@ Le site ne dépose aucun cookie publicitaire ni de mesure d'audience et n'écrit
 
 ## Ce qu'il te reste à faire
 
-- [ ] Compléter l'adresse et le téléphone de l'éditeur dans les [mentions légales](../marketing/src/pages/mentions-legales.astro) et l'adresse dans la [politique de confidentialité](../marketing/src/pages/politique-de-confidentialite.astro) (chercher « À compléter »).
+- [x] Coordonnées de l'éditeur dans les [mentions légales](../marketing/src/pages/mentions-legales.astro) (à mettre à jour à la création de la société).
 - [ ] Créer la boîte `leo.bouton@growcom.fr` (voir `docs/deploiement.md`, étape 5.4) : c'est là qu'arrivent les demandes d'exercice des droits (réponse sous un mois).
 - [ ] **Accords de sous-traitance (DPA)** : Brevo et Cloudflare les intègrent à leurs conditions ; les accepter dans chaque compte (Brevo › Paramètres › Sécurité / RGPD ; Cloudflare : [DPA](https://www.cloudflare.com/cloudflare-customer-dpa/)) et en garder une copie.
 - [ ] **Campagnes de prospection** : toujours les envoyer depuis Brevo (le lien de désinscription y est ajouté automatiquement), uniquement à des contacts dont l'activité est liée à l'immobilier, et **jamais** aux contacts désinscrits (Brevo les exclut d'office).

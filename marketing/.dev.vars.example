@@ -15,21 +15,19 @@ LEAD_TEST_MODE=1
 # BREVO_FIRSTNAME_ATTRIBUTE=PRENOM
 
 # Expéditeur des emails (adresse validée dans Brevo > Expéditeurs et domaines).
-# BREVO_SENDER_EMAIL=bonjour@growcom.fr
+# BREVO_SENDER_EMAIL=leo.bouton@growcom.fr
 # BREVO_SENDER_NAME=GrowCom
 
 # Adresse qui reçoit une alerte quand un visiteur laisse son numéro pour être rappelé (facultatif).
-# LEAD_NOTIFY_EMAIL=leo@growcom.fr
+# LEAD_NOTIFY_EMAIL=leo.bouton@growcom.fr
 
 # Secret de chiffrement des liens de désinscription (une longue phrase aléatoire). SECRET.
 # Sans lui, la clé Brevo sert de secret (les anciens liens cesseraient de marcher si la clé change).
 # UNSUBSCRIBE_SECRET=une-longue-phrase-aleatoire
 
-# Anti-robot Cloudflare Turnstile : DEUX clés qui vont ensemble.
-# - la clé secrète ci-dessous (serveur, SECRET) ;
-# - la clé de site PUBLIC_TURNSTILE_SITE_KEY, lue au moment de la construction du site
-#   (variable d'environnement de build, voir docs/deploiement.md).
-# Sans elles, le formulaire fonctionne sans vérification anti-robot (pratique en local).
-# Clés de test officielles Cloudflare, toujours acceptées :
+# Anti-robot Cloudflare Turnstile. La clé de site est dans le code (src/lib/site.ts) et ne
+# s'active que sur growcom.fr : en local, le formulaire fonctionne sans vérification.
+# Pour tester Turnstile en local, utiliser les clés de test officielles de Cloudflare
+# (toujours acceptées) : la clé secrète ci-dessous, et la variable de build
 #   PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA
 # TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA

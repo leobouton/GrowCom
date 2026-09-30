@@ -6,10 +6,12 @@ import { ROUTES, SITE } from '../lib/site';
 /*
  * Éditeur : Léo BOUTON, personne physique (GrowCom n'est pas encore une société).
  * La loi pour la confiance dans l'économie numérique (LCEN) impose, pour une personne physique :
- * nom, prénom, domicile et numéro de téléphone. TODO Léo : adresse et téléphone « À compléter ».
+ * nom, prénom, domicile et numéro de téléphone.
  * À la création de l'entreprise : remplacer par sa dénomination, sa forme, son siège et son SIREN.
  */
 const EDITOR = 'Léo BOUTON';
+const EDITOR_ADDRESS = '22E rue Fontaine-Écu, 25000 Besançon, France';
+const EDITOR_PHONE = '07 67 35 24 80';
 ---
 
 <BaseLayout
@@ -25,8 +27,8 @@ const EDITOR = 'Léo BOUTON';
       cours de création.
     </p>
     <ul>
-      <li>Adresse : <span class="todo">À compléter</span></li>
-      <li>Téléphone : <span class="todo">À compléter</span></li>
+      <li>Adresse : {EDITOR_ADDRESS}</li>
+      <li>Téléphone : <a href={`tel:+33${EDITOR_PHONE.replace(/\s/g, '').slice(1)}`}>{EDITOR_PHONE}</a></li>
       <li>Adresse email : <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a></li>
     </ul>
     <p>Directeur de la publication : {EDITOR}.</p>

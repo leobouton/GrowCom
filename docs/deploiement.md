@@ -64,6 +64,8 @@ Nécessaire pour brancher le domaine sur le Worker. Le domaine **reste acheté c
 
 **Ce que voit le visiteur.** Dans la grande majorité des cas, **rien** : la vérification se fait en arrière-plan. Parfois, si Cloudflare a un doute, une petite case « Vérifiez que vous êtes humain » apparaît au-dessus du bouton d'envoi.
 
+> ✅ **Déjà fait** : tu as créé le widget et la clé de site (`0x4AAAAAAFKewNncRWgg1MA3`) est intégrée dans le code (`marketing/src/lib/site.ts`). Il ne te reste que la **clé secrète**, à coller à l'étape 4.4. La suite de cette étape sert de référence.
+
 **Durée** : 5 minutes. Cette étape ne dépend pas des autres : tu peux la faire avant même d'avoir déplacé le DNS (étape 2), il suffit d'avoir un compte Cloudflare.
 
 ### 3.1 Créer le « widget »
@@ -76,7 +78,7 @@ Nécessaire pour brancher le domaine sur le Worker. Le domaine **reste acheté c
    | Champ | Valeur | Pourquoi |
    | --- | --- | --- |
    | Nom du widget (*Widget name*) | `Formulaire growcom.fr` | Juste pour t'y retrouver |
-   | Noms d'hôte (*Hostnames*) | `growcom.fr` | Le widget ne fonctionnera que sur ton site : personne ne peut réutiliser tes clés ailleurs |
+   | Noms d'hôte (*Hostnames*) | `growcom.fr` (ajoute aussi `www.growcom.fr`, par précaution) | Le widget ne fonctionnera que sur ton site : personne ne peut réutiliser tes clés ailleurs |
    | Mode (*Widget Mode*) | **Géré** (*Managed*) | Cloudflare n'affiche la petite case qu'en cas de doute |
    | Pré-autorisation (*Pre-clearance*) | **Non** | Inutile ici |
 
@@ -88,7 +90,7 @@ Cloudflare affiche alors **deux clés** :
 
 | Clé | Ressemble à | Secrète ? | Où elle servira |
 | --- | --- | --- | --- |
-| **Clé de site** (*Site Key*) | `0x4AAAAAAA…` | **Non** : elle est visible par tous dans le code de la page, c'est normal | Étape 4.3, variable de build `PUBLIC_TURNSTILE_SITE_KEY` |
+| **Clé de site** (*Site Key*) | `0x4AAAAAAA…` | **Non** : elle est visible par tous dans le code de la page, c'est normal | Déjà intégrée dans le code (`marketing/src/lib/site.ts`) : si tu recrées un widget, donne la nouvelle à Claude ou remplace-la dans ce fichier |
 | **Clé secrète** (*Secret Key*) | `0x4AAAAAAA…` (plus longue) | **Oui** : c'est un mot de passe | Étape 4.4, secret `TURNSTILE_SECRET_KEY` |
 
 Copie-les dans un endroit sûr (ton gestionnaire de mots de passe, ou une note privée). Tu pourras toujours les retrouver dans Cloudflare › *Turnstile* › ton widget › *Paramètres*.
@@ -97,9 +99,9 @@ Copie-les dans un endroit sûr (ton gestionnaire de mots de passe, ou une note p
 
 ### 3.3 Comment le site les utilise
 
-- La **clé de site** est intégrée dans la page au moment de la construction : le navigateur du visiteur l'utilise pour demander à Cloudflare « est-ce un humain ? » et reçoit un jeton.
+- La **clé de site** est intégrée dans la page ; elle n'est activée que sur `growcom.fr` (sur ton ordinateur, le formulaire fonctionne sans). Le navigateur du visiteur l'utilise pour demander à Cloudflare « est-ce un humain ? » et reçoit un jeton.
 - Le formulaire envoie ce jeton avec la demande. Le serveur (le Worker) le fait vérifier par Cloudflare grâce à la **clé secrète**. Si Cloudflare répond « robot », la demande est refusée et rien n'arrive dans Brevo.
-- Les deux clés vont **ensemble**. Si tu mets la clé secrète sans la clé de site, le formulaire refusera toutes les demandes ; avec la clé de site seule, la vérification n'a pas lieu. Si tu n'en mets aucune, le formulaire fonctionne sans cette vérification (les autres protections restent actives : champ piège, limitation du nombre d'envois, délai minimal).
+- Les deux clés vont **ensemble** et doivent venir du même widget. Tant que la clé secrète n'est pas enregistrée dans Cloudflare (étape 4.4), le serveur ne fait pas la vérification : le formulaire fonctionne, protégé seulement par les autres barrières (champ piège, limitation du nombre d'envois, délai minimal).
 
 **Vérification après la mise en ligne** : remplis le formulaire du simulateur toi-même. Si l'écran « C'est prêt » apparaît et que tu reçois l'email, Turnstile fonctionne. Si un message « La vérification anti-robot a échoué » s'affiche, vérifie que les deux clés viennent bien du même widget et que `growcom.fr` figure dans ses noms d'hôte.
 
@@ -119,9 +121,11 @@ Le plus simple : Cloudflare construit et publie le site à chaque `git push` sur
    | Répertoire racine | `marketing` |
    | Commande de build | `npm run build` |
    | Commande de déploiement | `npx wrangler deploy` |
-   | Variables de build | `PUBLIC_TURNSTILE_SITE_KEY` = la clé de site de l'étape 3, et `NODE_VERSION` = `22` |
+   | Variables de build | `NODE_VERSION` = `22` |
 
    Le build lit aussi le dossier `/shared` (moteur de calcul) : c'est normal, Cloudflare récupère tout le dépôt.
+   Le déploiement **branche lui-même** `growcom.fr` et `www.growcom.fr` sur le site (déclarés dans `marketing/wrangler.jsonc`) : l'étape 2 (DNS chez Cloudflare) doit donc être terminée avant.
+   Si le premier déploiement échoue avec un message du type *« Hostname already has externally managed DNS records »* : Cloudflare › `growcom.fr` › *DNS* › supprime les enregistrements **A**, **AAAA** ou **CNAME** nommés `growcom.fr` (ou `@`) et `www` (ce sont ceux de l'ancien hébergeur ou de la page de parking du registrar ; **ne touche pas** aux enregistrements MX et TXT), puis *Réessayer* le déploiement.
 4. Une fois le premier déploiement terminé : Worker `growcom-marketing` › *Paramètres* › *Variables et secrets* › ajoute :
 
    | Nom | Type | Valeur |
@@ -145,8 +149,8 @@ Le plus simple : Cloudflare construit et publie le site à chaque `git push` sur
 
 ## Étape 5 — Brancher le domaine
 
-1. Worker `growcom-marketing` › *Paramètres* › *Domaines et routes* › *Ajouter* › *Domaine personnalisé* › `growcom.fr`. Cloudflare crée l'enregistrement DNS et le certificat HTTPS tout seul.
-2. **www** : ajoute aussi `www.growcom.fr` en domaine personnalisé, puis Cloudflare › `growcom.fr` › *Règles* › *Règles de redirection* › modèle « Rediriger de WWW vers la racine » (301). Une seule adresse officielle, c'est mieux pour le référencement.
+1. ✅ **Automatique** : le déploiement (étape 4) a déjà branché `growcom.fr` et `www.growcom.fr`, avec leurs certificats HTTPS. Vérifie simplement dans Worker `growcom-marketing` › *Paramètres* › *Domaines et routes* que les deux apparaissent (les certificats peuvent mettre quelques minutes).
+2. **Rediriger www vers growcom.fr** : Cloudflare › `growcom.fr` › *Règles* › *Règles de redirection* › *Créer à partir d'un modèle* › « Rediriger de WWW vers la racine » (301). Une seule adresse officielle, c'est mieux pour le référencement.
 3. **Emails Brevo** : Cloudflare › `growcom.fr` › *DNS* › ajoute les enregistrements affichés par Brevo à l'étape 1.3 (TXT `brevo-code`, DKIM, DMARC), en mode **DNS uniquement** (nuage gris). Puis dans Brevo, clique *Authentifier*.
 4. **Recevoir les emails sur `leo.bouton@growcom.fr`** (adresse affichée sur le site) : si tu n'as pas déjà une messagerie sur ce domaine, Cloudflare le fait gratuitement. `growcom.fr` › *Email* › *Email Routing* › *Commencer* › adresse personnalisée `leo.bouton` › destination : ta boîte Gmail habituelle (Cloudflare t'envoie un email de confirmation). Cloudflare ajoute lui-même les enregistrements DNS nécessaires. Les emails envoyés à `leo.bouton@growcom.fr` arrivent alors dans ta boîte habituelle.
 5. **Sous-domaine `app`** : ne crée rien pour l'instant. Il est réservé à l'app (voir plus bas).

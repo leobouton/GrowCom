@@ -5,12 +5,18 @@
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { AgencySaleSimulationResult } from '@shared/commission-engine';
-import { ROUTES, SITE, TEMPLATE_FILES } from '../../lib/site';
+import { ROUTES, SITE, TEMPLATE_FILES, TURNSTILE } from '../../lib/site';
 import { normalizeEmail, normalizePhone, type Attribution, type LeadSource } from '../../lib/lead/validation';
 import { attributionParams } from '../../lib/attribution';
 import { encodeState, type SimulatorState } from '../../simulator/state';
 
-const TURNSTILE_SITE_KEY = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY as string | undefined;
+const TEST_TURNSTILE_SITE_KEY = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY as string | undefined;
+
+/** Clé Turnstile à utiliser sur cette page : clé de test si fournie, sinon la vraie clé sur growcom.fr uniquement. */
+function turnstileSiteKey(): string | null {
+  if (TEST_TURNSTILE_SITE_KEY) return TEST_TURNSTILE_SITE_KEY;
+  return (TURNSTILE.hostnames as readonly string[]).includes(window.location.hostname) ? TURNSTILE.siteKey : null;
+}
 const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 
 interface TurnstileApi {
@@ -150,14 +156,17 @@ export default function LeadForm({ source, simulation = null, submitLabel = 'Rec
   const successHeading = useRef<HTMLHeadingElement>(null);
 
   // Vérification anti-robot Cloudflare (invisible dans la plupart des cas), chargée à l'ouverture du formulaire
+  const [siteKey, setSiteKey] = useState<string | null>(null);
   useEffect(() => {
-    if (!TURNSTILE_SITE_KEY || !turnstileBox.current) return;
+    const key = turnstileSiteKey();
+    setSiteKey(key);
+    if (!key || !turnstileBox.current) return;
     let cancelled = false;
     loadTurnstile()
       .then(() => {
         if (cancelled || !turnstileBox.current || !window.turnstile) return;
         widgetId.current = window.turnstile.render(turnstileBox.current, {
-          sitekey: TURNSTILE_SITE_KEY,
+          sitekey: key,
           language: 'fr',
           appearance: 'interaction-only',
           callback: (value: string) => setToken(value),
@@ -191,7 +200,7 @@ export default function LeadForm({ source, simulation = null, submitLabel = 'Rec
     if (values.phone.trim() && !normalizePhone(values.phone)) clientErrors.phone = 'Numéro invalide (ex. 06 12 34 56 78).';
     setErrors(clientErrors);
     if (Object.keys(clientErrors).length > 0) return;
-    if (TURNSTILE_SITE_KEY && !token) {
+    if (siteKey && !token) {
       setMessage('Merci de patienter une seconde : la vérification anti-robot se termine.');
       return;
     }

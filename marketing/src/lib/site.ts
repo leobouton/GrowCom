@@ -22,6 +22,17 @@ export const ROUTES = {
   privacy: '/politique-de-confidentialite',
 } as const;
 
+/**
+ * Anti-robot Cloudflare Turnstile du formulaire. La clé de site est publique par nature (visible
+ * dans la page) ; la clé secrète, elle, n'est JAMAIS dans le code (secret TURNSTILE_SECRET_KEY du Worker).
+ * Le widget n'est actif que sur les domaines déclarés dans Cloudflare : ailleurs (ordinateur de
+ * développement), le formulaire fonctionne sans, sauf clé de test fournie par PUBLIC_TURNSTILE_SITE_KEY.
+ */
+export const TURNSTILE = {
+  siteKey: '0x4AAAAAAFKewNncRWgg1MA3',
+  hostnames: ['growcom.fr', 'www.growcom.fr'],
+} as const;
+
 /** Modèle de grille téléchargeable (fichiers générés par scripts/generate-templates.mjs). */
 export const TEMPLATE_FILES = {
   xlsx: '/modele/grille-de-commissionnement-growcom.xlsx',

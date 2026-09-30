@@ -6,6 +6,17 @@
   "name": "growcom-marketing",
   "main": "@astrojs/cloudflare/entrypoints/server",
   "compatibility_date": "2026-09-01",
+  // Le site est servi sur growcom.fr (et www, redirigé vers growcom.fr par une règle Cloudflare).
+  // Cloudflare crée ces domaines et leurs certificats HTTPS au déploiement : le DNS de growcom.fr
+  // doit être géré par Cloudflare (docs/deploiement.md, étape 2).
+  "routes": [
+    { "pattern": "growcom.fr", "custom_domain": true },
+    { "pattern": "www.growcom.fr", "custom_domain": true }
+  ],
+  // Pas de copie du site sur une adresse *.workers.dev (contenu en double pour Google,
+  // et le formulaire n'y fonctionnerait pas : Turnstile n'est déclaré que pour growcom.fr)
+  "workers_dev": false,
+  "preview_urls": false,
   "assets": {
     "binding": "ASSETS",
     "directory": "./dist/client",
