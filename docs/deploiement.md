@@ -19,6 +19,17 @@ Il ne dépend **ni du backend, ni de la base de données** : il peut être en li
 
 **Pourquoi « Workers » et pas « Pages » ?** L'outil qui construit le site (Astro) ne sait plus publier sur Cloudflare Pages ; Cloudflare recommande désormais Workers, qui fait la même chose (et plus). Même compte, même gratuité.
 
+### Ordre conseillé
+
+Les étapes sont numérotées par thème, mais **fais-les dans cet ordre** : chacune a besoin de la précédente.
+
+1. **Étape 2** — DNS chez Cloudflare (le reste en dépend).
+2. **Étape 5.4** — boîte `leo.bouton@growcom.fr` (Brevo enverra un code de validation à cette adresse).
+3. **Étape 1** — Brevo.
+4. **Étape 3** — Turnstile (déjà fait).
+5. **Étape 4** — publication, puis **étape 5.2** (redirection www).
+6. **Étape 6** — tests.
+
 ---
 
 ## Étape 1 — Préparer Brevo
@@ -53,8 +64,11 @@ Nécessaire pour brancher le domaine sur le Worker. Le domaine **reste acheté c
 
 1. Crée un compte sur [dash.cloudflare.com](https://dash.cloudflare.com) (gratuit).
 2. *Ajouter un domaine* › `growcom.fr` › offre **Free**. Cloudflare importe les enregistrements existants : vérifie que tes enregistrements **MX** (réception des emails sur ton domaine), s'il y en a, sont bien présents.
-3. Cloudflare te donne **deux serveurs de noms** (ex. `ada.ns.cloudflare.com`). Chez ton registrar, remplace les serveurs DNS de `growcom.fr` par ces deux-là.
-4. Attends l'email de Cloudflare « growcom.fr est actif » (de quelques minutes à 24 h).
+   Supprime au passage les enregistrements **A**, **AAAA** ou **CNAME** nommés `growcom.fr` et `www` : ce sont ceux de la page de parking d'OVH ; le site les remplacera à l'étape 4.
+3. **Chez OVH, désactive d'abord le DNSSEC** (sinon le domaine devient injoignable au changement de serveurs) : [ovh.com/manager](https://www.ovh.com/manager) › *Web Cloud* › *Noms de domaine* › `growcom.fr` › onglet *Informations générales* › rubrique *Sécurité* › *DNSSEC* : **désactivé**. Attends que le changement soit effectif (quelques minutes à quelques heures, OVH l'indique).
+4. Cloudflare te donne **deux serveurs de noms** (ex. `ada.ns.cloudflare.com`). Chez OVH : *Noms de domaine* › `growcom.fr` › onglet **Serveurs DNS** › **Modifier les serveurs DNS** › remplace `dns109.ovh.net` et `ns109.ovh.net` par les deux serveurs Cloudflare › *Appliquer la configuration*.
+5. Dans Cloudflare, clique sur *Vérifier les serveurs de noms maintenant*, puis attends l'email « growcom.fr est actif » (de quelques minutes à 24 h ; OVH annonce jusqu'à 48 h).
+6. (Facultatif, plus tard) Réactiver le DNSSEC côté Cloudflare : `growcom.fr` › *DNS* › *Paramètres* › *Activer DNSSEC*, puis coller chez OVH (onglet *Enregistrements DS*) les valeurs affichées.
 
 ---
 
@@ -126,7 +140,7 @@ Le plus simple : Cloudflare construit et publie le site à chaque `git push` sur
    Le build lit aussi le dossier `/shared` (moteur de calcul) : c'est normal, Cloudflare récupère tout le dépôt.
    Le déploiement **branche lui-même** `growcom.fr` et `www.growcom.fr` sur le site (déclarés dans `marketing/wrangler.jsonc`) : l'étape 2 (DNS chez Cloudflare) doit donc être terminée avant.
    Si le premier déploiement échoue avec un message du type *« Hostname already has externally managed DNS records »* : Cloudflare › `growcom.fr` › *DNS* › supprime les enregistrements **A**, **AAAA** ou **CNAME** nommés `growcom.fr` (ou `@`) et `www` (ce sont ceux de l'ancien hébergeur ou de la page de parking du registrar ; **ne touche pas** aux enregistrements MX et TXT), puis *Réessayer* le déploiement.
-4. Une fois le premier déploiement terminé : Worker `growcom-marketing` › *Paramètres* › *Variables et secrets* › ajoute :
+4. Une fois le premier déploiement terminé : Worker `growcom-marketing` › *Paramètres* › *Variables et secrets* › ajoute les valeurs ci-dessous, **toutes en type « Secret »** (c'est le plus simple : rien n'est jamais effacé ni affiché) :
 
    | Nom | Type | Valeur |
    | --- | --- | --- |
@@ -140,7 +154,7 @@ Le plus simple : Cloudflare construit et publie le site à chaque `git push` sur
    | `BREVO_FIRSTNAME_ATTRIBUTE` | Texte | seulement si ton attribut prénom s'appelle `FIRSTNAME` |
 
    ⚠️ **Ne définis jamais `LEAD_TEST_MODE` en production** (il sert à tester le formulaire sans Brevo).
-   Ces valeurs ne sont écrites dans aucun fichier du projet : elles survivent aux déploiements suivants.
+   Ces valeurs ne sont écrites dans aucun fichier du projet ; elles sont conservées à chaque nouveau déploiement (les secrets toujours, et les variables « Texte » grâce au réglage `keep_vars` de `marketing/wrangler.jsonc`).
 5. Déclenche un nouveau déploiement (*Déploiements* › *Réessayer*) pour que tout soit pris en compte.
 
 **Alternative en ligne de commande** (depuis ton ordinateur, dossier `marketing`) : `npx wrangler login`, puis `npm run build`, puis `npx wrangler deploy`, et pour chaque secret `npx wrangler secret put BREVO_API_KEY` (la valeur est demandée, jamais affichée).
