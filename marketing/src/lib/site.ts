@@ -7,8 +7,9 @@ export const SITE = {
   url: 'https://growcom.fr',
   /** L'app SaaS, mise en ligne plus tard sur ce sous-domaine. */
   appUrl: 'https://app.growcom.fr',
-  // TODO Léo : confirmer l'adresse de contact (elle doit exister avant la mise en ligne)
-  contactEmail: 'contact@growcom.fr',
+  // Adresse de contact affichée sur le site et utilisée pour les réponses aux emails.
+  // Elle doit recevoir les messages avant la mise en ligne (voir docs/deploiement.md, étape 5.4).
+  contactEmail: 'leo.bouton@growcom.fr',
   locale: 'fr_FR',
 } as const;
 

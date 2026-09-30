@@ -6,7 +6,8 @@ import { ROUTES, SITE } from '../lib/site';
 /*
  * Politique de confidentialité du site growcom.fr. Elle décrit exactement ce que fait le code :
  * à mettre à jour à chaque nouveau traitement (voir docs/rgpd.md, le registre des traitements).
- * TODO Léo : compléter les informations marquées « À compléter ».
+ * Responsable : Léo BOUTON à titre personnel, tant que la société n'est pas créée.
+ * TODO Léo : adresse « À compléter » ; à la création de la société, mettre à jour cette rubrique.
  */
 const lastUpdate = '30 septembre 2026';
 const contact = SITE.contactEmail;
@@ -27,8 +28,12 @@ const contact = SITE.contactEmail;
 
     <h2>Responsable du traitement</h2>
     <p>
-      <span class="todo">À compléter : raison sociale, forme juridique et adresse du siège</span>, joignable à{" "}
-      <a href={`mailto:${contact}`}>{contact}</a>.
+      Léo BOUTON, à titre personnel (GrowCom est un projet d’entreprise en cours de création),
+      <span class="todo">adresse à compléter</span>, joignable à <a href={`mailto:${contact}`}>{contact}</a>.
+    </p>
+    <p>
+      À la création de la société GrowCom, les données collectées sur ce site lui seront transférées pour les mêmes finalités, et
+      cette page sera mise à jour en conséquence.
     </p>
 
     <h2>Les données que nous traitons</h2>

@@ -4,9 +4,12 @@ import PageHero from '../components/PageHero.astro';
 import { ROUTES, SITE } from '../lib/site';
 
 /*
- * TODO Léo : compléter les informations marquées « À compléter » avant la mise en ligne.
- * Elles sont obligatoires (loi n° 2004-575 du 21 juin 2004, article 6).
+ * Éditeur : Léo BOUTON, personne physique (GrowCom n'est pas encore une société).
+ * La loi pour la confiance dans l'économie numérique (LCEN) impose, pour une personne physique :
+ * nom, prénom, domicile et numéro de téléphone. TODO Léo : adresse et téléphone « À compléter ».
+ * À la création de l'entreprise : remplacer par sa dénomination, sa forme, son siège et son SIREN.
  */
+const EDITOR = 'Léo BOUTON';
 ---
 
 <BaseLayout
@@ -17,16 +20,16 @@ import { ROUTES, SITE } from '../lib/site';
 
   <div class="prose-gc mx-auto max-w-3xl px-5 py-14 sm:px-8">
     <h2>Éditeur du site</h2>
-    <p>Le site {SITE.url.replace('https://', '')} est édité par :</p>
+    <p>
+      Le site {SITE.url.replace('https://', '')} est édité par {EDITOR}, à titre personnel : GrowCom est un projet d’entreprise en
+      cours de création.
+    </p>
     <ul>
-      <li>Raison sociale : <span class="todo">À compléter</span></li>
-      <li>Forme juridique et capital social : <span class="todo">À compléter</span></li>
-      <li>Siège social : <span class="todo">À compléter</span></li>
-      <li>SIREN / RCS : <span class="todo">À compléter</span></li>
-      <li>Numéro de TVA intracommunautaire : <span class="todo">À compléter</span></li>
+      <li>Adresse : <span class="todo">À compléter</span></li>
+      <li>Téléphone : <span class="todo">À compléter</span></li>
       <li>Adresse email : <a href={`mailto:${SITE.contactEmail}`}>{SITE.contactEmail}</a></li>
     </ul>
-    <p>Directeur de la publication : <span class="todo">À compléter (nom du représentant légal)</span></p>
+    <p>Directeur de la publication : {EDITOR}.</p>
 
     <h2>Hébergement</h2>
     <p>
