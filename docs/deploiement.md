@@ -24,7 +24,7 @@ Il ne dépend **ni du backend, ni de la base de données** : il peut être en li
 Les étapes sont numérotées par thème, mais **fais-les dans cet ordre** : chacune a besoin de la précédente.
 
 1. **Étape 2** — DNS chez Cloudflare (le reste en dépend).
-2. **Étape 5.4** — boîte `leo.bouton@growcom.fr` (Brevo enverra un code de validation à cette adresse).
+2. **Étape 5.4** — boîte `leo.bouton@growcom.fr` : **à sauter** si l'adresse reçoit déjà des emails (c'est le cas : messagerie OVH relevée dans Gmail ; on garde alors tels quels les enregistrements MX, SRV, SPF et les CNAME `imap`, `smtp`, `pop3`, `mail`, `autoconfig`, `autodiscover`, en « DNS uniquement »).
 3. **Étape 1** — Brevo.
 4. **Étape 3** — Turnstile (déjà fait).
 5. **Étape 4** — publication, puis **étape 5.2** (redirection www).
