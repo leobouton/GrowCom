@@ -1,0 +1,28 @@
+---
+/**
+ * Report des paramètres de campagne sur les liens internes (voir src/lib/attribution.ts).
+ * Script minuscule, sans effet si l'adresse ne contient aucun paramètre de campagne.
+ */
+---
+
+<script>
+  import { attributionParams, withAttribution } from '../lib/attribution';
+
+  const carried = attributionParams(window.location.search);
+  if (carried.length > 0) {
+    const update = (link: HTMLAnchorElement) => {
+      const href = link.getAttribute('href');
+      if (!href || link.hasAttribute('download')) return;
+      const next = withAttribution(href, carried, window.location.href);
+      if (next) link.setAttribute('href', next);
+    };
+    document.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(update);
+    // Liens ajoutés plus tard (simulateur, formulaire) : complétés au moment du clic
+    const onIntent = (event: Event) => {
+      const link = (event.target as Element | null)?.closest?.('a[href]');
+      if (link instanceof HTMLAnchorElement) update(link);
+    };
+    document.addEventListener('pointerdown', onIntent, { capture: true });
+    document.addEventListener('keydown', onIntent, { capture: true });
+  }
+</script>

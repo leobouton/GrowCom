@@ -7,6 +7,7 @@ import interLatin from '@fontsource-variable/inter/files/inter-latin-wght-normal
 import frauncesLatin from '@fontsource-variable/fraunces/files/fraunces-latin-wght-normal.woff2?url';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
+import CampaignLinks from '../components/CampaignLinks.astro';
 import { SITE } from '../lib/site';
 import { absoluteUrl, serializeJsonLd } from '../lib/seo';
 
@@ -100,5 +101,6 @@ const image = absoluteUrl(ogImage);
       <slot />
     </main>
     <SiteFooter />
+    <CampaignLinks />
   </body>
 </html>

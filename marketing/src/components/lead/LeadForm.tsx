@@ -6,7 +6,8 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { AgencySaleSimulationResult } from '@shared/commission-engine';
 import { ROUTES, SITE, TEMPLATE_FILES } from '../../lib/site';
-import { ATTRIBUTION_KEYS, normalizeEmail, normalizePhone, type Attribution, type LeadSource } from '../../lib/lead/validation';
+import { normalizeEmail, normalizePhone, type Attribution, type LeadSource } from '../../lib/lead/validation';
+import { attributionParams } from '../../lib/attribution';
 import { encodeState, type SimulatorState } from '../../simulator/state';
 
 const TURNSTILE_SITE_KEY = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY as string | undefined;
@@ -37,15 +38,9 @@ function loadTurnstile(): Promise<void> {
   return turnstileLoading;
 }
 
-/** Provenance de la visite (campagne d'emailing…) lue dans l'adresse de la page. */
+/** Provenance de la visite (campagne d'emailing…) lue dans l'adresse de la page, sans aucun stockage. */
 function readAttribution(): Attribution {
-  const params = new URLSearchParams(window.location.search);
-  const result: Attribution = {};
-  for (const key of ATTRIBUTION_KEYS) {
-    const value = params.get(key);
-    if (value) result[key] = value;
-  }
-  return result;
+  return Object.fromEntries(attributionParams(window.location.search)) as Attribution;
 }
 
 type Field = 'email' | 'phone' | 'firstName' | 'agency' | 'city';

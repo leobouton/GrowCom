@@ -25,6 +25,7 @@ import { AddButton, ChoiceCards, FormSection, IconButton, NumberField, RemoveIco
 import { ResultsPanel } from './ResultsPanel';
 import { LeadDialog } from '../lead/LeadDialog';
 import { DEMO_HREF } from '../../lib/site';
+import { withoutAttribution } from '../../lib/attribution';
 
 /** Paramètres d'URL gérés par le simulateur (les autres, comme les UTM, sont préservés). */
 const SIM_KEYS = ['prix', 'hon', 'honu', 'tva', 'statut', 'rem', 'taux', 'forfait', 'pal', 'mode', 'ca', 'parts', 'ret', 'ventes'];
@@ -100,7 +101,8 @@ export default function Simulator() {
   const copyLink = async () => {
     writeUrl(state);
     try {
-      await navigator.clipboard.writeText(window.location.href);
+      // Lien partagé sans les paramètres de campagne : un collègue n'est pas attribué à l'email d'un autre
+      await navigator.clipboard.writeText(withoutAttribution(window.location.href));
       setCopied('copied');
     } catch {
       // Presse-papiers refusé par le navigateur : l'URL de la page est déjà à jour
