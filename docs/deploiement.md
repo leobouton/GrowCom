@@ -140,18 +140,15 @@ Le plus simple : Cloudflare construit et publie le site à chaque `git push` sur
    Le build lit aussi le dossier `/shared` (moteur de calcul) : c'est normal, Cloudflare récupère tout le dépôt.
    Le déploiement **branche lui-même** `growcom.fr` et `www.growcom.fr` sur le site (déclarés dans `marketing/wrangler.jsonc`) : l'étape 2 (DNS chez Cloudflare) doit donc être terminée avant.
    Si le premier déploiement échoue avec un message du type *« Hostname already has externally managed DNS records »* : Cloudflare › `growcom.fr` › *DNS* › supprime les enregistrements **A**, **AAAA** ou **CNAME** nommés `growcom.fr` (ou `@`) et `www` (ce sont ceux de l'ancien hébergeur ou de la page de parking du registrar ; **ne touche pas** aux enregistrements MX et TXT), puis *Réessayer* le déploiement.
-4. Une fois le premier déploiement terminé : Worker `growcom-marketing` › *Paramètres* › *Variables et secrets* › ajoute les valeurs ci-dessous, **toutes en type « Secret »** (c'est le plus simple : rien n'est jamais effacé ni affiché) :
+4. Une fois le premier déploiement terminé : Worker `growcom-marketing` › *Paramètres* › rubrique **Variables et secrets** (la rubrique principale, **pas** celle de la section *Build*) › ajoute ces **3 secrets** (type **Secret**) :
 
-   | Nom | Type | Valeur |
-   | --- | --- | --- |
-   | `BREVO_API_KEY` | **Secret** | clé API Brevo (étape 1) |
-   | `TURNSTILE_SECRET_KEY` | **Secret** | clé secrète Turnstile (étape 3) |
-   | `UNSUBSCRIBE_SECRET` | **Secret** | une longue phrase aléatoire, inventée par toi (chiffre les liens de désinscription ; ne jamais la changer ensuite, sinon les liens des anciens emails ne marchent plus) |
-   | `BREVO_LIST_ID` | Texte | identifiant de la liste (étape 1) |
-   | `BREVO_SENDER_EMAIL` | Texte | `leo.bouton@growcom.fr` (l'expéditeur validé dans Brevo à l'étape 1.3) |
-   | `BREVO_SENDER_NAME` | Texte | `GrowCom` |
-   | `LEAD_NOTIFY_EMAIL` | Texte | ton adresse : tu y reçois une alerte quand quelqu'un laisse son numéro |
-   | `BREVO_FIRSTNAME_ATTRIBUTE` | Texte | seulement si ton attribut prénom s'appelle `FIRSTNAME` |
+   | Nom | Valeur |
+   | --- | --- |
+   | `BREVO_API_KEY` | clé API Brevo (étape 1) |
+   | `TURNSTILE_SECRET_KEY` | clé secrète Turnstile (étape 3) |
+   | `UNSUBSCRIBE_SECRET` | une longue phrase aléatoire, inventée par toi (chiffre les liens de désinscription ; ne jamais la changer ensuite, sinon les liens des anciens emails ne marchent plus) |
+
+   Les autres réglages, non secrets (`BREVO_LIST_ID`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`, `LEAD_NOTIFY_EMAIL`), sont inscrits dans `marketing/wrangler.jsonc` (rubrique `vars`) : pour les changer, modifier ce fichier puis publier. Si ton compte Brevo nomme le prénom `FIRSTNAME`, ajoute-y `"BREVO_FIRSTNAME_ATTRIBUTE": "FIRSTNAME"`.
 
    ⚠️ **Ne définis jamais `LEAD_TEST_MODE` en production** (il sert à tester le formulaire sans Brevo).
    Ces valeurs ne sont écrites dans aucun fichier du projet ; elles sont conservées à chaque nouveau déploiement (les secrets toujours, et les variables « Texte » grâce au réglage `keep_vars` de `marketing/wrangler.jsonc`).

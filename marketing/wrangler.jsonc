@@ -17,6 +17,14 @@
   // et le formulaire n'y fonctionnerait pas : Turnstile n'est déclaré que pour growcom.fr)
   "workers_dev": false,
   "preview_urls": false,
+  // Réglages non secrets du formulaire (les secrets : BREVO_API_KEY, TURNSTILE_SECRET_KEY et
+  // UNSUBSCRIBE_SECRET, sont enregistrés uniquement dans le tableau de bord Cloudflare)
+  "vars": {
+    "BREVO_LIST_ID": "3",
+    "BREVO_SENDER_EMAIL": "leo.bouton@growcom.fr",
+    "BREVO_SENDER_NAME": "GrowCom",
+    "LEAD_NOTIFY_EMAIL": "leo.bouton@growcom.fr"
+  },
   // Conserver les variables saisies dans le tableau de bord Cloudflare à chaque déploiement
   // (sans cela, les variables de type « Texte » seraient effacées ; les « Secrets » ne le sont jamais)
   "keep_vars": true,
