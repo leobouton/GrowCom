@@ -63,7 +63,7 @@ const contents = [
         <h2 class="font-display text-[1.45rem] leading-tight" style="font-weight: 480">Recevoir le modèle</h2>
         <p class="mt-2 text-[0.9rem] text-ink-soft">Téléchargement immédiat, et une copie des liens par email.</p>
         <div class="mt-6">
-          <LeadForm client:visible source="modele-grille" submitLabel="Recevoir le modèle" />
+          <LeadForm client:idle={{ timeout: 1500 }} source="modele-grille" submitLabel="Recevoir le modèle" />
         </div>
       </div>
     </div>

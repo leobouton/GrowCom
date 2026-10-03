@@ -8,7 +8,7 @@ import type { AgencySaleSimulationResult } from '@shared/commission-engine';
 import { ROUTES, SITE, TEMPLATE_FILES, TURNSTILE } from '../../lib/site';
 import { normalizeEmail, normalizePhone, type Attribution, type LeadSource } from '../../lib/lead/validation';
 import { attributionParams } from '../../lib/attribution';
-import { encodeState, type SimulatorState } from '../../simulator/state';
+import type { SimulatorState } from '../../simulator/state';
 
 const TEST_TURNSTILE_SITE_KEY = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY as string | undefined;
 
@@ -54,8 +54,8 @@ type Status = 'idle' | 'submitting' | 'success' | 'error';
 
 interface Props {
   source: LeadSource;
-  /** Simulation en cours (page simulateur) : permet le PDF du calcul. */
-  simulation?: { state: SimulatorState; result: AgencySaleSimulationResult } | null;
+  /** Simulation en cours (page simulateur) : permet le PDF du calcul. `query` = paramètres d'URL de la simulation. */
+  simulation?: { state: SimulatorState; result: AgencySaleSimulationResult; query: string } | null;
   submitLabel?: string;
 }
 
@@ -155,12 +155,15 @@ export default function LeadForm({ source, simulation = null, submitLabel = 'Rec
   const widgetId = useRef<string | null>(null);
   const successHeading = useRef<HTMLHeadingElement>(null);
 
-  // Vérification anti-robot Cloudflare (invisible dans la plupart des cas), chargée à l'ouverture du formulaire
+  // Vérification anti-robot Cloudflare (invisible dans la plupart des cas). Chargée seulement quand le
+  // visiteur commence à remplir le formulaire : rien ne ralentit l'affichage de la page.
   const [siteKey, setSiteKey] = useState<string | null>(null);
+  const [wantTurnstile, setWantTurnstile] = useState(false);
+  const pendingSubmit = useRef(false);
+  useEffect(() => setSiteKey(turnstileSiteKey()), []);
   useEffect(() => {
-    const key = turnstileSiteKey();
-    setSiteKey(key);
-    if (!key || !turnstileBox.current) return;
+    const key = siteKey;
+    if (!wantTurnstile || !key || !turnstileBox.current) return;
     let cancelled = false;
     loadTurnstile()
       .then(() => {
@@ -171,15 +174,26 @@ export default function LeadForm({ source, simulation = null, submitLabel = 'Rec
           appearance: 'interaction-only',
           callback: (value: string) => setToken(value),
           'expired-callback': () => setToken(null),
-          'error-callback': () => setToken(null),
+          'error-callback': () => {
+            setToken(null);
+            if (pendingSubmit.current) {
+              pendingSubmit.current = false;
+              setStatus('error');
+              setMessage('La vérification anti-robot a échoué. Rechargez la page et réessayez.');
+            }
+          },
         });
       })
-      .catch(() => setMessage('La vérification anti-robot n’a pas pu se charger. Désactivez un éventuel bloqueur et rechargez la page.'));
+      .catch(() => {
+        pendingSubmit.current = false;
+        setStatus((current) => (current === 'submitting' ? 'error' : current));
+        setMessage('La vérification anti-robot n’a pas pu se charger. Désactivez un éventuel bloqueur et rechargez la page.');
+      });
     return () => {
       cancelled = true;
       if (widgetId.current && window.turnstile) window.turnstile.remove(widgetId.current);
     };
-  }, []);
+  }, [wantTurnstile, siteKey]);
 
   useEffect(() => {
     if (status === 'success') successHeading.current?.focus();
@@ -190,7 +204,7 @@ export default function LeadForm({ source, simulation = null, submitLabel = 'Rec
     if (errors[field]) setErrors((e) => ({ ...e, [field]: undefined }));
   };
 
-  const simulationQuery = simulation ? encodeState(simulation.state) : null;
+  const simulationQuery = simulation?.query ?? null;
   const simulationLink = `${SITE.url}${ROUTES.simulator}${simulationQuery ? `?${simulationQuery}` : ''}`;
 
   const onSubmit = async (event: FormEvent) => {
@@ -201,10 +215,17 @@ export default function LeadForm({ source, simulation = null, submitLabel = 'Rec
     setErrors(clientErrors);
     if (Object.keys(clientErrors).length > 0) return;
     if (siteKey && !token) {
-      setMessage('Merci de patienter une seconde : la vérification anti-robot se termine.');
+      // Vérification pas encore terminée : l'envoi partira tout seul dès qu'elle l'est
+      pendingSubmit.current = true;
+      setWantTurnstile(true);
+      setStatus('submitting');
+      setMessage(null);
       return;
     }
+    await send(token);
+  };
 
+  const send = async (turnstileToken: string | null) => {
     setStatus('submitting');
     setMessage(null);
     try {
@@ -218,7 +239,7 @@ export default function LeadForm({ source, simulation = null, submitLabel = 'Rec
           attribution: readAttribution(),
           website: honeypot.current?.value ?? '',
           startedAt: startedAt.current,
-          turnstileToken: token,
+          turnstileToken,
         }),
       });
       const data = (await response.json().catch(() => ({}))) as {
@@ -244,6 +265,16 @@ export default function LeadForm({ source, simulation = null, submitLabel = 'Rec
       setStatus('error');
     }
   };
+
+  // Envoi mis en attente de la vérification anti-robot : il part dès que le jeton arrive
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => {
+    if (token && pendingSubmit.current) {
+      pendingSubmit.current = false;
+      void sendRef.current(token);
+    }
+  }, [token]);
 
   const downloadPdf = async () => {
     if (!simulation) return;
@@ -303,7 +334,13 @@ export default function LeadForm({ source, simulation = null, submitLabel = 'Rec
   const submitting = status === 'submitting';
 
   return (
-    <form onSubmit={onSubmit} noValidate aria-busy={submitting}>
+    <form
+      onSubmit={onSubmit}
+      noValidate
+      aria-busy={submitting}
+      onFocusCapture={() => setWantTurnstile(true)}
+      onPointerDownCapture={() => setWantTurnstile(true)}
+    >
       <div className="space-y-4">
         <Input label={<>Email professionnel <span className="text-muted">(obligatoire)</span></>} name="email" type="email" inputMode="email" autoComplete="email" required value={values.email} onChange={set('email')} error={errors.email} />
         <div className="grid gap-4 sm:grid-cols-2">

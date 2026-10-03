@@ -4,7 +4,7 @@
  */
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react';
 import type { AgencySaleSimulationResult } from '@shared/commission-engine';
-import type { SimulatorState } from '../../simulator/state';
+import { encodeState, type SimulatorState } from '../../simulator/state';
 
 // Formulaire chargé seulement à l'ouverture de la fenêtre : rien ne pèse sur l'affichage du simulateur
 const LeadForm = lazy(() => import('./LeadForm'));
@@ -17,7 +17,7 @@ export function LeadDialog({ simulation }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
   // Simulation figée à l'ouverture : le PDF correspond à ce que la personne a vu
-  const [snapshot, setSnapshot] = useState(simulation);
+  const [snapshot, setSnapshot] = useState<(NonNullable<Props['simulation']> & { query: string }) | null>(null);
   const titleId = useId();
 
   useEffect(() => {
@@ -29,7 +29,7 @@ export function LeadDialog({ simulation }: Props) {
   }, []);
 
   const show = () => {
-    setSnapshot(simulation);
+    setSnapshot(simulation ? { ...simulation, query: encodeState(simulation.state) } : null);
     setOpen(true);
     dialog.current?.showModal();
   };
