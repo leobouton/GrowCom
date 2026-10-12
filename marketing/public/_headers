@@ -1,10 +1,12 @@
 # En-têtes de sécurité de toutes les pages et fichiers du site (Cloudflare Workers, fichiers statiques).
-# CSP : scripts, cadres et connexions limités au site et aux deux services Cloudflare utilisés
-# (Turnstile pour l'anti-robot du formulaire, Web Analytics pour les statistiques sans cookie).
+# CSP : scripts, cadres et connexions limités au site, aux deux services Cloudflare utilisés
+# (Turnstile pour l'anti-robot du formulaire, Web Analytics pour les statistiques sans cookie)
+# et à Google Tag Manager, avec les domaines de Google Analytics 4 qu'il peut déclencher.
+# Toute autre balise ajoutée dans Tag Manager (LinkedIn, Meta…) doit avoir ses domaines déclarés ici.
 # 'unsafe-inline' reste nécessaire pour les scripts d'activation d'Astro et les styles en ligne ;
 # le site n'affiche aucun contenu saisi par des tiers.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com https://*.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.google-analytics.com https://*.googletagmanager.com; font-src 'self'; connect-src 'self' https://cloudflareinsights.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com; frame-src https://challenges.cloudflare.com https://www.googletagmanager.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests
   Strict-Transport-Security: max-age=31536000
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
