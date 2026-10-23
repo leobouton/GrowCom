@@ -5,8 +5,9 @@
  *   • 1 tenant neutre « Réseau Horizon Immobilier (démo) »
  *   • 1 directeur réseau (MANAGER) + 1 responsable d'agence (TEAM_LEAD) + 6 conseillers
  *   • 1 règle de commission à PALIERS (TIERED) : rétrocession progressive des honoraires
- *   • ~26 ventes de biens (appartement / maison) avec prix + honoraires réalistes
- *   • ≥ 1 vente en CO-MANDAT (split 50/50 entre 2 conseillers)
+ *   • ~37 ventes de biens (appartement / maison) avec prix + honoraires réalistes,
+ *     dont ~26 sur le MOIS COURANT (dashboards du mois bien remplis)
+ *   • 2 ventes en CO-MANDAT (split 50/50 entre 2 conseillers)
  *   • objectifs d'honoraires sur 2 conseillers → page Projections/simulation vivante
  *   • statuts variés (en attente / validées / versées) → dashboards actifs
  *
@@ -149,7 +150,7 @@ interface DemoDeal {
 }
 
 /**
- * ~26 ventes. deal.amount = HONORAIRES (≈ 3 à 6 % du prix du bien), base réelle de
+ * ~37 ventes. deal.amount = HONORAIRES (≈ 3 à 6 % du prix du bien), base réelle de
  * la commission calculée par le moteur. Le PRIX du bien vit dans l'intitulé.
  *
  * RÈGLE DE COHÉRENCE DU CLASSEMENT (à ne pas casser) : une vente PENDING doit
@@ -159,7 +160,11 @@ interface DemoDeal {
  * Les ventes des mois passés sont donc toujours VALIDATED ou PAID.
  *
  * Sophie & Thomas ont des ventes récentes pour animer leurs objectifs mensuels.
- * Une vente en CO-MANDAT (Sophie + Marie, split 50/50).
+ * Deux ventes en CO-MANDAT (Sophie + Marie, Camille + Julien — split 50/50).
+ *
+ * Les dates sont ANCRÉES au moment où le seed tourne : la démo doit être
+ * reconstruite chaque mois (`npm run seed:demo:reset`) pour que le mois en cours
+ * reste rempli.
  */
 const DEMO_DEALS: DemoDeal[] = [
   // — Sophie (objectif mensuel vivant) —
@@ -202,6 +207,20 @@ const DEMO_DEALS: DemoDeal[] = [
   { ext: 'l02', bien: 'Appartement T3 — Marseille 9e', client: 'M. Fabre', prix: 258000, honoraires: 11500, who: 'lea', when: { m: 1, d: 9 }, status: 'PAID', dealType: 'Appartement' },
   { ext: 'l03', bien: 'Studio — Aix-en-Provence', client: 'Mme Henry', prix: 158000, honoraires: 7000, who: 'lea', when: { m: 2, d: 14 }, status: 'PAID', dealType: 'Appartement' },
   { ext: 'l04', bien: 'Appartement T4 — Marseille 8e', client: 'Famille Masson', prix: 410000, honoraires: 17000, who: 'lea', when: { m: 3, d: 10 }, status: 'PAID', dealType: 'Appartement' },
+
+  // — Renfort MOIS COURANT : plus de ventes à valider, un 2e co-mandat (Camille + Julien) —
+  { ext: 's05', bien: 'Appartement T2 — Lyon 4e', client: 'M. Morel', prix: 232000, honoraires: 10000, who: 'sophie', when: { m: 0, d: 20 }, status: 'PENDING', dealType: 'Appartement' },
+  { ext: 't05', bien: 'Appartement T3 — Lyon 7e', client: 'Mme Lopez', prix: 279000, honoraires: 12500, who: 'thomas', when: { m: 0, d: 21 }, status: 'PENDING', dealType: 'Appartement' },
+  { ext: 'c04', bien: 'Maison 5P — Tassin-la-Demi-Lune', client: 'Famille Leclerc', prix: 465000, honoraires: 18500, who: 'camille', when: { m: 0, d: 12 }, status: 'VALIDATED', dealType: 'Maison' },
+  { ext: 'c05', bien: 'Studio — Lyon 1er', client: 'M. Gauthier', prix: 139000, honoraires: 6500, who: 'camille', when: { m: 0, d: 22 }, status: 'PENDING', dealType: 'Appartement' },
+  { ext: 'j04', bien: 'Appartement T5 — Lyon 2e', client: 'M. et Mme André', prix: 690000, honoraires: 25000, who: 'julien', when: { m: 0, d: 15 }, status: 'PENDING', dealType: 'Appartement' },
+  { ext: 'co2', bien: "Maison 6P — Saint-Didier-au-Mont-d'Or", client: 'Famille Picard', prix: 845000, honoraires: 32000, who: ['camille', 'julien'], when: { m: 0, d: 19 }, status: 'VALIDATED', dealType: 'Maison' },
+  { ext: 'm04', bien: 'Maison 5P — Le Tholonet', client: 'Famille Brun', prix: 595000, honoraires: 23000, who: 'marie', when: { m: 0, d: 16 }, status: 'VALIDATED', dealType: 'Maison' },
+  { ext: 'm05', bien: 'Appartement T2 — Aix-en-Provence', client: 'Mlle Colin', prix: 238000, honoraires: 10500, who: 'marie', when: { m: 0, d: 21 }, status: 'PENDING', dealType: 'Appartement' },
+  { ext: 'a04', bien: 'Appartement T3 — Marseille 7e', client: 'M. Mathieu', prix: 312000, honoraires: 13500, who: 'antoine', when: { m: 0, d: 18 }, status: 'PENDING', dealType: 'Appartement' },
+  { ext: 'a05', bien: 'Maison 4P — Cassis', client: 'Famille Clément', prix: 720000, honoraires: 27000, who: 'antoine', when: { m: 0, d: 9 }, status: 'PAID', dealType: 'Maison' },
+  { ext: 'l05', bien: 'Appartement T3 — Aix-en-Provence', client: 'Mme Dumont', prix: 298000, honoraires: 12500, who: 'lea', when: { m: 0, d: 20 }, status: 'PENDING', dealType: 'Appartement' },
+  { ext: 'l06', bien: 'Maison 5P — Gardanne', client: 'Famille Marchand', prix: 385000, honoraires: 15500, who: 'lea', when: { m: 0, d: 6 }, status: 'PAID', dealType: 'Maison' },
 ];
 
 /** Intitulé de vente cohérent : « bien + localisation · vendu(e) PRIX € ». */
@@ -452,7 +471,7 @@ async function ensurePlanAssignment(tenantId: string, planId: string, userId: st
   });
 }
 
-/** Upsert d'une vente (source FILE, aucune trace CRM recrutement). */
+/** Upsert d'une vente (source FILE, aucune trace CRM). */
 async function upsertDeal(
   tenantId: string,
   d: DemoDeal,
@@ -504,8 +523,12 @@ async function applyCommissionStatus(dealId: string, status: DealStatus, closedA
       data: { status: 'VALIDATED', validatedAt: closedAt, scheduledPaymentAt: null, awaitingClientPayment: false },
     });
   } else if (status === 'PAID') {
-    const paidAt = closedAt;
-    const validatedAt = new Date(closedAt.getTime() - 2 * 24 * 3600 * 1000);
+    // Validée le jour de la signature (jamais avant : contrôle 5 de l'audit),
+    // versée 2 jours plus tard sans jamais dépasser maintenant.
+    const validatedAt = closedAt;
+    const paidAt = new Date(
+      Math.max(closedAt.getTime(), Math.min(closedAt.getTime() + 2 * 24 * 3600 * 1000, Date.now())),
+    );
     await prisma.commission.updateMany({
       where: { dealId, status: { in: ['PENDING', 'VALIDATED'] } },
       data: { status: 'PAID', validatedAt, paidAt, scheduledPaymentAt: null, awaitingClientPayment: false },
@@ -758,7 +781,7 @@ async function main(): Promise<void> {
     await commissionService.recalculateForDeal(dealId, tenantId);
     await applyCommissionStatus(dealId, d.status, dateOf(d.when.m, d.when.d));
   }
-  console.log(`  ${DEMO_DEALS.length} ventes traitées (dont ${coMandats} co-mandat)`);
+  console.log(`  ${DEMO_DEALS.length} ventes traitées (dont ${coMandats} co-mandat${coMandats > 1 ? 's' : ''})`);
 
   // 8. Résumé
   console.log('\n=== Résumé ===');
