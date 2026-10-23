@@ -96,7 +96,7 @@ export function ParametragePage() {
     <div className="space-y-6">
       {/* En-tête */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Paramétrage</h1>
+        <h1 className="display text-3xl text-gray-900">Paramétrage</h1>
         <p className="text-gray-500 mt-1">Gérez les commissions, objectifs et concours de votre équipe</p>
       </div>
 
@@ -361,7 +361,7 @@ function ConcoursTab({ isTeamLead = false }: { isTeamLead?: boolean }) {
                           <span className="col-span-2 text-right">Contribution</span>
                         </div>
                         {entry.details.map((d) => (
-                          <div key={d.dealId} className="text-xs text-gray-700 px-3 py-1.5 bg-white rounded border border-gray-100 grid grid-cols-12 gap-1 items-center">
+                          <div key={d.dealId} className="text-xs text-gray-700 px-3 py-1.5 bg-card rounded border border-gray-100 grid grid-cols-12 gap-1 items-center">
                             <TruncatedText text={d.dealTitle} className="col-span-3 font-medium" as="span" />
                             <TruncatedText text={d.clientName ?? '-'} className="col-span-2 text-gray-500" as="span" />
                             <span className="col-span-2 text-right">{formatEur(d.amount)}</span>
@@ -381,7 +381,7 @@ function ConcoursTab({ isTeamLead = false }: { isTeamLead?: boolean }) {
                     )}
 
                     {expandedUserId === entry.user.id && (!entry.details || entry.details.length === 0) && (
-                      <div className="ml-11 mt-1 mb-2 px-3 py-2 text-xs text-gray-400 bg-white rounded border border-gray-100">
+                      <div className="ml-11 mt-1 mb-2 px-3 py-2 text-xs text-gray-400 bg-card rounded border border-gray-100">
                         Aucun deal comptabilisé pour cette période
                       </div>
                     )}

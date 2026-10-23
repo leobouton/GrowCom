@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { authApiService } from '../../services/auth.service';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { Logo } from '../../components/ui/Logo';
 
 const schema = z.object({
   email: z.string().email('Email invalide'),
@@ -34,18 +35,16 @@ export function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-primary-600 rounded-xl mb-3">
-            <span className="text-white font-bold text-xl">G</span>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">Mot de passe oublié</h1>
+          <Logo size="lg" className="mb-5" />
+          <h1 className="display text-3xl text-gray-900">Mot de passe oublié</h1>
           <p className="text-gray-500 mt-1">Recevez un lien de réinitialisation par email</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="bg-card rounded-2xl border border-gray-200 shadow-slip p-8">
           {sent ? (
             <div className="text-center space-y-4">
               <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto">

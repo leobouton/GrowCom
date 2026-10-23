@@ -43,7 +43,7 @@ export function PlanRepromptBar() {
           onChange={(e) => setInstruction(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && canSend) void handleReprompt(); }}
           placeholder="ex : ajoute une prime de 500€ par recrutement senior, et retire l'objectif trimestriel"
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
           disabled={loading.generate}
         />
         <Button onClick={() => void handleReprompt()} disabled={!canSend} loading={loading.generate}>

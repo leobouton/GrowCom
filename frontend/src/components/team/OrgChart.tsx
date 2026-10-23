@@ -66,7 +66,7 @@ function MemberCard({ member, isDragging = false, onMemberClick }: {
       {...attributes}
       onClick={() => onMemberClick?.(member)}
       title="Cliquer pour voir la fiche"
-      className={`flex items-center gap-2 px-3 py-2 bg-white rounded-lg border shadow-sm cursor-grab active:cursor-grabbing select-none transition-opacity ${isDragging ? 'opacity-0' : 'hover:border-primary-300 hover:shadow'} ${isManager ? 'border-indigo-200 bg-indigo-50' : 'border-gray-100'}`}
+      className={`flex items-center gap-2 px-3 py-2 bg-card rounded-lg border shadow-sm cursor-grab active:cursor-grabbing select-none transition-opacity ${isDragging ? 'opacity-0' : 'hover:border-primary-300 hover:shadow'} ${isManager ? 'border-indigo-200 bg-indigo-50' : 'border-gray-100'}`}
     >
       <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${isManager ? 'bg-indigo-100' : 'bg-blue-100'}`}>
         <span className={`font-semibold text-xs ${isManager ? 'text-indigo-700' : 'text-blue-700'}`}>{member.firstName[0]}{member.lastName[0]}</span>
@@ -157,7 +157,7 @@ function DragPreview({ member }: { member: PublicUser }) {
   const isLead = member.role === UserRole.TEAM_LEAD || member.role === UserRole.BU_MANAGER || member.role === UserRole.MANAGER;
   const label = roleLabel(member);
   return (
-    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-primary-400 shadow-xl cursor-grabbing select-none opacity-95 ${isLead ? 'bg-purple-50' : 'bg-white'}`}>
+    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-primary-400 shadow-xl cursor-grabbing select-none opacity-95 ${isLead ? 'bg-purple-50' : 'bg-card'}`}>
       <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${isLead ? 'bg-purple-100' : 'bg-blue-100'}`}>
         <span className={`font-semibold text-xs ${isLead ? 'text-purple-700' : 'text-blue-700'}`}>{member.firstName[0]}{member.lastName[0]}</span>
       </div>
@@ -259,7 +259,7 @@ function GroupColumn({
             <button
               onClick={() => setShowLeadSelect(!showLeadSelect)}
               disabled={availableLeads.length === 0}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-400 border border-dashed border-gray-300 rounded-lg hover:border-purple-300 hover:text-purple-500 hover:bg-purple-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-400 border border-dashed border-gray-300 rounded-full hover:border-purple-300 hover:text-purple-500 hover:bg-purple-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -267,7 +267,7 @@ function GroupColumn({
               {availableLeads.length === 0 ? 'Aucun resp. de secteur disponible' : 'Désigner un responsable'}
             </button>
             {showLeadSelect && availableLeads.length > 0 && (
-              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-card border border-gray-200 rounded-lg shadow-lg overflow-hidden">
                 {availableLeads.map((lead) => (
                   <button
                     key={lead.id}
@@ -502,7 +502,7 @@ export function OrgChart({ groups, unassigned, onRefresh, onMemberClick }: OrgCh
         </div>
         <button
           onClick={() => { setShowAdd(!showAdd); setCreateError(null); }}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-primary-700 bg-primary-50 border border-primary-200 rounded-lg hover:bg-primary-100 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-primary-700 bg-primary-50 border border-primary-200 rounded-full hover:bg-primary-100 transition-colors"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -531,12 +531,12 @@ export function OrgChart({ groups, unassigned, onRefresh, onMemberClick }: OrgCh
               onChange={(e) => setNewGroupName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void handleAddGroup()}
               placeholder="Nom de l'équipe (ex: Région Sud)"
-              className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-400"
+              className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
             />
             <button
               onClick={() => void handleAddGroup()}
               disabled={saving || !newGroupName.trim()}
-              className="px-3 py-1.5 text-sm font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm font-medium bg-primary-600 text-white rounded-full hover:bg-primary-700 disabled:opacity-50"
             >
               {saving ? 'Création…' : 'Créer'}
             </button>

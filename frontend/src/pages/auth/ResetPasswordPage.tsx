@@ -6,6 +6,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApiService } from '../../services/auth.service';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { Logo } from '../../components/ui/Logo';
 
 const schema = z
   .object({
@@ -49,8 +50,8 @@ export function ResetPasswordPage() {
 
   if (!token) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-primary-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center space-y-4">
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="bg-card rounded-2xl border border-gray-200 shadow-slip p-8 max-w-md w-full text-center space-y-4">
           <p className="text-red-600 font-medium">Lien invalide.</p>
           <Link to="/forgot-password" className="text-sm text-primary-600 hover:underline">
             Faire une nouvelle demande
@@ -61,18 +62,16 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-primary-600 rounded-xl mb-3">
-            <span className="text-white font-bold text-xl">G</span>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">Nouveau mot de passe</h1>
+          <Logo size="lg" className="mb-5" />
+          <h1 className="display text-3xl text-gray-900">Nouveau mot de passe</h1>
           <p className="text-gray-500 mt-1">Choisissez un mot de passe sécurisé</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="bg-card rounded-2xl border border-gray-200 shadow-slip p-8">
           {success ? (
             <div className="text-center space-y-4">
               <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto">

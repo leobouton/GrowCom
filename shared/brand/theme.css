@@ -1,0 +1,45 @@
+/*
+ * Charte graphique GrowCom : source unique des couleurs, polices et ombres
+ *
+ * Lue par :
+ * - le site (marketing/src/styles/global.css, Tailwind 4) : bloc @theme importé tel quel ;
+ * - l'app (frontend/tailwind.config.js, Tailwind 3) : valeurs extraites de ce fichier.
+ * Changer une valeur ici change le site ET l'app (relancer les deux pour voir l'effet).
+ *
+ * - papier chaud + encre : l'univers du bordereau de commission, sobre et lisible
+ * - indigo : couleur d'action (boutons, liens)
+ * - vert anis : le point du logo, réservé à ce qui évoque la progression
+ * - Fraunces (titres) répond au logo à empattements ; Inter pour tout le texte
+ *
+ * Une valeur par ligne, sous la forme « --nom: valeur; » (format attendu par l'app).
+ */
+@theme {
+  --color-paper: #f7f4ee;
+  --color-paper-deep: #eee8dc;
+  --color-card: #fffdf9;
+  --color-ink: #17161c;
+  --color-ink-soft: #3b3a44;
+  --color-muted: #625f6b;
+  --color-line: #e0d8c9;
+  --color-line-strong: #cfc5b2;
+  --color-lime: #c8e45c;
+  --color-lime-soft: #eef6cf;
+  --color-growth: #45620a;
+
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
+
+  --shadow-slip: 0 1px 0 rgb(23 22 28 / 0.04), 0 12px 24px -8px rgb(23 22 28 / 0.14), 0 40px 80px -24px rgb(23 22 28 / 0.22);
+  --shadow-card: 0 1px 2px rgb(23 22 28 / 0.05), 0 8px 24px -12px rgb(23 22 28 / 0.12);
+}

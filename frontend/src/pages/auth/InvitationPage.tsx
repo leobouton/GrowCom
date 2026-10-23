@@ -7,6 +7,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { useState } from 'react';
+import { Logo } from '../../components/ui/Logo';
 
 const schema = z
   .object({
@@ -38,7 +39,7 @@ export function InvitationPage() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-xl font-semibold text-gray-900">Lien invalide</h1>
+          <h1 className="display text-2xl text-gray-900">Lien invalide</h1>
           <p className="text-gray-500 mt-2">Ce lien d'invitation est invalide ou a expiré.</p>
         </div>
       </div>
@@ -57,17 +58,15 @@ export function InvitationPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-primary-600 rounded-xl mb-3">
-            <span className="text-white font-bold text-xl">G</span>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">Créer votre mot de passe</h1>
+          <Logo size="lg" className="mb-5" />
+          <h1 className="display text-3xl text-gray-900">Créer votre mot de passe</h1>
           <p className="text-gray-500 mt-1">Vous avez été invité(e) sur GrowCom</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="bg-card rounded-2xl border border-gray-200 shadow-slip p-8">
           <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} className="space-y-5">
             <Input
               label="Mot de passe"

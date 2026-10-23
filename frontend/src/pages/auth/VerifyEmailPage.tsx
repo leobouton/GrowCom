@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { authApiService } from '../../services/auth.service';
+import { Logo } from '../../components/ui/Logo';
 
 type Status = 'loading' | 'success' | 'error' | 'expired';
 
@@ -25,16 +26,15 @@ export function VerifyEmailPage() {
   }, [searchParams]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-primary-600 rounded-xl mb-3">
-            <span className="text-white font-bold text-xl">G</span>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">GrowCom</h1>
+          <h1>
+            <Logo size="lg" />
+          </h1>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+        <div className="bg-card rounded-2xl border border-gray-200 shadow-slip p-8 text-center">
           {status === 'loading' && (
             <>
               <div className="w-12 h-12 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
@@ -53,7 +53,7 @@ export function VerifyEmailPage() {
               <p className="text-gray-500 mb-6">Votre adresse email a bien été vérifiée. Vous pouvez maintenant utiliser GrowCom.</p>
               <Link
                 to="/manager"
-                className="inline-block bg-primary-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-700 transition-colors"
+                className="inline-block bg-primary-600 text-white px-6 py-3 rounded-full font-semibold hover:bg-primary-700 transition-colors"
               >
                 Accéder à mon espace
               </Link>
@@ -71,7 +71,7 @@ export function VerifyEmailPage() {
               <p className="text-gray-500 mb-6">Ce lien de vérification a expiré (valable 24h). Connectez-vous et un nouveau lien vous sera envoyé.</p>
               <Link
                 to="/login"
-                className="inline-block bg-primary-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-700 transition-colors"
+                className="inline-block bg-primary-600 text-white px-6 py-3 rounded-full font-semibold hover:bg-primary-700 transition-colors"
               >
                 Se connecter
               </Link>
@@ -89,7 +89,7 @@ export function VerifyEmailPage() {
               <p className="text-gray-500 mb-6">Ce lien de vérification est invalide ou déjà utilisé.</p>
               <Link
                 to="/login"
-                className="inline-block bg-primary-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-700 transition-colors"
+                className="inline-block bg-primary-600 text-white px-6 py-3 rounded-full font-semibold hover:bg-primary-700 transition-colors"
               >
                 Retour à la connexion
               </Link>

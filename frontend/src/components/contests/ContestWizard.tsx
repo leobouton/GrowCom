@@ -213,7 +213,7 @@ export function ContestWizard({ teamMembers, groups = [], isTeamLead = false, on
               placeholder="ex : Meilleur commercial du mois"
               value={state.name}
               onChange={(e) => update({ name: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
             />
           </div>
 
@@ -224,7 +224,7 @@ export function ContestWizard({ teamMembers, groups = [], isTeamLead = false, on
               placeholder="ex : iPhone 17, Bon cadeau 500\u20AC..."
               value={state.prize}
               onChange={(e) => update({ prize: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
             />
           </div>
 
@@ -235,7 +235,7 @@ export function ContestWizard({ teamMembers, groups = [], isTeamLead = false, on
               placeholder="Details supplementaires sur le concours..."
               value={state.description}
               onChange={(e) => update({ description: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white resize-none"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card resize-none"
             />
           </div>
 
@@ -361,7 +361,7 @@ export function ContestWizard({ teamMembers, groups = [], isTeamLead = false, on
                           >
                             <span
                               className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: g.color || '#9CA3AF' }}
+                              style={{ backgroundColor: g.color || '#99928f' }}
                             />
                             {g.name}
                             <span className="text-gray-400">({g.members.length})</span>
@@ -381,7 +381,7 @@ export function ContestWizard({ teamMembers, groups = [], isTeamLead = false, on
                       placeholder="Rechercher..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+                      className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
                     />
                     <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -444,7 +444,7 @@ export function ContestWizard({ teamMembers, groups = [], isTeamLead = false, on
                 type="date"
                 value={state.periodStart}
                 onChange={(e) => update({ periodStart: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
               />
             </div>
             <div>
@@ -454,7 +454,7 @@ export function ContestWizard({ teamMembers, groups = [], isTeamLead = false, on
                 value={state.periodEnd}
                 min={state.periodStart || undefined}
                 onChange={(e) => update({ periodEnd: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
               />
             </div>
           </div>

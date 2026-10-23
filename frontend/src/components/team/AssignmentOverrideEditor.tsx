@@ -77,7 +77,7 @@ export function AssignmentOverrideEditor({
   };
 
   return (
-    <div className="mt-2 p-3 bg-white border border-primary-200 rounded-lg space-y-3">
+    <div className="mt-2 p-3 bg-card border border-primary-200 rounded-lg space-y-3">
       <p className="text-[11px] font-medium text-primary-700">
         Ajustement pour ce membre uniquement — le barème du plan reste inchangé.
       </p>
@@ -92,7 +92,7 @@ export function AssignmentOverrideEditor({
               <input
                 type="number" min={0} step={0.5} value={rate}
                 onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setRate(v); }}
-                className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right bg-white"
+                className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right bg-card"
               />
               <span className="text-xs text-gray-400">%</span>
             </div>
@@ -107,7 +107,7 @@ export function AssignmentOverrideEditor({
               <input
                 type="number" min={0} step={10} value={fixedAmount}
                 onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setFixedAmount(v); }}
-                className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right bg-white"
+                className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right bg-card"
               />
               <span className="text-xs text-gray-400">€</span>
             </div>
@@ -122,7 +122,7 @@ export function AssignmentOverrideEditor({
                 if (e.target.value === '') { setFloor(null); return; }
                 const v = Number(e.target.value); if (Number.isFinite(v)) setFloor(v);
               }}
-              className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right bg-white"
+              className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right bg-card"
             />
             <span className="text-xs text-gray-400">€</span>
           </div>
@@ -136,7 +136,7 @@ export function AssignmentOverrideEditor({
                 if (e.target.value === '') { setCap(null); return; }
                 const v = Number(e.target.value); if (Number.isFinite(v)) setCap(v);
               }}
-              className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right bg-white"
+              className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right bg-card"
             />
             <span className="text-xs text-gray-400">€</span>
           </div>
@@ -152,7 +152,7 @@ export function AssignmentOverrideEditor({
               <input
                 type="number" min={0} value={tier.min}
                 onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) updateTier(ti, { min: v }); }}
-                className="w-20 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-white"
+                className="w-20 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-card"
               />
               <span>à</span>
               <input
@@ -162,13 +162,13 @@ export function AssignmentOverrideEditor({
                   const v = e.target.value === '' ? null : Number(e.target.value);
                   if (v === null || Number.isFinite(v)) updateTier(ti, { max: v });
                 }}
-                className="w-20 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-white disabled:bg-gray-50"
+                className="w-20 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-card disabled:bg-gray-50"
               />
               <span>€ :</span>
               <input
                 type="number" min={0} step={0.5} value={Math.round(tier.rate * 100 * 100) / 100}
                 onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) updateTier(ti, { rate: v / 100 }); }}
-                className="w-16 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-white"
+                className="w-16 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-card"
               />
               <span>%</span>
             </div>

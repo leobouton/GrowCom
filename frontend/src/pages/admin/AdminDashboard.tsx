@@ -50,7 +50,7 @@ export function AdminDashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Administration GrowCom</h1>
+        <h1 className="display text-3xl text-gray-900">Administration GrowCom</h1>
         <p className="text-gray-500 mt-1">Vue globale de tous les clients</p>
       </div>
 

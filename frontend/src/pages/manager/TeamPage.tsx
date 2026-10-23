@@ -194,10 +194,10 @@ function ResolveDisputeModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/55 backdrop-blur-[2px]">
+      <div className="bg-card rounded-2xl border border-gray-200 shadow-slip w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
         <div className="p-6">
-          <h3 className="text-base font-semibold text-gray-900 mb-4">Résoudre la contestation</h3>
+          <h3 className="display text-xl text-gray-900 mb-4">Résoudre la contestation</h3>
 
           {dispute.raiser && (
             <div className="flex items-center gap-2 mb-4">
@@ -237,14 +237,14 @@ function ResolveDisputeModal({
           <div className="flex gap-3 mb-4">
             <button
               onClick={() => setAction('accept')}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${
-                action === 'accept' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+              className={`flex-1 py-2.5 rounded-full text-sm font-medium border transition-colors ${
+                action === 'accept' ? 'bg-green-600 text-white border-green-600' : 'bg-card text-gray-600 border-gray-300 hover:bg-gray-50'
               }`}
             >Accepter</button>
             <button
               onClick={() => setAction('reject')}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${
-                action === 'reject' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+              className={`flex-1 py-2.5 rounded-full text-sm font-medium border transition-colors ${
+                action === 'reject' ? 'bg-red-600 text-white border-red-600' : 'bg-card text-gray-600 border-gray-300 hover:bg-gray-50'
               }`}
             >Rejeter</button>
           </div>
@@ -256,17 +256,17 @@ function ResolveDisputeModal({
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Nom de la vente</label>
                   <input type="text" value={dealTitle} onChange={(e) => setDealTitle(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Client</label>
                   <input type="text" value={dealClient} onChange={(e) => setDealClient(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Montant de la vente</label>
                   <input type="number" value={dealAmount} onChange={(e) => setDealAmount(Number(e.target.value))}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20" />
                   {dealAmountChanged && !commissionManualOverride && (
                     <p className="text-xs text-green-600 mt-1">La commission sera recalculée automatiquement</p>
                   )}
@@ -274,12 +274,12 @@ function ResolveDisputeModal({
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Type de deal</label>
                   <input type="text" value={dealType} onChange={(e) => setDealType(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20" />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
                   <input type="text" value={dealNotes} onChange={(e) => setDealNotes(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20" />
                 </div>
               </div>
               <div className="border-t border-green-200 pt-3">
@@ -296,7 +296,7 @@ function ResolveDisputeModal({
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Nouveau montant de commission</label>
                     <input type="number" step="0.01" value={commissionAmount} onChange={(e) => setCommissionAmount(Number(e.target.value))}
-                      className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                      className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20" />
                     {hasCommissionOverride && (
                       <p className="text-xs text-green-600 mt-1 font-medium">Commission modifiée de {formatEur(originalCommissionAmount)} à {formatEur(commissionAmount)}</p>
                     )}
@@ -310,7 +310,7 @@ function ResolveDisputeModal({
             Réponse au commercial <span className="text-red-500">*</span>
           </label>
           <textarea value={response} onChange={(e) => setResponse(e.target.value)} rows={3}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 resize-none"
             placeholder="Expliquez votre décision au commercial..." />
 
           {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
@@ -766,7 +766,7 @@ export function TeamPage() {
       {/* ── En-tête ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mon équipe</h1>
+          <h1 className="display text-3xl text-gray-900">Mon équipe</h1>
           <p className="text-gray-500 mt-1">
             {isTeamLead
               ? 'Gérez les membres de votre équipe'
@@ -866,11 +866,11 @@ export function TeamPage() {
                   <td data-label="" className="py-4 px-6 text-right">
                     <div className="flex items-center justify-end gap-1">
                       {isTeamLead && (
-                        <button onClick={() => openDrawer(member)} className="p-1.5 rounded-md text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors" title="Voir / modifier">
+                        <button onClick={() => openDrawer(member)} className="p-1.5 rounded-full text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors" title="Voir / modifier">
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                         </button>
                       )}
-                      <button onClick={() => setMemberToDelete(member)} className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Supprimer">
+                      <button onClick={() => setMemberToDelete(member)} className="p-1.5 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Supprimer">
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                       </button>
                     </div>
@@ -928,10 +928,10 @@ export function TeamPage() {
             <button
               key={s}
               onClick={() => setDisputeFilter(s)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                 disputeFilter === s
                   ? 'bg-primary-600 text-white border-primary-600'
-                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  : 'bg-card text-gray-600 border-gray-200 hover:bg-gray-50'
               }`}
             >
               {s === 'ALL' ? 'Toutes' : s === 'OPEN' ? 'En attente' : s === 'RESOLVED_ACCEPTED' ? 'Acceptée' : 'Rejetée'}
@@ -1113,10 +1113,10 @@ export function TeamPage() {
         return (
           <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeDrawer} />
+            <div className="absolute inset-0 bg-ink/55 backdrop-blur-[2px]" onClick={closeDrawer} />
 
             {/* Popup */}
-            <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-xl flex flex-col z-10 max-h-[85vh]">
+            <div className="relative w-full max-w-lg bg-card rounded-2xl border border-gray-200 shadow-slip flex flex-col z-10 max-h-[85vh]">
 
               {/* ── En-tête membre ── */}
               <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 flex-shrink-0">
@@ -1124,7 +1124,7 @@ export function TeamPage() {
                   <span className="text-primary-700 font-semibold text-sm">{memberToView.firstName[0]}{memberToView.lastName[0]}</span>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-gray-900 truncate">{memberToView.firstName} {memberToView.lastName}</p>
+                  <p className="display text-xl text-gray-900 truncate">{memberToView.firstName} {memberToView.lastName}</p>
                   <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
 
                     {memberToView.role === UserRole.MANAGER && <Badge variant="indigo">Manager</Badge>}
@@ -1136,7 +1136,7 @@ export function TeamPage() {
                     ) : null}
                   </div>
                 </div>
-                <button onClick={closeDrawer} className="ml-auto flex-shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                <button onClick={closeDrawer} aria-label="Fermer" className="ml-auto flex-shrink-0 p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -1198,7 +1198,7 @@ export function TeamPage() {
                             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Rémunération</p>
                             <button
                               onClick={() => void openAssignModal()}
-                              className="text-xs font-medium text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors"
+                              className="text-xs font-medium text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-full transition-colors"
                             >
                               + Ajouter une règle
                             </button>
@@ -1239,14 +1239,14 @@ export function TeamPage() {
                                   <div className="flex items-center gap-1 flex-shrink-0">
                                     <button
                                       onClick={() => setAdjustingAssignmentId((prev) => prev === assignment.id ? null : assignment.id)}
-                                      className="text-xs text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-2 py-1 rounded transition-colors"
+                                      className="text-xs text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-2 py-1 rounded-full transition-colors"
                                     >
                                       {adjustingAssignmentId === assignment.id ? 'Fermer' : 'Ajuster'}
                                     </button>
                                     <button
                                       onClick={() => void onRemoveAssignment(assignment.id)}
                                       disabled={removingAssignmentId === assignment.id}
-                                      className="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                                      className="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded-full transition-colors disabled:opacity-50"
                                     >
                                       {removingAssignmentId === assignment.id ? '...' : 'Retirer'}
                                     </button>
@@ -1280,14 +1280,14 @@ export function TeamPage() {
                               {collectTemplateObjectives(members, memberToView.id).length > 0 && (
                                 <button
                                   onClick={() => setShowEditPicker((v) => !v)}
-                                  className="text-xs font-medium text-gray-500 hover:bg-gray-100 px-2 py-1 rounded-md transition-colors border border-gray-200"
+                                  className="text-xs font-medium text-gray-500 hover:bg-gray-100 px-2 py-1 rounded-full transition-colors border border-gray-200"
                                 >
                                   Réutiliser
                                 </button>
                               )}
                               <button
                                 onClick={addObjective}
-                                className="text-xs font-medium text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-md transition-colors"
+                                className="text-xs font-medium text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-full transition-colors"
                               >
                                 + Nouveau
                               </button>
@@ -1389,7 +1389,7 @@ export function TeamPage() {
                         <button
                           onClick={() => void onSaveObjectives()}
                           disabled={editLoading}
-                          className="w-full py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 mt-2"
+                          className="w-full py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-full transition-colors disabled:opacity-50 mt-2"
                         >
                           {editLoading ? 'Enregistrement...' : 'Enregistrer les objectifs'}
                         </button>
@@ -1435,7 +1435,7 @@ export function TeamPage() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); openCreateContestModal(); }}
-                        className="text-xs font-medium text-amber-600 hover:bg-amber-50 px-2 py-1 rounded-md transition-colors"
+                        className="text-xs font-medium text-amber-600 hover:bg-amber-50 px-2 py-1 rounded-full transition-colors"
                       >
                         + Créer
                       </button>
@@ -1494,7 +1494,7 @@ export function TeamPage() {
               <div className="px-5 py-4 border-t border-gray-100 flex-shrink-0">
                 <button
                   onClick={() => { closeDrawer(); openEditModal(memberToView); }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-full hover:bg-gray-100 transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -1550,17 +1550,17 @@ export function TeamPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Prénom</label>
-                <input type="text" value={editFirstName} onChange={(e) => setEditFirstName(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
+                <input type="text" value={editFirstName} onChange={(e) => setEditFirstName(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Nom</label>
-                <input type="text" value={editLastName} onChange={(e) => setEditLastName(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
+                <input type="text" value={editLastName} onChange={(e) => setEditLastName(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20" />
               </div>
             </div>
 
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Fonction</label>
-              <input type="text" value={editJobTitle} maxLength={60} placeholder="Négociateur, Consultant…" onChange={(e) => setEditJobTitle(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
+              <input type="text" value={editJobTitle} maxLength={60} placeholder="Négociateur, Consultant…" onChange={(e) => setEditJobTitle(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20" />
             </div>
 
             <div>
@@ -1571,7 +1571,7 @@ export function TeamPage() {
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Salaire fixe mensuel (€)</label>
               <div className="relative">
-                <input type="number" min="0" step="0.01" value={editSalary} onChange={(e) => setEditSalary(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
+                <input type="number" min="0" step="0.01" value={editSalary} onChange={(e) => setEditSalary(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20" />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">€</span>
               </div>
             </div>
@@ -1599,7 +1599,7 @@ export function TeamPage() {
               <select
                 value={assignRuleId}
                 onChange={(e) => setAssignRuleId(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
               >
                 <option value="">-- Sélectionner une règle --</option>
                 {libraryRules.map((rule) => (
@@ -1650,7 +1650,7 @@ export function TeamPage() {
                 type="date"
                 value={assignStartDate}
                 onChange={(e) => setAssignStartDate(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
               />
             </div>
             <div>
@@ -1659,7 +1659,7 @@ export function TeamPage() {
                 type="date"
                 value={assignEndDate}
                 onChange={(e) => setAssignEndDate(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
               />
             </div>
           </div>
@@ -1701,7 +1701,7 @@ export function TeamPage() {
               type="text"
               value={contestName}
               onChange={(e) => setContestName(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
             />
           </div>
 
@@ -1712,7 +1712,7 @@ export function TeamPage() {
               value={contestPrize}
               onChange={(e) => setContestPrize(e.target.value)}
               placeholder="Ex : Bon cadeau 200€, Journée off…"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
             />
           </div>
 
@@ -1733,11 +1733,11 @@ export function TeamPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date de début</label>
-              <input type="date" value={contestStart} onChange={(e) => setContestStart(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
+              <input type="date" value={contestStart} onChange={(e) => setContestStart(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date de fin</label>
-              <input type="date" value={contestEnd} onChange={(e) => setContestEnd(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
+              <input type="date" value={contestEnd} onChange={(e) => setContestEnd(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20" />
             </div>
           </div>
 
@@ -1787,11 +1787,11 @@ export function TeamPage() {
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
                     onClick={() => { setShowAllModal(false); openDrawer(member); }}
-                    className="text-xs font-medium text-primary-600 hover:bg-primary-50 px-2 py-1 rounded-md transition-colors"
+                    className="text-xs font-medium text-primary-600 hover:bg-primary-50 px-2 py-1 rounded-full transition-colors"
                   >
                     Voir fiche →
                   </button>
-                  <button onClick={() => { setShowAllModal(false); setMemberToDelete(member); }} className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Supprimer">
+                  <button onClick={() => { setShowAllModal(false); setMemberToDelete(member); }} className="p-1.5 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Supprimer">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </button>
                 </div>
@@ -1849,7 +1849,7 @@ export function TeamPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Salaire fixe mensuel brut</label>
                 <div className="relative">
-                  <input type="number" min="0" step="0.01" placeholder="2 500" className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" {...register('fixedSalary')} />
+                  <input type="number" min="0" step="0.01" placeholder="2 500" className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20" {...register('fixedSalary')} />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">€</span>
                 </div>
                 {errors.fixedSalary && <p className="text-xs text-red-500 mt-1">{errors.fixedSalary.message}</p>}
@@ -1892,7 +1892,7 @@ function ObjectivePicker({ objectives, onPick, onClose }: ObjectivePickerProps) 
             key={`${obj.label}-${obj.periodType}-${obj.year}`}
             type="button"
             onClick={() => onPick(obj)}
-            className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-white border border-indigo-100 hover:border-indigo-300 hover:bg-indigo-50 transition-colors text-left group"
+            className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-card border border-indigo-100 hover:border-indigo-300 hover:bg-indigo-50 transition-colors text-left group"
           >
             <div className="min-w-0">
               <TruncatedText text={obj.label} className="text-sm font-semibold text-gray-800" />

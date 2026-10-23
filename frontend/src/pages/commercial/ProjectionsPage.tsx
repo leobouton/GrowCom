@@ -91,18 +91,18 @@ export function ProjectionsPage() {
     <div className="space-y-6">
       {/* En-tete */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Mes projections</h1>
+        <h1 className="display text-3xl text-gray-900">Mes projections</h1>
         <p className="text-gray-500 mt-1">
           Toutes vos ventes en attente de versement. Elles comptent dans vos objectifs et concours.
         </p>
       </div>
 
       {/* Carte resume */}
-      <div className="bg-gradient-to-br from-primary-50 to-indigo-50 rounded-2xl border border-primary-200 p-6">
+      <div className="bg-card rounded-2xl border border-gray-200 shadow-card p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-primary-600 font-medium">Total projections</p>
-            <p className="text-3xl font-bold text-gray-900 mt-1">{formatEur(data.totalAmount)}</p>
+            <p className="eyebrow">Total projections</p>
+            <p className="num text-3xl font-bold text-gray-900 mt-2">{formatEur(data.totalAmount)}</p>
             <p className="text-sm text-gray-500 mt-0.5">
               {data.count} commission{data.count > 1 ? 's' : ''} en attente
             </p>
@@ -135,7 +135,7 @@ export function ProjectionsPage() {
           <button
             key={key}
             onClick={() => setFilter(key)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
               filter === key
                 ? 'bg-primary-100 text-primary-700'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'

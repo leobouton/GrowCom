@@ -493,6 +493,36 @@ export interface RegisterRequest {
 
 // --- Dashboard Stats ---
 
+/**
+ * Détail par équipe de la carte « En attente de validation » du manager :
+ * montre combien attend chez chaque équipe, et qui doit le valider.
+ */
+export interface PendingTeamBreakdown {
+  groupId: string | null; // null = commerciaux sans équipe
+  groupName: string;
+  color: string | null;
+  leadName: string | null;
+  leadIsCaller: boolean;
+  amount: number;
+  count: number;
+  /** Part que le demandeur doit valider lui-même */
+  myAmount: number;
+  myCount: number;
+  /** Qui valide le reste : nom du responsable d'équipe, ou null = manager général */
+  delegatedTo: string | null;
+}
+
+/** Détail de la carte « Payées » : commissions payées sur la période, par commercial */
+export interface PaidSellerBreakdown {
+  userId: string;
+  name: string;
+  groupId: string | null; // null = sans équipe
+  groupName: string | null;
+  color: string | null;
+  amount: number;
+  count: number;
+}
+
 export interface ManagerDashboardStats {
   totalPendingCommissions: number;
   totalValidatedCommissions: number;
@@ -506,6 +536,8 @@ export interface ManagerDashboardStats {
     pendingCount: number;
   }>;
   deferredCommissions: CommissionWithDetails[];
+  pendingByTeam: PendingTeamBreakdown[];
+  paidBySeller: PaidSellerBreakdown[];
   recentlyProcessedCommissions: CommissionWithDetails[];
   openDisputeCount: number;
   totalAdjustmentsThisPeriod: number;

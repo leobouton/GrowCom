@@ -268,7 +268,7 @@ export function ReportsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Rapport de paie</h1>
+          <h1 className="display text-3xl text-gray-900">Rapport de paie</h1>
           <p className="text-sm text-gray-500 mt-1">
             Éléments variables bruts — {MONTHS[month - 1]} {year}
           </p>
@@ -301,7 +301,7 @@ export function ReportsPage() {
               </svg>
             </Button>
             {showActions && (
-              <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-50 py-1.5">
+              <div className="absolute right-0 top-full mt-1 w-64 bg-card border border-gray-200 rounded-xl shadow-xl z-50 py-1.5">
                 <p className="px-3 py-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Fichier paie</p>
                 <ActionItem label="Export CSV" hint="email, nom, montants variables" onClick={() => void handleExport('csv')} />
                 <ActionItem label="Export Excel (XLSX)" hint="réimportable dans la paie" onClick={() => void handleExport('xlsx')} />
@@ -335,7 +335,7 @@ export function ReportsPage() {
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Période</label>
             <div className="flex items-center gap-3">
-              <div className="grid grid-cols-12 rounded-lg border border-gray-200 overflow-hidden flex-1">
+              <div className="grid grid-cols-12 rounded-full border border-gray-200 overflow-hidden flex-1">
                 {MONTHS.map((name, i) => (
                   <button
                     key={i}
@@ -343,7 +343,7 @@ export function ReportsPage() {
                     className={`py-2.5 text-xs font-medium transition-all ${
                       month === i + 1
                         ? 'bg-primary-600 text-white shadow-sm'
-                        : 'bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                        : 'bg-card text-gray-500 hover:bg-gray-50 hover:text-gray-700'
                     }`}
                     title={name}
                   >
@@ -351,7 +351,7 @@ export function ReportsPage() {
                   </button>
                 ))}
               </div>
-              <div className="flex rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">
+              <div className="flex rounded-full border border-gray-200 overflow-hidden flex-shrink-0">
                 {yearOptions.map((y) => (
                   <button
                     key={y}
@@ -359,7 +359,7 @@ export function ReportsPage() {
                     className={`px-4 py-2.5 text-xs font-medium transition-all ${
                       year === y
                         ? 'bg-primary-600 text-white shadow-sm'
-                        : 'bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                        : 'bg-card text-gray-500 hover:bg-gray-50 hover:text-gray-700'
                     }`}
                   >
                     {y}
@@ -374,7 +374,7 @@ export function ReportsPage() {
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Collaborateurs</label>
             <div className="relative">
               <div
-                className="flex items-center border border-gray-200 rounded-lg bg-white cursor-pointer hover:border-primary-300 transition-colors"
+                className="flex items-center border border-gray-200 rounded-lg bg-card cursor-pointer hover:border-primary-300 transition-colors"
                 onClick={() => setShowDropdown(!showDropdown)}
               >
                 <div className="flex items-center flex-1 min-w-0 px-3 py-2.5">
@@ -413,28 +413,28 @@ export function ReportsPage() {
               </div>
 
               {showDropdown && (
-                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-96 overflow-hidden">
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-gray-200 rounded-xl shadow-xl max-h-96 overflow-hidden">
                   <div className="p-2 border-b border-gray-100">
                     <input
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Rechercher par nom, email ou rôle..."
-                      className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
                       autoFocus
                     />
                   </div>
 
                   <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2">
                     <button
-                      className="text-xs font-medium text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-2 py-1 rounded-md transition-colors"
+                      className="text-xs font-medium text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-2 py-1 rounded-full transition-colors"
                       onClick={clearSelection}
                     >
                       Tous (pas de filtre)
                     </button>
                     <span className="text-gray-300">|</span>
                     <button
-                      className="text-xs font-medium text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-2 py-1 rounded-md transition-colors"
+                      className="text-xs font-medium text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-2 py-1 rounded-full transition-colors"
                       onClick={selectAll}
                     >
                       Tout cocher
@@ -475,7 +475,7 @@ export function ReportsPage() {
                                     )}
                                     {partiallySelected && <div className="w-2 h-0.5 bg-primary-600 rounded" />}
                                   </div>
-                                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: group.color || '#6b7280' }} />
+                                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: group.color || '#625f6b' }} />
                                   <div className="min-w-0 flex-1">
                                     <span className="font-medium text-gray-900">{group.name}</span>
                                     <span className="text-gray-400 ml-1.5 text-xs">{count} membre{count > 1 ? 's' : ''}</span>
@@ -498,7 +498,7 @@ export function ReportsPage() {
                           return (
                             <div key={group.id}>
                               <div className="px-3 py-1.5 bg-gray-50 border-y border-gray-100 flex items-center gap-2">
-                                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: group.color || '#6b7280' }} />
+                                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: group.color || '#625f6b' }} />
                                 <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{group.name}</span>
                               </div>
                               {groupFilteredMembers.map((m) => (
@@ -586,19 +586,19 @@ export function ReportsPage() {
         <div className="space-y-5">
           {/* KPIs */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="bg-card rounded-xl border border-gray-200 p-4">
               <p className="text-xs font-medium text-gray-400 mb-1">Salaires fixes</p>
               <p className="text-lg font-bold text-gray-900">{formatEur(totalFixed)}</p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="bg-card rounded-xl border border-gray-200 p-4">
               <p className="text-xs font-medium text-gray-400 mb-1">Commissions</p>
               <p className="text-lg font-bold text-green-700">{formatEur(totalCommissions)}</p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="bg-card rounded-xl border border-gray-200 p-4">
               <p className="text-xs font-medium text-gray-400 mb-1">Primes objectifs</p>
               <p className="text-lg font-bold text-blue-700">{formatEur(totalBonus)}</p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="bg-card rounded-xl border border-gray-200 p-4">
               <p className="text-xs font-medium text-gray-400 mb-1">Ajustements</p>
               <p className={`text-lg font-bold ${totalAdj < 0 ? 'text-red-600' : totalAdj > 0 ? 'text-blue-700' : 'text-gray-400'}`}>
                 {totalAdj !== 0 ? formatEur(totalAdj) : '—'}
@@ -615,7 +615,7 @@ export function ReportsPage() {
 
           {/* Barre de répartition */}
           {preview.grandTotal > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
+            <div className="bg-card rounded-xl border border-gray-200 px-5 py-4">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Répartition de la masse salariale</p>
               <div className="flex rounded-full h-3 overflow-hidden bg-gray-100">
                 {totalFixed > 0 && (
@@ -669,7 +669,7 @@ export function ReportsPage() {
               </div>
             </Card>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="bg-card rounded-xl border border-gray-200 overflow-hidden">
               {/* Barre d'outils du tableau */}
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 bg-gray-50/40">
                 <p className="text-xs text-gray-500">
@@ -841,7 +841,7 @@ function DrillDown({ item }: { item: PayrollReportPreviewItem }) {
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
             Commissions incluses ({item.commissions.length})
           </p>
-          <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
+          <div className="rounded-lg border border-gray-200 overflow-hidden bg-card">
             <table className="responsive-table w-full text-xs">
               <thead>
                 <tr className="bg-gray-50 text-gray-500">
@@ -873,7 +873,7 @@ function DrillDown({ item }: { item: PayrollReportPreviewItem }) {
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
             Ajustements / Régularisations ({item.adjustments.length})
           </p>
-          <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
+          <div className="rounded-lg border border-gray-200 overflow-hidden bg-card">
             <table className="responsive-table w-full text-xs">
               <thead>
                 <tr className="bg-gray-50 text-gray-500">
@@ -918,7 +918,7 @@ const EXCLUSION_STYLES: Record<string, { bg: string; text: string }> = {
 function ExcludedSection({ excluded }: { excluded: PayrollExcludedCommission[] }) {
   const total = excluded.reduce((s, e) => s + e.amount, 0);
   return (
-    <div className="bg-white rounded-xl border border-amber-200 overflow-hidden">
+    <div className="bg-card rounded-xl border border-amber-200 overflow-hidden">
       <div className="px-4 py-3 bg-amber-50/60 border-b border-amber-100 flex items-center gap-2">
         <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5.07 19H19a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.26 16a2 2 0 001.74 3z" />
@@ -998,8 +998,8 @@ function ConfirmLockModal({
   onConfirm: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/55 backdrop-blur-[2px] p-4" onClick={onCancel}>
+      <div className="bg-card rounded-2xl border border-gray-200 shadow-slip max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1007,7 +1007,7 @@ function ConfirmLockModal({
             </svg>
           </div>
           <div>
-            <h3 className="text-lg font-bold text-gray-900">Figer la période {period} ?</h3>
+            <h3 className="display text-xl text-gray-900">Figer la période {period} ?</h3>
             <p className="text-xs text-gray-500">Cette action est définitive</p>
           </div>
         </div>

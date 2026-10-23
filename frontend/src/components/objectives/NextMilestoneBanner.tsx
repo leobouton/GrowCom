@@ -13,22 +13,30 @@ export function NextMilestoneBanner({ milestone }: { milestone: NextMilestone | 
   if (!milestone) return null;
 
   const remaining = formatMilestoneRemaining(milestone);
+  // Avancement vers le seuil visé (affichage seulement : % actuel = seuil − écart)
+  const progressPct = Math.min(100, Math.max(0, ((milestone.threshold - milestone.pctGap) / milestone.threshold) * 100));
 
+  // Même encadré que le bordereau du site : fond anis, barre encre, point vert au bout
   return (
-    <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-5 flex items-center gap-4">
-      <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0 text-2xl">
-        🚀
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Prochain palier à débloquer</p>
-        <p className="text-lg font-bold text-gray-900 leading-snug">
-          Plus que <span className="text-amber-700">{remaining}</span> pour débloquer{' '}
-          <span className="text-green-600">{milestone.rewardLabel}</span>
-        </p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          sur votre objectif « {milestone.objectiveLabel} »
-          {milestone.kind === 'tier' ? ` — palier ${milestone.threshold} %` : ' — objectif atteint à 100 %'}
-        </p>
+    <div className="bg-lime-soft rounded-2xl px-5 py-5 sm:px-6">
+      <p className="eyebrow text-ink-soft">Prochain palier à débloquer</p>
+      <p className="mt-2 text-lg font-semibold text-ink leading-snug">
+        Plus que <strong className="num font-bold">{remaining}</strong> pour débloquer{' '}
+        <strong className="font-bold text-growth">{milestone.rewardLabel}</strong>
+      </p>
+      <p className="text-xs text-muted mt-0.5">
+        sur votre objectif « {milestone.objectiveLabel} »
+        {milestone.kind === 'tier' ? ` — palier ${milestone.threshold} %` : ' — objectif atteint à 100 %'}
+      </p>
+      <div
+        className="relative mt-4 h-2.5 rounded-full bg-[#dfe6c4]"
+        role="img"
+        aria-label={`Progression vers le prochain palier : ${Math.round(progressPct)} %`}
+      >
+        <div className="absolute inset-y-0 left-0" style={{ width: `${Math.max(6, progressPct)}%` }}>
+          <div className="h-full w-full rounded-full bg-ink" />
+          <span className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-ink bg-lime" />
+        </div>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { authApiService } from '../../services/auth.service';
 import { commissionDisputeService } from '../../services/commissionDispute.service';
 import { UserRole } from '@shared/types';
+import { Logo } from '../ui/Logo';
 
 interface NavItem {
   label: string;
@@ -118,19 +119,25 @@ function NavList({ items }: { items: NavItem[] }) {
             end={item.to.split('/').length <= 2}
             className={({ isActive }) =>
               clsx(
-                'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                'flex items-center gap-3 px-3.5 py-2 rounded-full text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-primary-50 text-primary-700'
+                  ? 'bg-gray-100 text-gray-900'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50',
               )
             }
           >
-            {item.icon}
-            <span className="flex-1">{item.label}</span>
-            {item.badge != null && item.badge > 0 && (
-              <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-xs font-bold bg-red-500 text-white">
-                {item.badge}
-              </span>
+            {({ isActive }) => (
+              <>
+                {item.icon}
+                <span className="flex-1">{item.label}</span>
+                {item.badge != null && item.badge > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-xs font-bold bg-red-500 text-white">
+                    {item.badge}
+                  </span>
+                )}
+                {/* Page en cours : le point vert du logo, comme dans le menu du site */}
+                {isActive && <span aria-hidden="true" className="h-2 w-2 rounded-full bg-lime ring-[1.5px] ring-ink" />}
+              </>
             )}
           </NavLink>
         </li>
@@ -182,10 +189,10 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="w-64 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col h-screen sticky top-0">
+    <aside className="w-64 flex-shrink-0 bg-card border-r border-gray-200 flex flex-col h-screen sticky top-0">
       {/* Logo */}
-      <div className="px-6 py-5 border-b border-gray-100">
-        <img src="/logo.png" alt="Logo" className="h-8 w-auto object-contain" />
+      <div className="px-6 py-5 border-b border-gray-200">
+        <Logo />
       </div>
 
       {/* Navigation */}
@@ -194,14 +201,14 @@ export function Sidebar() {
           <div className="space-y-4">
             {/* Section équipe */}
             <div>
-              <p className="px-3 mb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Mon équipe</p>
+              <p className="eyebrow px-3.5 mb-2">Mon équipe</p>
               <NavList items={withDisputeBadge(teamLeadManagerNavItems)} />
             </div>
             {/* Séparateur */}
-            <div className="border-t border-gray-100" />
+            <div className="border-t border-gray-200" />
             {/* Section personnelle */}
             <div>
-              <p className="px-3 mb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Mon activité</p>
+              <p className="eyebrow px-3.5 mb-2">Mon activité</p>
               <NavList items={teamLeadPersonalNavItems} />
             </div>
           </div>
@@ -211,7 +218,7 @@ export function Sidebar() {
       </nav>
 
       {/* User info + logout */}
-      <div className="px-3 py-4 border-t border-gray-100">
+      <div className="px-3 py-4 border-t border-gray-200">
         {user && (
           <div className="flex items-center gap-3 px-3 py-2 mb-1">
             <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
@@ -229,7 +236,7 @@ export function Sidebar() {
         )}
         <button
           onClick={() => void handleLogout()}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+          className="w-full flex items-center gap-3 px-3.5 py-2 rounded-full text-sm font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors"
         >
           <NavIcon path="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           Se déconnecter

@@ -6,7 +6,13 @@ import { Button } from '../../components/ui/Button';
 import { TruncatedText } from '../../components/ui/TruncatedText';
 import { Badge, CommissionStatusBadge } from '../../components/ui/Badge';
 import { DealAssignmentModal } from '../../components/DealAssignmentModal';
-import type { CommissionWithDetails, DealAssignment } from '@shared/types';
+import {
+  formatEur,
+  PendingByTeamDetails,
+  DeferredScheduleDetails,
+  PaidDetails,
+} from '../../components/manager-dashboard/StatCardDetails';
+import type { CommissionWithDetails, DealAssignment, PaidSellerBreakdown, PendingTeamBreakdown } from '@shared/types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -67,9 +73,9 @@ function CancelCommissionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
-        <h3 className="text-base font-semibold text-gray-900 mb-1">Annuler la commission</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/55 backdrop-blur-[2px]">
+      <div className="bg-card rounded-2xl border border-gray-200 shadow-slip p-6 w-full max-w-md mx-4">
+        <h3 className="display text-xl text-gray-900 mb-1">Annuler la commission</h3>
         <p className="text-sm text-gray-500 mb-4">
           Deal : <span className="font-medium text-gray-800">{commission.deal.title}</span> —{' '}
           <span className="font-medium text-gray-800">
@@ -90,7 +96,7 @@ function CancelCommissionModal({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-red-500 focus:ring-red-500/20 resize-none"
           placeholder="Ex : Deal annulé par le client, erreur de saisie..."
         />
 
@@ -157,9 +163,9 @@ function RevertCommissionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
-        <h3 className="text-base font-semibold text-gray-900 mb-1">Révoquer la validation</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/55 backdrop-blur-[2px]">
+      <div className="bg-card rounded-2xl border border-gray-200 shadow-slip p-6 w-full max-w-md mx-4">
+        <h3 className="display text-xl text-gray-900 mb-1">Révoquer la validation</h3>
         <p className="text-sm text-gray-500 mb-4">
           Deal : <span className="font-medium text-gray-800">{commission.deal.title}</span> —{' '}
           <span className="font-medium text-gray-800">
@@ -183,7 +189,7 @@ function RevertCommissionModal({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-amber-500 focus:ring-amber-500/20 resize-none"
           placeholder="Ex : Validation prématurée, montant à corriger, erreur de saisie..."
         />
 
@@ -238,13 +244,13 @@ function SearchProcessedModal({
     : commissions;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/55 backdrop-blur-[2px]">
+      <div className="bg-card rounded-2xl border border-gray-200 shadow-slip w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col">
         {/* Header */}
         <div className="px-6 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-semibold text-gray-900">Corriger une commission</h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <h3 className="display text-xl text-gray-900">Corriger une commission</h3>
+            <button onClick={onClose} aria-label="Fermer" className="p-1.5 -m-1.5 rounded-full text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition-colors">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -259,7 +265,7 @@ function SearchProcessedModal({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Rechercher par commercial, deal, client..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
               autoFocus
             />
           </div>
@@ -355,6 +361,8 @@ interface Stats {
   }>;
   pendingCommissions: CommissionWithDetails[];
   deferredCommissions: CommissionWithDetails[];
+  pendingByTeam: PendingTeamBreakdown[];
+  paidBySeller: PaidSellerBreakdown[];
   recentlyProcessedCommissions: CommissionWithDetails[];
 }
 
@@ -364,10 +372,6 @@ const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
 ];
-
-function formatEur(amount: number) {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
-}
 
 function getMedalColor(rank: number): string {
   if (rank === 1) return 'text-yellow-500';
@@ -503,6 +507,21 @@ export function ManagerDashboard() {
     });
   };
 
+  // Carte « En attente » : tout le périmètre ; la file de validation : seulement ce que JE valide
+  const pendingTotal = stats?.totalPendingCommissions ?? 0;
+  const myPendingTotal = (stats?.pendingCommissions ?? []).reduce((sum, c) => sum + c.amount, 0);
+
+  // Équipes du périmètre : le détail « en attente » les liste toutes, même à 0 €
+  const scopeTeams = (stats?.pendingByTeam ?? [])
+    .filter((t) => t.groupId !== null)
+    .map((t) => ({ id: t.groupId!, name: t.groupName, color: t.color }));
+
+  // Carte « Payées » : suit la période choisie dans « Meilleurs vendeurs »
+  const isCurrentMonth = selectedYear === now.getFullYear() && selectedMonth === now.getMonth() + 1;
+  const paidTitle = periodType === 'month'
+    ? (isCurrentMonth ? 'Payées ce mois' : `Payées en ${MONTHS[selectedMonth - 1].toLowerCase()} ${selectedYear}`)
+    : (selectedYear === now.getFullYear() ? 'Payées cette année' : `Payées en ${selectedYear}`);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -515,15 +534,17 @@ export function ManagerDashboard() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Tableau de bord</h1>
+        <h1 className="display text-3xl text-gray-900">Tableau de bord</h1>
         <p className="text-gray-500 mt-1">Vue d'ensemble des commissions de votre équipe</p>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 items-start">
         <StatCard
           title="En attente de validation"
-          value={formatEur(stats?.totalPendingCommissions ?? 0)}
+          value={formatEur(pendingTotal)}
+          subtitle={pendingTotal - myPendingTotal > 0.005 ? `dont ${formatEur(myPendingTotal)} à valider par vous` : undefined}
+          footer={<PendingByTeamDetails rows={stats?.pendingByTeam ?? []} />}
           color="yellow"
           icon={
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -534,6 +555,7 @@ export function ManagerDashboard() {
         <StatCard
           title="Paiements différés"
           value={formatEur(stats?.totalDeferredCommissions ?? 0)}
+          footer={<DeferredScheduleDetails commissions={stats?.deferredCommissions ?? []} />}
           color="yellow"
           icon={
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -542,8 +564,9 @@ export function ManagerDashboard() {
           }
         />
         <StatCard
-          title="Payées ce mois"
+          title={paidTitle}
           value={formatEur(stats?.totalPaidCommissions ?? 0)}
+          footer={<PaidDetails rows={stats?.paidBySeller ?? []} teams={scopeTeams} />}
           color="green"
           icon={
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -561,13 +584,13 @@ export function ManagerDashboard() {
 
           <div className="flex items-center gap-2 flex-wrap">
             {/* Toggle Mois / Année */}
-            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            <div className="flex rounded-full border border-gray-200 overflow-hidden">
               <button
                 onClick={() => handlePeriodChange('month')}
                 className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                   periodType === 'month'
                     ? 'bg-primary-600 text-white'
-                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                    : 'bg-card text-gray-600 hover:bg-gray-50'
                 }`}
               >
                 Mois
@@ -577,7 +600,7 @@ export function ManagerDashboard() {
                 className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-gray-200 ${
                   periodType === 'year'
                     ? 'bg-primary-600 text-white'
-                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                    : 'bg-card text-gray-600 hover:bg-gray-50'
                 }`}
               >
                 Année
@@ -589,7 +612,7 @@ export function ManagerDashboard() {
               <select
                 value={selectedMonth}
                 onChange={(e) => handleMonthChange(parseInt(e.target.value, 10))}
-                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 bg-card focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
               >
                 {MONTHS.map((name, i) => (
                   <option key={i + 1} value={i + 1}>
@@ -603,7 +626,7 @@ export function ManagerDashboard() {
             <select
               value={selectedYear}
               onChange={(e) => handleYearChange(parseInt(e.target.value, 10))}
-              className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 bg-card focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
             >
               {yearOptions.map((y) => (
                 <option key={y} value={y}>
@@ -769,7 +792,7 @@ export function ManagerDashboard() {
           {(stats?.recentlyProcessedCommissions?.length ?? 0) > 0 && (
             <button
               onClick={() => setShowSearchProcessed(true)}
-              className="flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-lg border border-amber-200 transition-colors"
+              className="flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-full border border-amber-200 transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 010 10H9m4-10l-4-4m4 4l-4 4" />
@@ -951,9 +974,9 @@ export function ManagerDashboard() {
 
       {/* Modal confirmation "Client a payé" */}
       {clientPaidConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="text-base font-semibold text-gray-900 mb-2">Confirmer le paiement client</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/55 backdrop-blur-[2px]">
+          <div className="bg-card rounded-2xl border border-gray-200 shadow-slip p-6 w-full max-w-sm mx-4">
+            <h3 className="display text-xl text-gray-900 mb-2">Confirmer le paiement client</h3>
             <p className="text-sm text-gray-600 mb-5">
               Confirmer que le client a payé la prestation pour{' '}
               <span className="font-medium text-gray-900">"{clientPaidConfirm.deal.title}"</span> ?

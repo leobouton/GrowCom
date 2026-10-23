@@ -11,6 +11,7 @@ import { commissionDisputeRepository } from '../repositories/commissionDispute.r
 import { auditLogRepository } from '../repositories/auditLog.repository';
 import { objectiveSnapshotRepository } from '../repositories/objectiveSnapshot.repository';
 import { buildObjectivesProgress } from './objectiveProgress.service';
+import { buildPendingByTeam, buildPaidBySeller } from './managerStatsBreakdown';
 import { AppError } from '../middlewares/errorHandler';
 import { CommissionStatus, CommissionRuleConfig, UserRole, RecurringProjection, Objective } from '../../../shared/types';
 // CommissionCalculationBasis importé via CommissionRuleConfig (optionnel)
@@ -379,11 +380,17 @@ export const commissionService = {
       ? { tenantId, userId: { in: teamIds } }
       : { tenantId };
 
-    const [pendingAgg, validatedAgg, paidAgg] = await Promise.all([
-      prisma.commission.aggregate({ where: { ...statsWhere, status: PrismaCommissionStatus.PENDING }, _sum: { amount: true } }),
+    const [validatedAgg, paidByUser] = await Promise.all([
       prisma.commission.aggregate({ where: { ...statsWhere, status: PrismaCommissionStatus.VALIDATED }, _sum: { amount: true } }),
-      prisma.commission.aggregate({ where: { ...statsWhere, status: PrismaCommissionStatus.PAID, paidAt: { gte: effectiveStart, lte: effectiveEnd } }, _sum: { amount: true } }),
+      // Payées sur la période, par commercial : total de la carte « Payées » ET son détail
+      prisma.commission.groupBy({
+        by: ['userId'],
+        where: { ...statsWhere, status: PrismaCommissionStatus.PAID, paidAt: { gte: effectiveStart, lte: effectiveEnd } },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
     ]);
+    const totalPaidCommissions = paidByUser.reduce((sum, p) => sum + (p._sum.amount ?? 0), 0);
     // Note : les commissions CANCELLED sont exclues de tous ces aggregats (filtre par statut exact)
 
     // Classement "Meilleurs vendeurs" :
@@ -462,10 +469,23 @@ export const commissionService = {
 
     commercialsSummary.sort((a, b) => b.totalRevenue - a.totalRevenue);
 
-    // Commissions en attente dans le périmètre
-    let allPending = teamIds !== null
+    // Commissions en attente dans tout le périmètre, avant les filtres de délégation :
+    // base de la carte « En attente de validation » et de son détail par équipe.
+    const scopePending = teamIds !== null
       ? await commissionRepository.findPendingByUserIds(teamIds, tenantId)
       : await commissionRepository.findPendingByTenantId(tenantId);
+
+    // Paiement programmé dans le futur : validé automatiquement à échéance. Compté
+    // uniquement dans « Paiements différés », jamais aussi dans « En attente ».
+    const isDeferred = (c: { scheduledPaymentAt: Date | null }) =>
+      !!c.scheduledPaymentAt && new Date(c.scheduledPaymentAt) > now;
+    const deferredCommissions = scopePending.filter(isDeferred);
+    const totalDeferredCommissions = deferredCommissions.reduce((sum, c) => sum + c.amount, 0);
+    const duePending = scopePending.filter((c) => !isDeferred(c));
+    const totalPendingCommissions = duePending.reduce((sum, c) => sum + c.amount, 0);
+
+    // File de validation du demandeur : ce qu'il doit valider lui-même
+    let allPending = duePending;
 
     // Manager général : les ventes des équipes ayant leur propre responsable sont
     // validées par ce responsable — on les retire de la file de validation du manager.
@@ -490,15 +510,54 @@ export const commissionService = {
       allPending = allPending.filter((c) => !teamLeadIds.has(c.userId));
     }
 
-    // Commissions normales à valider manuellement (pas de paiement différé ou délai déjà dépassé)
-    const pendingCommissions = allPending.filter(
-      (c) => !c.scheduledPaymentAt || new Date(c.scheduledPaymentAt) <= now,
-    );
-    // Commissions différées : paiement programmé dans le futur
-    const deferredCommissions = allPending.filter(
-      (c) => c.scheduledPaymentAt && new Date(c.scheduledPaymentAt) > now,
-    );
-    const totalDeferredCommissions = deferredCommissions.reduce((sum, c) => sum + c.amount, 0);
+    const pendingCommissions = allPending;
+
+    // Détails des cartes : en attente par équipe (le manager général voit si ses
+    // responsables ont des ventes à valider) et payées par commercial
+    const breakdownUserIds = [...new Set([...duePending.map((c) => c.userId), ...paidByUser.map((p) => p.userId)])];
+    const [breakdownUsers, tenantGroups] = await Promise.all([
+      breakdownUserIds.length > 0
+        ? prisma.user.findMany({
+            where: { tenantId, id: { in: breakdownUserIds } },
+            select: { id: true, firstName: true, lastName: true, groupId: true, role: true },
+          })
+        : Promise.resolve([]),
+      prisma.group.findMany({
+        where: { tenantId },
+        select: {
+          id: true,
+          name: true,
+          color: true,
+          leadId: true,
+          lead: { select: { firstName: true, lastName: true } },
+          members: { where: { isActive: true }, select: { id: true } },
+        },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+    const scopeSet = teamIds !== null ? new Set(teamIds) : null;
+    const scopeGroups = scopeSet
+      ? tenantGroups.filter((g) => (g.leadId && scopeSet.has(g.leadId)) || g.members.some((m) => scopeSet.has(m.id)))
+      : tenantGroups;
+    const breakdownTeams = scopeGroups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      color: g.color,
+      leadId: g.leadId,
+      leadName: g.lead ? `${g.lead.firstName} ${g.lead.lastName}` : null,
+    }));
+    const pendingByTeam = buildPendingByTeam({
+      due: duePending,
+      mineIds: new Set(pendingCommissions.map((c) => c.id)),
+      sellers: new Map(breakdownUsers.map((u) => [u.id, { groupId: u.groupId, isTeamLead: u.role === PrismaUserRole.TEAM_LEAD }])),
+      teams: breakdownTeams,
+      callerId,
+    });
+    const paidBySeller = buildPaidBySeller({
+      paid: paidByUser.map((p) => ({ userId: p.userId, amount: p._sum.amount ?? 0, count: p._count._all })),
+      sellers: new Map(breakdownUsers.map((u) => [u.id, { name: `${u.firstName} ${u.lastName}`, groupId: u.groupId }])),
+      teams: breakdownTeams,
+    });
 
     // Commissions récemment traitées (validées/payées) dans la période — pour permettre la révocation
     const recentlyProcessedWhere = {
@@ -526,13 +585,15 @@ export const commissionService = {
     ]);
 
     return {
-      totalPendingCommissions: pendingAgg._sum.amount ?? 0,
+      totalPendingCommissions,
       totalValidatedCommissions: validatedAgg._sum.amount ?? 0,
-      totalPaidCommissions: paidAgg._sum.amount ?? 0,
+      totalPaidCommissions,
       totalDeferredCommissions,
       commercialsSummary,
       pendingCommissions,
       deferredCommissions,
+      pendingByTeam,
+      paidBySeller,
       recentlyProcessedCommissions,
       openDisputeCount,
       totalAdjustmentsThisPeriod,

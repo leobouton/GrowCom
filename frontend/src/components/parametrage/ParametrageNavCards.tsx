@@ -16,7 +16,7 @@ function NavCard({ icon, title, description, count, countLabel, isActive, onClic
       className={`flex flex-col items-start text-left p-5 rounded-2xl border-2 transition-all duration-200 cursor-pointer group ${
         isActive
           ? 'border-primary-500 bg-primary-50 shadow-sm shadow-primary-100'
-          : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
+          : 'border-gray-200 bg-card hover:border-gray-300 hover:shadow-sm'
       }`}
     >
       <span className="text-2xl mb-3">{icon}</span>

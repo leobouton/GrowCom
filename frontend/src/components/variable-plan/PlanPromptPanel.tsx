@@ -48,7 +48,7 @@ export function PlanPromptPanel() {
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder={`ex : ${EXAMPLE_PROMPT}`}
-        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white resize-y"
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card resize-y"
         disabled={loading.generate}
       />
       <p className="mt-1 text-xs text-gray-400">

@@ -54,9 +54,9 @@ function RaiseDisputeModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
-        <h3 className="text-base font-semibold text-gray-900 mb-1">Contester une commission</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/55 backdrop-blur-[2px]">
+      <div className="bg-card rounded-2xl border border-gray-200 shadow-slip p-6 w-full max-w-md mx-4">
+        <h3 className="display text-xl text-gray-900 mb-1">Contester une commission</h3>
         <p className="text-sm text-gray-500 mb-4">
           Deal : <span className="font-medium text-gray-800">{commission.deal.title}</span>
           {' — '}<span className="font-semibold text-gray-900">{new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(commission.amount)}</span>
@@ -69,7 +69,7 @@ function RaiseDisputeModal({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={4}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 resize-none"
           placeholder="Expliquez pourquoi vous contestez ce montant (min. 10 caractères)…"
         />
         <p className="text-xs text-gray-400 mt-1">{reason.trim().length} / 10 caractères minimum</p>
@@ -191,7 +191,7 @@ function ObjectiveProgressCard({ obj, progress, pendingCommissionCount }: { obj:
   // Échelle de la barre : s'étend jusqu'au palier max ou 100%, selon le plus grand
   const barScale = Math.max(100, ...sortedTiers.map((t) => t.threshold), pct);
   return (
-    <div className={`bg-white rounded-xl border p-5 space-y-3 ${isDone && hasBonusRule ? 'border-green-300 ring-1 ring-green-200' : 'border-gray-200'}`}>
+    <div className={`bg-card rounded-xl border p-5 space-y-3 ${isDone && hasBonusRule ? 'border-green-300 ring-1 ring-green-200' : 'border-gray-200'}`}>
       {/* En-tête */}
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -537,7 +537,7 @@ export function CommercialDashboard() {
       {/* En-tête */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tableau de bord</h1>
+          <h1 className="display text-3xl text-gray-900">Tableau de bord</h1>
           <p className="text-gray-500 mt-1">Vos revenus, objectifs et concours en temps réel</p>
         </div>
         <div className="flex items-center gap-4 mt-1">
@@ -558,33 +558,38 @@ export function CommercialDashboard() {
       <div className="space-y-6">
 
       {/* Carte héro — Revenu total du mois */}
-      <div className="bg-gradient-to-br from-primary-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg">
-        <p className="text-primary-200 text-sm font-medium mb-1">Revenu total ce mois</p>
-        <p className="text-4xl font-bold mb-4">{formatEur(total)}</p>
+      {/* Bloc encre comme les encadrés sombres du site, courbe du logo en filigrane */}
+      <div className="relative isolate overflow-hidden bg-ink rounded-2xl p-6 text-paper shadow-slip">
+        <svg aria-hidden="true" viewBox="0 0 600 300" className="absolute -bottom-16 right-6 -z-10 h-48 w-[24rem] max-w-none opacity-25">
+          <path d="M0 290c130 0 180-40 235-125S360 20 520 18" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="text-lime" />
+          <circle cx="548" cy="18" r="14" className="fill-lime" />
+        </svg>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-lime mb-2">Revenu total ce mois</p>
+        <p className="num text-4xl font-bold mb-4">{formatEur(total)}</p>
         <div className="flex gap-6">
           <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-white/40" />
+            <div className="w-2.5 h-2.5 rounded-full bg-paper/40" />
             <div>
-              <p className="text-xs text-primary-200">Salaire fixe</p>
-              <p className="text-base font-semibold">{formatEur(fixedSalary)}</p>
+              <p className="text-xs text-paper/70">Salaire fixe</p>
+              <p className="num text-base font-semibold">{formatEur(fixedSalary)}</p>
             </div>
           </div>
-          <div className="w-px bg-white/20" />
+          <div className="w-px bg-paper/20" />
           <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-green-300" />
+            <div className="w-2.5 h-2.5 rounded-full bg-lime" />
             <div>
-              <p className="text-xs text-primary-200">Commissions validées</p>
-              <p className="text-base font-semibold">{formatEur(commissions)}</p>
+              <p className="text-xs text-paper/70">Commissions validées</p>
+              <p className="num text-base font-semibold">{formatEur(commissions)}</p>
             </div>
           </div>
           {totalBonuses > 0 && (
             <>
-              <div className="w-px bg-white/20" />
+              <div className="w-px bg-paper/20" />
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-amber-300" />
                 <div>
-                  <p className="text-xs text-primary-200">Primes d'objectifs</p>
-                  <p className="text-base font-semibold">{formatEur(totalBonuses)}</p>
+                  <p className="text-xs text-paper/70">Primes d'objectifs</p>
+                  <p className="num text-base font-semibold">{formatEur(totalBonuses)}</p>
                 </div>
               </div>
             </>
@@ -597,7 +602,7 @@ export function CommercialDashboard() {
 
       {/* Stats secondaires */}
       <div className={`grid grid-cols-1 gap-5 ${totalConfirmedBonuses > 0 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-        <div className="bg-white rounded-xl border border-yellow-200 p-5 flex items-center gap-4">
+        <div className="bg-card rounded-xl border border-yellow-200 p-5 flex items-center gap-4">
           <div className="w-10 h-10 rounded-xl bg-yellow-100 flex items-center justify-center flex-shrink-0">
             <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -610,7 +615,7 @@ export function CommercialDashboard() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-green-200 p-5 flex items-center gap-4">
+        <div className="bg-card rounded-xl border border-green-200 p-5 flex items-center gap-4">
           <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
             <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -624,7 +629,7 @@ export function CommercialDashboard() {
         </div>
 
         {totalConfirmedBonuses > 0 && (
-          <div className="bg-white rounded-xl border border-emerald-200 p-5 flex items-center gap-4">
+          <div className="bg-card rounded-xl border border-emerald-200 p-5 flex items-center gap-4">
             <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
               <span className="text-lg">🎯</span>
             </div>
@@ -782,7 +787,7 @@ export function CommercialDashboard() {
                 if (selectedMonth === 0) { setSelectedMonth(11); setSelectedYear(selectedYear - 1); }
                 else { setSelectedMonth(selectedMonth - 1); }
               }}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+              className="p-1.5 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
               title="Mois précédent"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -796,7 +801,7 @@ export function CommercialDashboard() {
                 else { setSelectedMonth(selectedMonth + 1); }
               }}
               disabled={selectedYear === now.getFullYear() && selectedMonth === now.getMonth()}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1.5 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="Mois suivant"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -1183,7 +1188,7 @@ export function CommercialDashboard() {
               const anonData = isAnonymous ? (raw as AnonymousLeaderboardResult & { anonymous: true }) : null;
               const myEntry = !isAnonymous && user ? board.find((e) => e.user.id === user.id) : null;
               return (
-                <div key={contest.id} className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-5">
+                <div key={contest.id} className="bg-amber-50 rounded-2xl border border-amber-200 p-5">
                   <div className="flex items-start justify-between gap-3 mb-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -1206,7 +1211,7 @@ export function CommercialDashboard() {
                   {/* ── Classement anonyme ── */}
                   {anonData && (
                     <div className="space-y-3">
-                      <div className={`px-4 py-3 rounded-xl flex items-center justify-between ${anonData.myRank === 1 ? 'bg-yellow-100 border border-yellow-300' : 'bg-white border border-amber-200'}`}>
+                      <div className={`px-4 py-3 rounded-xl flex items-center justify-between ${anonData.myRank === 1 ? 'bg-yellow-100 border border-yellow-300' : 'bg-card border border-amber-200'}`}>
                         <div className="flex items-center gap-3">
                           <span className="text-2xl font-bold">
                             {anonData.myRank === 1 ? '🥇' : anonData.myRank === 2 ? '🥈' : anonData.myRank === 3 ? '🥉' : `#${anonData.myRank}`}
@@ -1225,7 +1230,7 @@ export function CommercialDashboard() {
 
                       {/* Jauge de progression vers le 1er */}
                       {anonData.leaderScore > 0 && (
-                        <div className="bg-white/80 rounded-xl px-4 py-3 border border-amber-100">
+                        <div className="bg-card/80 rounded-xl px-4 py-3 border border-amber-100">
                           <div className="flex items-center justify-between mb-1.5">
                             <p className="text-xs font-medium text-gray-500">Progression vers le 1er</p>
                             <p className="text-xs font-semibold text-amber-700">
@@ -1234,7 +1239,7 @@ export function CommercialDashboard() {
                           </div>
                           <div className="h-2.5 bg-amber-100 rounded-full overflow-hidden">
                             <div
-                              className="h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full transition-all duration-500"
+                              className="h-full bg-amber-500 rounded-full transition-all duration-500"
                               style={{ width: `${Math.min(100, Math.round((anonData.myScore / anonData.leaderScore) * 100))}%` }}
                             />
                           </div>
@@ -1250,7 +1255,7 @@ export function CommercialDashboard() {
 
                   {/* ── Classement normal ── */}
                   {!isAnonymous && myEntry && (
-                    <div className={`mb-3 px-4 py-3 rounded-xl flex items-center justify-between ${myEntry.rank === 1 ? 'bg-yellow-100 border border-yellow-300' : 'bg-white border border-amber-200'}`}>
+                    <div className={`mb-3 px-4 py-3 rounded-xl flex items-center justify-between ${myEntry.rank === 1 ? 'bg-yellow-100 border border-yellow-300' : 'bg-card border border-amber-200'}`}>
                       <div className="flex items-center gap-3">
                         <span className="text-2xl font-bold">
                           {myEntry.rank === 1 ? '🥇' : myEntry.rank === 2 ? '🥈' : myEntry.rank === 3 ? '🥉' : `#${myEntry.rank}`}
@@ -1284,8 +1289,8 @@ export function CommercialDashboard() {
                             isMe
                               ? 'bg-primary-50 border border-primary-200'
                               : entry.rank <= 3
-                                ? 'bg-white/70'
-                                : 'bg-white/40'
+                                ? 'bg-card/70'
+                                : 'bg-card/40'
                           }`}>
                             <span className="w-7 text-center font-bold text-sm flex-shrink-0">
                               {rankIcon ?? <span className="text-gray-400">#{entry.rank}</span>}

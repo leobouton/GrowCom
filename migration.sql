@@ -71,7 +71,9 @@ ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "fixedSalary" DOUBLE PRECISION NOT N
 
 ALTER TYPE "UserRole" ADD VALUE IF NOT EXISTS 'TEAM_LEAD';
 ALTER TYPE "UserRole" ADD VALUE IF NOT EXISTS 'BU_MANAGER';
-ALTER TYPE "UserRole" ADD VALUE IF NOT EXISTS 'RECRUITER';
+-- 'RECRUITER' était ajouté ici : supprimé depuis (voir « FONCTION LIBRE », 2026-09-19).
+-- Ne pas le recréer : rejouer le fichier réintroduirait la valeur dans la même
+-- transaction que son retrait, ce que Postgres refuse (erreur 55P04).
 
 
 -- 5. Responsable d'équipe sur les groupes
@@ -1119,14 +1121,14 @@ UPDATE "User" u
 SET "jobTitle" = COALESCE(
       NULLIF(t."defaultJobTitle", ''),
       CASE
-        WHEN u.role = 'RECRUITER'  THEN 'Recruteur'
-        WHEN u.role = 'COMMERCIAL' THEN 'Commercial'
+        WHEN u.role::text = 'RECRUITER'  THEN 'Recruteur'
+        WHEN u.role::text = 'COMMERCIAL' THEN 'Commercial'
       END
     )
 FROM "Tenant" t
 WHERE u."tenantId" = t.id
   AND u."jobTitle" IS NULL
-  AND u.role IN ('RECRUITER', 'COMMERCIAL');
+  AND u.role::text IN ('RECRUITER', 'COMMERCIAL');  -- ::text : RECRUITER peut ne plus exister dans l'enum
 
 -- 3) Migration des données + recréation de l'enum, seulement si RECRUITER
 --    existe encore (rend le bloc rejouable sans erreur).
@@ -1139,7 +1141,7 @@ BEGIN
     WHERE t.typname = 'UserRole' AND e.enumlabel = 'RECRUITER'
   ) THEN
     -- Les ex-recruteurs deviennent des commerciaux (permission fusionnée)
-    UPDATE "User" SET role = 'COMMERCIAL' WHERE role = 'RECRUITER';
+    UPDATE "User" SET role = 'COMMERCIAL' WHERE role::text = 'RECRUITER';
 
     -- Recréer l'enum sans RECRUITER
     ALTER TYPE "UserRole" RENAME TO "UserRole_old";

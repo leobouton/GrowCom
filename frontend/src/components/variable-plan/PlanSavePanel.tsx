@@ -82,7 +82,7 @@ export function PlanSavePanel() {
                   className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
                     selected
                       ? 'bg-primary-600 text-white border-primary-600'
-                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                      : 'bg-card text-gray-600 border-gray-300 hover:border-gray-400'
                   }`}
                 >
                   {selected ? '✓ ' : ''}{m.firstName} {m.lastName}

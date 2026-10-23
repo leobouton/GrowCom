@@ -174,7 +174,7 @@ function BatchDetailModal({
             <Button
               variant="secondary"
               onClick={onCancelClick}
-              className="text-red-600 border-red-200 hover:bg-red-50"
+              className="text-red-600 border-red-200 hover:bg-red-50 hover:!border-red-400"
             >
               Annuler cet import
             </Button>
@@ -304,7 +304,7 @@ function CancelBatchModal({
                 onChange={(e) => setReason(e.target.value)}
                 placeholder="Ex : Mauvais fichier importé, données erronées..."
                 rows={3}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
               />
               <p className="text-xs text-gray-400 mt-1">
                 {reason.trim().length}/500 caractères (min. 10)
@@ -316,10 +316,10 @@ function CancelBatchModal({
                 Fermer
               </Button>
               <Button
+                variant="danger"
                 onClick={() => void handleConfirm()}
                 loading={cancelling}
                 disabled={reason.trim().length < 10}
-                className="bg-red-600 hover:bg-red-700 text-white"
               >
                 Confirmer l'annulation
               </Button>
@@ -480,14 +480,14 @@ function ImportHistorySection() {
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
                   onClick={() => void handleViewDetail(batch)}
-                  className="px-2.5 py-1.5 text-xs font-medium text-primary-600 hover:text-primary-800 hover:bg-primary-50 rounded-lg transition-colors"
+                  className="px-2.5 py-1.5 text-xs font-medium text-primary-600 hover:text-primary-800 hover:bg-primary-50 rounded-full transition-colors"
                 >
                   Détail
                 </button>
                 {batch.status === 'COMPLETED' && !isOlderThan90Days(batch.createdAt) && (
                   <button
                     onClick={() => handleCancelClick(batch)}
-                    className="px-2.5 py-1.5 text-xs font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
+                    className="px-2.5 py-1.5 text-xs font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded-full transition-colors"
                   >
                     Annuler
                   </button>
@@ -568,7 +568,7 @@ function CrmCard({
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`flex-1 flex flex-col items-center gap-3 rounded-xl border-2 bg-white px-4 py-5 transition-all ${
+      className={`flex-1 flex flex-col items-center gap-3 rounded-xl border-2 bg-card px-4 py-5 transition-all ${
         selected
           ? 'border-primary-500 shadow-card ring-1 ring-primary-200'
           : 'border-gray-200 hover:border-gray-300 hover:shadow-card'
@@ -627,7 +627,7 @@ export function OdooPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Connexion CRM</h1>
+        <h1 className="display text-3xl text-gray-900">Connexion CRM</h1>
         <p className="text-gray-500 mt-1">Choisissez votre CRM ou importez vos deals via un fichier Excel / CSV</p>
       </div>
 

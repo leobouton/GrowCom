@@ -216,7 +216,7 @@ export function FileImportPanel() {
                   <select
                     value={manualMapping[m.field] ?? ''}
                     onChange={(e) => setManualMapping((prev) => ({ ...prev, [m.field]: e.target.value }))}
-                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:border-amber-500 focus:ring-amber-500/20"
                   >
                     <option value="">-- Choisir une colonne --</option>
                     {mappingDetails.allHeaders

@@ -7,18 +7,67 @@
     box-sizing: border-box;
   }
 
+  /* Même rendu que le site (marketing/src/styles/global.css) */
   html {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    @apply bg-paper text-ink font-sans;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   body {
-    @apply bg-gray-50 text-gray-900;
+    font-feature-settings: "cv11", "ss01";
+    /* grain très léger : donne une matière « papier » sans image à télécharger */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.09 0 0 0 0 0.086 0 0 0 0 0.11 0 0 0 0.045 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  :focus-visible {
+    outline: 2px solid theme('colors.primary.600');
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: theme('colors.lime');
+    color: theme('colors.ink');
   }
 }
 
 @layer components {
+  /* Grands titres en Fraunces, comme les titres du site */
+  .display {
+    font-family: theme('fontFamily.display');
+    font-weight: 440;
+    letter-spacing: -0.022em;
+    line-height: 1.1;
+  }
+
+  /* Petit libellé en capitales précédé du point vert du logo */
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: theme('colors.muted');
+  }
+  .eyebrow::before {
+    content: "";
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: theme('colors.lime');
+    box-shadow: 0 0 0 1.5px theme('colors.ink');
+  }
+
+  /* Chiffres alignés en colonnes */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum", "cv11";
+  }
+
   /*
    * Tableau responsive : sur écran large, rendu tableau classique.
    * Sous 768px (< md), chaque ligne se transforme en « carte » empilée.

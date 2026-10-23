@@ -327,7 +327,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
               placeholder="ex : Commission CDI Senior"
               value={state.name}
               onChange={(e) => update({ name: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
             />
           </div>
 
@@ -338,7 +338,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
               placeholder="ex : Recrutement, Formation, Portage…"
               value={state.dealType}
               onChange={(e) => update({ dealType: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
             />
             <p className="mt-1 text-xs text-gray-400">
               Doit correspondre au type renvoyé par votre CRM (étiquette Odoo ou type de deal HubSpot).
@@ -409,7 +409,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                   className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${
                     isSelected
                       ? `${colorClasses.border} ${colorClasses.bg}`
-                      : 'border-gray-200 hover:border-gray-300 bg-white'
+                      : 'border-gray-200 hover:border-gray-300 bg-card'
                   }`}
                 >
                   <input
@@ -475,7 +475,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                     step={0.5}
                     value={state.rate}
                     onChange={(e) => update({ rate: parseFloat(e.target.value) || 0 })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm text-right focus:outline-none focus:ring-2 focus:border-blue-500 focus:ring-blue-500/20 bg-card"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium">%</span>
                 </div>
@@ -496,7 +496,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                   step={50}
                   value={state.fixedAmount}
                   onChange={(e) => update({ fixedAmount: parseFloat(e.target.value) || 0 })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 pr-8 text-sm focus:outline-none focus:ring-2 focus:border-indigo-500 focus:ring-indigo-500/20 bg-card"
                   placeholder="ex : 500"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium">&euro;</span>
@@ -521,7 +521,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                           min={0}
                           value={tier.min}
                           onChange={(e) => updateTier(i, { min: parseFloat(e.target.value) || 0 })}
-                          className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-purple-400"
+                          className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs bg-card focus:outline-none focus:ring-1 focus:border-purple-500 focus:ring-purple-500/20"
                           placeholder="0"
                         />
                       </div>
@@ -534,7 +534,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                           min={tier.min + 1}
                           value={tier.max ?? ''}
                           onChange={(e) => updateTier(i, { max: e.target.value ? parseFloat(e.target.value) : null })}
-                          className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-purple-400"
+                          className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs bg-card focus:outline-none focus:ring-1 focus:border-purple-500 focus:ring-purple-500/20"
                           placeholder={'\u221E'}
                         />
                       </div>
@@ -548,7 +548,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                             step={0.5}
                             value={parseFloat((tier.rate * 100).toFixed(1))}
                             onChange={(e) => updateTier(i, { rate: (parseFloat(e.target.value) || 0) / 100 })}
-                            className="w-full border border-gray-300 rounded px-2 py-1.5 pr-6 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-purple-400"
+                            className="w-full border border-gray-300 rounded px-2 py-1.5 pr-6 text-xs bg-card focus:outline-none focus:ring-1 focus:border-purple-500 focus:ring-purple-500/20"
                           />
                           <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">%</span>
                         </div>
@@ -584,7 +584,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
           {/* Separateur */}
           <div className="relative pt-2">
             <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
-            <div className="relative flex justify-center text-xs"><span className="bg-white px-3 text-gray-400">Options avancées</span></div>
+            <div className="relative flex justify-center text-xs"><span className="bg-card px-3 text-gray-400">Options avancées</span></div>
           </div>
 
           {/* Base de calcul */}
@@ -600,7 +600,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                   className={`flex flex-col p-3 rounded-lg border-2 cursor-pointer transition-colors ${
                     state.calculationBasis === opt.value
                       ? 'border-primary-400 bg-primary-50'
-                      : 'border-gray-200 hover:border-gray-300 bg-white'
+                      : 'border-gray-200 hover:border-gray-300 bg-card'
                   }`}
                 >
                   <input
@@ -627,7 +627,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                   step={100}
                   value={state.floor ?? ''}
                   onChange={(e) => update({ floor: e.target.value ? parseFloat(e.target.value) : null })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
                   placeholder="Aucun"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">&euro;</span>
@@ -643,7 +643,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                   step={100}
                   value={state.cap ?? ''}
                   onChange={(e) => update({ cap: e.target.value ? parseFloat(e.target.value) : null })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
                   placeholder="Aucun"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">&euro;</span>
@@ -679,7 +679,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                   className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
                     state.paymentTrigger === opt.value
                       ? 'border-primary-400 bg-primary-50'
-                      : 'border-gray-200 hover:border-gray-300 bg-white'
+                      : 'border-gray-200 hover:border-gray-300 bg-card'
                   }`}
                 >
                   <input type="radio" className="sr-only" checked={state.paymentTrigger === opt.value} onChange={() => update({ paymentTrigger: opt.value })} />
@@ -709,7 +709,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                 placeholder="ex : 90"
                 value={state.paymentDelayDays ?? ''}
                 onChange={(e) => update({ paymentDelayDays: e.target.value ? Number(e.target.value) : null })}
-                className="block w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+                className="block w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
               />
               <span className="text-sm text-gray-500">jours après le déclencheur</span>
             </div>
@@ -763,7 +763,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
                 {state.ruleType === CommissionRuleType.TIERED && (
                   <div className="space-y-1 mt-1">
                     {state.tiers.map((tier, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs bg-white rounded px-2 py-1 border border-gray-100">
+                      <div key={i} className="flex items-center gap-2 text-xs bg-card rounded px-2 py-1 border border-gray-100">
                         <span className="text-gray-500">
                           {formatEur(tier.min)} {'\u2192'} {tier.max ? formatEur(tier.max) : '\u221E'}
                         </span>
@@ -810,7 +810,7 @@ export function CommissionWizard({ existingRule, onSuccess, onCancel }: Commissi
             <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-3">Exemples de calcul</p>
             <div className="space-y-2">
               {examples.map((ex, i) => (
-                <div key={i} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-blue-100">
+                <div key={i} className="flex items-center justify-between bg-card rounded-lg px-3 py-2 border border-blue-100">
                   <div className="flex-1">
                     <span className="text-xs text-gray-500">Vente de {formatEur(ex.saleAmount)}</span>
                     <p className="text-[10px] text-gray-400">{ex.explanation}</p>

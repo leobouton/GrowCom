@@ -90,17 +90,17 @@ export function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }
 
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Intitulé</label>
-        <input type="text" placeholder="ex : CA T1, Deals signés janvier…" value={obj.label} onChange={(e) => onChange(obj.id, 'label', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white" />
+        <input type="text" placeholder="ex : CA T1, Deals signés janvier…" value={obj.label} onChange={(e) => onChange(obj.id, 'label', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card" />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Cible</label>
-          <input type="number" min="0" placeholder="50 000" value={obj.target} onChange={(e) => onChange(obj.id, 'target', parseFloat(e.target.value) || 0)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white" />
+          <input type="number" min="0" placeholder="50 000" value={obj.target} onChange={(e) => onChange(obj.id, 'target', parseFloat(e.target.value) || 0)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card" />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Unité</label>
-          <select value={obj.unit} onChange={(e) => onChange(obj.id, 'unit', e.target.value)} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white">
+          <select value={obj.unit} onChange={(e) => onChange(obj.id, 'unit', e.target.value)} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card">
             {UNIT_OPTIONS.map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
           </select>
         </div>
@@ -110,7 +110,7 @@ export function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }
         <label className="block text-xs font-medium text-gray-600 mb-2">Période</label>
         <div className="grid grid-cols-2 gap-2">
           {PERIOD_TYPE_OPTIONS.map((opt) => (
-            <label key={opt.value} className={`flex items-center gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition-colors ${obj.periodType === opt.value ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:border-gray-300 bg-white'}`}>
+            <label key={opt.value} className={`flex items-center gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition-colors ${obj.periodType === opt.value ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:border-gray-300 bg-card'}`}>
               <input type="radio" className="sr-only" checked={obj.periodType === opt.value} onChange={() => onChange(obj.id, 'periodType', opt.value)} />
               <div><p className="text-xs font-semibold text-gray-800">{opt.label}</p><p className="text-xs text-gray-400">{opt.description}</p></div>
             </label>
@@ -129,7 +129,7 @@ export function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }
             { value: 'simple', label: 'Prime simple',        desc: '' },
             { value: 'tiered', label: 'Paliers personnalisés', desc: '' },
           ] as { value: ObjectiveBonusMode; label: string; desc: string }[]).map((opt) => (
-            <label key={opt.value} className={`flex flex-col gap-0.5 p-2 rounded-lg border-2 cursor-pointer text-center transition-colors ${bonusMode === opt.value ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+            <label key={opt.value} className={`flex flex-col gap-0.5 p-2 rounded-lg border-2 cursor-pointer text-center transition-colors ${bonusMode === opt.value ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-card hover:border-gray-300'}`}>
               <input type="radio" className="sr-only" checked={bonusMode === opt.value} onChange={() => setBonusMode(opt.value)} />
               <span className="text-xs font-semibold text-gray-800">{opt.label}</span>
             </label>
@@ -139,17 +139,17 @@ export function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }
         {bonusMode === 'simple' && (
           <div className="space-y-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
             <div className="grid grid-cols-2 gap-2">
-              <label className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer ${bonus.type === 'percentage' ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white'}`}>
+              <label className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer ${bonus.type === 'percentage' ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-card'}`}>
                 <input type="radio" className="sr-only" checked={bonus.type === 'percentage'} onChange={() => setBonus({ type: 'percentage' })} />
                 <div><p className="text-xs font-semibold text-gray-800">% des ventes</p><p className="text-xs text-gray-400">Au-dessus de la cible</p></div>
               </label>
-              <label className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer ${bonus.type === 'fixed' ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white'}`}>
+              <label className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer ${bonus.type === 'fixed' ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-card'}`}>
                 <input type="radio" className="sr-only" checked={bonus.type === 'fixed'} onChange={() => setBonus({ type: 'fixed' })} />
                 <div><p className="text-xs font-semibold text-gray-800">Montant fixe</p><p className="text-xs text-gray-400">Dès l'objectif atteint</p></div>
               </label>
             </div>
             <div className="relative">
-              <input type="number" min="0" step={bonus.type === 'percentage' ? '0.5' : '50'} value={bonus.value} onChange={(e) => setBonus({ value: parseFloat(e.target.value) || 0 })} className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white" />
+              <input type="number" min="0" step={bonus.type === 'percentage' ? '0.5' : '50'} value={bonus.value} onChange={(e) => setBonus({ value: parseFloat(e.target.value) || 0 })} className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:border-amber-500 focus:ring-amber-500/20 bg-card" />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">{bonus.type === 'percentage' ? '%' : '€'}</span>
             </div>
           </div>
@@ -167,12 +167,12 @@ export function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }
                     <input
                       type="number" min="1" max="200" value={tier.threshold}
                       onChange={(e) => updateTier(i, { threshold: parseInt(e.target.value) || 1 })}
-                      className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
+                      className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-card focus:outline-none focus:ring-1 focus:border-amber-500 focus:ring-amber-500/20"
                     />
                     <select
                       value={tier.reward.type}
                       onChange={(e) => updateTier(i, { reward: { ...tier.reward, type: e.target.value as 'fixed' | 'percentage' } })}
-                      className="border border-gray-300 rounded-lg px-1 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
+                      className="border border-gray-300 rounded-lg px-1 py-1.5 text-xs bg-card focus:outline-none focus:ring-1 focus:border-amber-500 focus:ring-amber-500/20"
                     >
                       <option value="fixed">Fixe (€)</option>
                       <option value="percentage">% CA</option>
@@ -180,7 +180,7 @@ export function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }
                     <input
                       type="number" min="0" value={tier.reward.value}
                       onChange={(e) => updateTier(i, { reward: { ...tier.reward, value: parseFloat(e.target.value) || 0 } })}
-                      className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
+                      className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-card focus:outline-none focus:ring-1 focus:border-amber-500 focus:ring-amber-500/20"
                     />
                     <button type="button" onClick={() => removeTier(i)} className="text-gray-300 hover:text-red-400">
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -212,7 +212,7 @@ export function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }
             onClick={() => onChange(obj.id, 'recurrence', recurrenceEnabled ? 'none' : 'monthly')}
             className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${recurrenceEnabled ? 'bg-primary-500' : 'bg-gray-200'}`}
           >
-            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${recurrenceEnabled ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-card shadow transition-transform ${recurrenceEnabled ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
           </button>
         </div>
 
@@ -227,7 +227,7 @@ export function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }
                   { value: 'semester',  label: 'Semestriel' },
                   { value: 'annual',    label: 'Annuel' },
                 ] as { value: ObjectiveRecurrence; label: string }[]).map((opt) => (
-                  <label key={opt.value} className={`flex items-center justify-center p-2 rounded-lg border-2 cursor-pointer text-xs font-medium transition-colors ${recurrence === opt.value ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>
+                  <label key={opt.value} className={`flex items-center justify-center p-2 rounded-lg border-2 cursor-pointer text-xs font-medium transition-colors ${recurrence === opt.value ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-gray-200 bg-card text-gray-600 hover:border-gray-300'}`}>
                     <input type="radio" className="sr-only" checked={recurrence === opt.value} onChange={() => onChange(obj.id, 'recurrence', opt.value)} />
                     {opt.label}
                   </label>
@@ -240,7 +240,7 @@ export function ObjectiveEditor({ obj, index, onChange, onRemove, hiddenRemove }
                 type="date"
                 value={obj.recurrenceEndDate ?? ''}
                 onChange={(e) => onChange(obj.id, 'recurrenceEndDate', e.target.value || undefined)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:border-blue-500 focus:ring-blue-500/20"
               />
             </div>
             {obj.recurrenceEndDate && (
@@ -268,13 +268,13 @@ function PeriodFields({ obj, onChange }: PeriodFieldsProps) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Mois</label>
-          <select value={obj.month ?? 1} onChange={(e) => onChange(obj.id, 'month', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white">
+          <select value={obj.month ?? 1} onChange={(e) => onChange(obj.id, 'month', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card">
             {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
           </select>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Année</label>
-          <select value={obj.year ?? currentYear} onChange={(e) => onChange(obj.id, 'year', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white">
+          <select value={obj.year ?? currentYear} onChange={(e) => onChange(obj.id, 'year', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card">
             {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
@@ -288,13 +288,13 @@ function PeriodFields({ obj, onChange }: PeriodFieldsProps) {
           <label className="block text-xs font-medium text-gray-600 mb-1">Trimestre</label>
           <div className="grid grid-cols-4 gap-1">
             {[1, 2, 3, 4].map((q) => (
-              <button key={q} type="button" onClick={() => onChange(obj.id, 'quarter', q)} className={`py-2 rounded-lg text-xs font-semibold border-2 transition-colors ${obj.quarter === q ? 'border-primary-400 bg-primary-50 text-primary-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>T{q}</button>
+              <button key={q} type="button" onClick={() => onChange(obj.id, 'quarter', q)} className={`py-2 rounded-full text-xs font-semibold border-2 transition-colors ${obj.quarter === q ? 'border-primary-400 bg-primary-50 text-primary-700' : 'border-gray-200 bg-card text-gray-600 hover:border-gray-300'}`}>T{q}</button>
             ))}
           </div>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Année</label>
-          <select value={obj.year ?? currentYear} onChange={(e) => onChange(obj.id, 'year', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white">
+          <select value={obj.year ?? currentYear} onChange={(e) => onChange(obj.id, 'year', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card">
             {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
@@ -308,13 +308,13 @@ function PeriodFields({ obj, onChange }: PeriodFieldsProps) {
           <label className="block text-xs font-medium text-gray-600 mb-1">Semestre</label>
           <div className="grid grid-cols-2 gap-1">
             {[1, 2].map((s) => (
-              <button key={s} type="button" onClick={() => onChange(obj.id, 'semester', s)} className={`py-2 rounded-lg text-xs font-semibold border-2 transition-colors ${obj.semester === s ? 'border-primary-400 bg-primary-50 text-primary-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>S{s}</button>
+              <button key={s} type="button" onClick={() => onChange(obj.id, 'semester', s)} className={`py-2 rounded-full text-xs font-semibold border-2 transition-colors ${obj.semester === s ? 'border-primary-400 bg-primary-50 text-primary-700' : 'border-gray-200 bg-card text-gray-600 hover:border-gray-300'}`}>S{s}</button>
             ))}
           </div>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Année</label>
-          <select value={obj.year ?? currentYear} onChange={(e) => onChange(obj.id, 'year', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white">
+          <select value={obj.year ?? currentYear} onChange={(e) => onChange(obj.id, 'year', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card">
             {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
@@ -325,7 +325,7 @@ function PeriodFields({ obj, onChange }: PeriodFieldsProps) {
     return (
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Année</label>
-        <select value={obj.year ?? currentYear} onChange={(e) => onChange(obj.id, 'year', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white">
+        <select value={obj.year ?? currentYear} onChange={(e) => onChange(obj.id, 'year', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card">
           {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
         </select>
       </div>
@@ -336,11 +336,11 @@ function PeriodFields({ obj, onChange }: PeriodFieldsProps) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Date de début</label>
-          <input type="date" value={obj.startDate ?? ''} onChange={(e) => onChange(obj.id, 'startDate', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white" />
+          <input type="date" value={obj.startDate ?? ''} onChange={(e) => onChange(obj.id, 'startDate', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card" />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Date de fin</label>
-          <input type="date" value={obj.endDate ?? ''} min={obj.startDate ?? undefined} onChange={(e) => onChange(obj.id, 'endDate', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white" />
+          <input type="date" value={obj.endDate ?? ''} min={obj.startDate ?? undefined} onChange={(e) => onChange(obj.id, 'endDate', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card" />
         </div>
       </div>
     );

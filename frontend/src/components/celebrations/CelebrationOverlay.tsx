@@ -43,7 +43,7 @@ function CelebrationToast({ win, onDismiss }: { win: Win; onDismiss: () => void 
 
   return (
     <div
-      className={`pointer-events-auto w-80 rounded-2xl border border-green-200 bg-white shadow-xl shadow-green-900/10 p-4 flex items-start gap-3 transition-all duration-300 ${
+      className={`pointer-events-auto w-80 rounded-2xl border border-green-200 bg-card shadow-xl shadow-green-900/10 p-4 flex items-start gap-3 transition-all duration-300 ${
         shown ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0'
       }`}
       role="status"
@@ -102,7 +102,7 @@ function WinsBell({ items, onOpen }: { items: WinWithRead[]; onOpen: () => void 
         <>
           {/* Voile de fermeture au clic extérieur */}
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-xl z-50">
+          <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto rounded-2xl border border-gray-200 bg-card shadow-xl z-50">
             <div className="px-4 py-3 border-b border-gray-100">
               <p className="text-sm font-semibold text-gray-900">Mes bonnes nouvelles</p>
             </div>

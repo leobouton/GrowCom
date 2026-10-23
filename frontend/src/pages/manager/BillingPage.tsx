@@ -46,7 +46,7 @@ export function BillingPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Facturation</h1>
+        <h1 className="display text-3xl text-gray-900">Facturation</h1>
         <p className="text-gray-500 mt-1">Gérez votre abonnement GrowCom</p>
       </div>
 

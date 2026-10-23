@@ -39,7 +39,7 @@ function ScenarioControl({ label, value, min, max, step, unit, onChange, format 
             const v = Number(e.target.value);
             if (Number.isFinite(v) && v >= 0) onChange(v);
           }}
-          className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+          className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
         />
       </div>
     </div>

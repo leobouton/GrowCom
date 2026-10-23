@@ -8,6 +8,7 @@ import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { UserRole } from '@shared/types';
 import { useState } from 'react';
+import { Logo } from '../../components/ui/Logo';
 
 const schema = z.object({
   email: z.string().email('Email invalide'),
@@ -52,21 +53,17 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <img
-            src="/logo.png"
-            alt="GrowCom"
-            className="h-14 w-auto object-contain mx-auto mb-4"
-          />
-          <h1 className="text-2xl font-bold text-gray-900">Bienvenue</h1>
+          <Logo size="lg" className="mb-5" />
+          <h1 className="display text-3xl text-gray-900">Bienvenue</h1>
           <p className="text-gray-500 mt-1">Connectez-vous à votre espace</p>
         </div>
 
         {/* Formulaire */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="bg-card rounded-2xl border border-gray-200 shadow-slip p-8">
           <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} className="space-y-5">
             <Input
               label="Adresse email"

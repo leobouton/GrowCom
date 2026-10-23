@@ -142,7 +142,7 @@ export function CommissionRulesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Règles de commission</h1>
+          <h1 className="display text-3xl text-gray-900">Règles de commission</h1>
           <p className="text-gray-500 mt-1">Gérez votre bibliothèque de règles et assignez-les à vos commerciaux</p>
         </div>
         {!showWizard && (
@@ -161,15 +161,15 @@ export function CommissionRulesPage() {
         <div className="lg:col-span-2 space-y-4">
 
           {/* Onglets filtre */}
-          <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-full">
             {([['active', 'Actives'], ['archived', 'Archivées']] as [FilterTab, string][]).map(
               ([tab, label]) => (
                 <button
                   key={tab}
                   onClick={() => setFilterTab(tab)}
-                  className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
+                  className={`flex-1 text-xs font-medium py-1.5 rounded-full transition-colors ${
                     filterTab === tab
-                      ? 'bg-white text-gray-900 shadow-sm'
+                      ? 'bg-card text-gray-900 shadow-sm'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
@@ -300,7 +300,7 @@ export function CommissionRulesPage() {
                 </svg>
                 <h3 className="font-semibold text-green-800">Règle ajoutée à votre bibliothèque</h3>
               </div>
-              <div className="bg-white rounded-lg p-3 border border-green-100">
+              <div className="bg-card rounded-lg p-3 border border-green-100">
                 <div className="flex items-center gap-2 mb-1">
                   <p className="font-medium text-gray-900">{successRule.name}</p>
                   {ruleTypeBadge(successRule.type)}

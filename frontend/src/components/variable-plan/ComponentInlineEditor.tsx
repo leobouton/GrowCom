@@ -41,7 +41,7 @@ function NumberField({
             const v = Number(e.target.value);
             if (Number.isFinite(v)) onChange(v);
           }}
-          className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+          className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
         />
         <span className="text-xs text-gray-400">{suffix}</span>
       </div>
@@ -63,7 +63,7 @@ function SelectField({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="block mt-0.5 border border-gray-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+        className="block mt-0.5 border border-gray-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
       >
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -89,7 +89,7 @@ function ChipSelector({
           className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
             value === o.value
               ? 'bg-primary-600 text-white border-primary-600'
-              : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+              : 'bg-card text-gray-600 border-gray-300 hover:border-gray-400'
           }`}
         >
           {o.label}
@@ -239,14 +239,14 @@ export function ComponentInlineEditor({
           type="text"
           value={name}
           onChange={(e) => updateName(e.target.value)}
-          className="flex-1 min-w-0 text-sm font-semibold text-gray-800 bg-transparent border border-transparent rounded-lg px-1.5 py-0.5 -ml-1.5 hover:border-gray-200 focus:border-gray-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 transition-colors"
+          className="flex-1 min-w-0 text-sm font-semibold text-gray-800 bg-transparent border border-transparent rounded-lg px-1.5 py-0.5 -ml-1.5 hover:border-gray-200 focus:bg-card focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 transition-colors"
           title="Cliquez pour renommer"
         />
         <Badge variant={badge.variant}>{badge.label}</Badge>
         <button
           type="button"
           onClick={() => removeComponent(index)}
-          className="p-1 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+          className="p-1 rounded-full text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
           title="Retirer ce composant du plan"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -285,7 +285,7 @@ export function ComponentInlineEditor({
                     <input
                       type="number" min={0} value={tier.min}
                       onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) updateTier(ti, { min: v }); }}
-                      className="w-20 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-white"
+                      className="w-20 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-card"
                     />
                     <span>à</span>
                     <input
@@ -295,20 +295,20 @@ export function ComponentInlineEditor({
                         const v = e.target.value === '' ? null : Number(e.target.value);
                         if (v === null || Number.isFinite(v)) updateTier(ti, { max: v });
                       }}
-                      className="w-20 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-white disabled:bg-gray-50"
+                      className="w-20 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-card disabled:bg-gray-50"
                     />
                     <span>€ :</span>
                     <input
                       type="number" min={0} step={0.5} value={Math.round(tier.rate * 100 * 100) / 100}
                       onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) updateTier(ti, { rate: v / 100 }); }}
-                      className="w-16 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-white"
+                      className="w-16 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-card"
                     />
                     <span>%</span>
                     {(component.config.tiers?.length ?? 0) > 1 && (
                       <button
                         type="button"
                         onClick={() => removeTier(ti)}
-                        className="p-0.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        className="p-0.5 rounded-full text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
                         title="Supprimer ce palier"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -472,18 +472,18 @@ export function ComponentInlineEditor({
                     <input
                       type="number" min={0} value={tier.threshold}
                       onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) updateBonusTier(ti, { threshold: v }); }}
-                      className="w-16 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-white"
+                      className="w-16 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-card"
                     />
                     <span>% d'atteinte :</span>
                     <input
                       type="number" min={0} value={tier.reward.value}
                       onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) updateBonusTier(ti, { rewardValue: v }); }}
-                      className="w-20 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-white"
+                      className="w-20 border border-gray-300 rounded px-1.5 py-0.5 text-right bg-card"
                     />
                     <select
                       value={tier.reward.type}
                       onChange={(e) => updateBonusTier(ti, { rewardType: e.target.value as 'fixed' | 'percentage' })}
-                      className="border border-gray-300 rounded px-1.5 py-0.5 bg-white"
+                      className="border border-gray-300 rounded px-1.5 py-0.5 bg-card"
                     >
                       <option value="fixed">€</option>
                       <option value="percentage">% du réalisé</option>
@@ -491,7 +491,7 @@ export function ComponentInlineEditor({
                     <button
                       type="button"
                       onClick={() => removeBonusTier(ti)}
-                      className="p-0.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                      className="p-0.5 rounded-full text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
                       title="Supprimer ce palier"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

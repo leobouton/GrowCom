@@ -241,7 +241,7 @@ export function PlanEditModal() {
     <Modal isOpen onClose={handleClose} title={`✏️ Modifier « ${draft.name} »`} size="xl">
       <div className="space-y-4">
         {/* Onglets */}
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-full">
           {([
             ['settings', '⚙️ Paramétrage'],
             ['simulation', '📊 Simulation'],
@@ -250,8 +250,8 @@ export function PlanEditModal() {
               key={value}
               type="button"
               onClick={() => setTab(value)}
-              className={`flex-1 text-sm font-medium py-2 px-4 rounded-lg transition-colors ${
-                tab === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              className={`flex-1 text-sm font-medium py-2 px-4 rounded-full transition-colors ${
+                tab === value ? 'bg-card text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               {label}
@@ -269,7 +269,7 @@ export function PlanEditModal() {
                   type="text"
                   value={draft.name}
                   onChange={(e) => setPlanMeta({ name: e.target.value })}
-                  className="mt-0.5 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+                  className="mt-0.5 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
                 />
               </label>
               <label className="block">
@@ -278,7 +278,7 @@ export function PlanEditModal() {
                   type="text"
                   value={draft.description}
                   onChange={(e) => setPlanMeta({ description: e.target.value })}
-                  className="mt-0.5 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 bg-white"
+                  className="mt-0.5 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 bg-card"
                 />
               </label>
             </div>

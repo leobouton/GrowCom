@@ -118,7 +118,7 @@ export function DealAssignmentModal({
                 <select
                   value={row.userId}
                   onChange={(e) => updateRow(index, 'userId', e.target.value)}
-                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
                 >
                   <option value="">— Choisir un commercial —</option>
                   {teamMembers.map((u) => (
@@ -140,7 +140,7 @@ export function DealAssignmentModal({
                     max={100}
                     value={row.share}
                     onChange={(e) => updateRow(index, 'share', parseInt(e.target.value, 10) || 0)}
-                    className="w-full text-sm border border-gray-200 rounded-lg px-2 py-2 text-center focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    className="w-full text-sm border border-gray-200 rounded-lg px-2 py-2 text-center focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
                   />
                   <span className="text-sm text-gray-500">%</span>
                 </div>
@@ -151,7 +151,7 @@ export function DealAssignmentModal({
                   placeholder="Rôle (ex: Hunter)"
                   value={row.role}
                   onChange={(e) => updateRow(index, 'role', e.target.value)}
-                  className="w-32 text-sm border border-gray-200 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-32 text-sm border border-gray-200 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20"
                 />
 
                 {/* Supprimer */}

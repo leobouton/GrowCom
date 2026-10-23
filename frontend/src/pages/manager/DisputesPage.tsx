@@ -102,10 +102,10 @@ function ResolveDisputeModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/55 backdrop-blur-[2px]">
+      <div className="bg-card rounded-2xl border border-gray-200 shadow-slip w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
         <div className="p-6">
-          <h3 className="text-base font-semibold text-gray-900 mb-4">Resoudre la contestation</h3>
+          <h3 className="display text-xl text-gray-900 mb-4">Résoudre la contestation</h3>
 
           {/* Info du commercial */}
           {dispute.raiser && (
@@ -169,20 +169,20 @@ function ResolveDisputeModal({
           <div className="flex gap-3 mb-4">
             <button
               onClick={() => setAction('accept')}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${
+              className={`flex-1 py-2.5 rounded-full text-sm font-medium border transition-colors ${
                 action === 'accept'
                   ? 'bg-green-600 text-white border-green-600'
-                  : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                  : 'bg-card text-gray-600 border-gray-300 hover:bg-gray-50'
               }`}
             >
               Accepter
             </button>
             <button
               onClick={() => setAction('reject')}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${
+              className={`flex-1 py-2.5 rounded-full text-sm font-medium border transition-colors ${
                 action === 'reject'
                   ? 'bg-red-600 text-white border-red-600'
-                  : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                  : 'bg-card text-gray-600 border-gray-300 hover:bg-gray-50'
               }`}
             >
               Rejeter
@@ -202,7 +202,7 @@ function ResolveDisputeModal({
                     type="text"
                     value={dealTitle}
                     onChange={(e) => setDealTitle(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20"
                   />
                 </div>
                 <div>
@@ -211,7 +211,7 @@ function ResolveDisputeModal({
                     type="text"
                     value={dealClient}
                     onChange={(e) => setDealClient(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20"
                   />
                 </div>
                 <div>
@@ -220,7 +220,7 @@ function ResolveDisputeModal({
                     type="number"
                     value={dealAmount}
                     onChange={(e) => setDealAmount(Number(e.target.value))}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20"
                   />
                   {dealAmountChanged && !commissionManualOverride && (
                     <p className="text-xs text-green-600 mt-1">
@@ -234,7 +234,7 @@ function ResolveDisputeModal({
                     type="text"
                     value={dealType}
                     onChange={(e) => setDealType(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20"
                   />
                 </div>
                 <div className="col-span-2">
@@ -243,7 +243,7 @@ function ResolveDisputeModal({
                     type="text"
                     value={dealNotes}
                     onChange={(e) => setDealNotes(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20"
                   />
                 </div>
               </div>
@@ -275,7 +275,7 @@ function ResolveDisputeModal({
                       step="0.01"
                       value={commissionAmount}
                       onChange={(e) => setCommissionAmount(Number(e.target.value))}
-                      className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                      className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-green-500 focus:ring-green-500/20"
                     />
                     {hasCommissionOverride && (
                       <p className="text-xs text-green-600 mt-1 font-medium">
@@ -314,7 +314,7 @@ function ResolveDisputeModal({
             value={response}
             onChange={(e) => setResponse(e.target.value)}
             rows={3}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:border-primary-600 focus:ring-primary-600/20 resize-none"
             placeholder="Expliquez votre decision au commercial..."
           />
 
@@ -489,7 +489,7 @@ export function DisputesPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Contestations</h1>
+          <h1 className="display text-3xl text-gray-900">Contestations</h1>
           <p className="text-gray-500 mt-1">Gerez les contestations de vos commerciaux</p>
         </div>
         {filter === 'OPEN' && openCount > 0 && (
@@ -505,10 +505,10 @@ export function DisputesPage() {
           <button
             key={s}
             onClick={() => setFilter(s)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+            className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
               filter === s
                 ? 'bg-primary-600 text-white border-primary-600'
-                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                : 'bg-card text-gray-600 border-gray-200 hover:bg-gray-50'
             }`}
           >
             {s === 'ALL' ? 'Toutes' : STATUS_LABELS[s]}
